@@ -61,6 +61,11 @@ def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGo
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA IF EXISTS macro_loader_sync CASCADE")
         connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
+        connection.execute(
+            "DO $$ BEGIN "
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-owner') "
+            'THEN CREATE ROLE "macro-loader-owner" NOLOGIN; END IF; END $$'
+        )
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
