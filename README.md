@@ -180,7 +180,7 @@ Feature semantics are fixed and causal:
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level also includes rolling geometric-mean simple returns over 10, 25, 60, 120, and 240 observations, expressed as percentages;
 - the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
-- FedWatch snapshots use official CME FedWatch exports, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
+- FedWatch snapshots use official CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/`, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
 - cross-series ratios/spreads require the same `timestamp_m1`;

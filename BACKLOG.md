@@ -2332,7 +2332,7 @@ Commit: `feat(pr-66): add official Fed policy expectations features`
 Design patterns: Adapter, Repository, Strategy/Policy Object, Versioned Migration.
 
 Description:
-- R1: Ingest only official public CME 30-Day Fed Funds settlement data, official Federal Reserve EFFR data, and the official FOMC calendar; do not call paid CME APIs or substitute unofficial probabilities.
+- R1: Ingest only official CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/`, official Federal Reserve EFFR data, and the official FOMC calendar; do not call paid CME APIs or substitute unofficial probabilities.
 - R2: Persist normalized FedWatch outcome snapshots with explicit `23:59:59.999999 UTC` end-of-day availability and preserve the maximum history exposed by the free source; unavailable dates remain null.
 - R3: Add exactly `fed_next_expected_move_bp`, `fed_next_uncertainty_bp`, `fed_m3_expected_move_bp`, and `fed_repricing_5obs_bp`; no other Fed-family derived features.
 - R4: Define the third-future-meeting selection rule, preserve causal daily keys, add immutable Gold/versioned PostgreSQL migration support, and test formulas, source limits, EOD boundaries, and no-look-ahead semantics offline.
