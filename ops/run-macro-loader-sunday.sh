@@ -7,21 +7,21 @@ PROJECT_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$PROJECT_ROOT"
 CONFIG_FILE="$PROJECT_ROOT/config.yaml"
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
-CLI="$PROJECT_ROOT/.venv/bin/regime-loader"
+CLI="$PROJECT_ROOT/.venv/bin/macro-loader"
 export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 LOG_DIR="$PROJECT_ROOT/.logs"
-LOG_PATH="$LOG_DIR/regime-loader.log"
+LOG_PATH="$LOG_DIR/macro-loader.log"
 LOCK_DIR="$PROJECT_ROOT/.locks"
-LOCK_PATH="$LOCK_DIR/regime-loader-sunday.lock"
-MAINTENANCE_PATH="$PROJECT_ROOT/.maintenance/regime-loader-reconstruction"
+LOCK_PATH="$LOCK_DIR/macro-loader-sunday.lock"
+MAINTENANCE_PATH="$PROJECT_ROOT/.maintenance/macro-loader-reconstruction"
 
-if ! REGIME_LOADER_GIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD); then
+if ! MACRO_LOADER_GIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD); then
 	printf 'Unable to resolve repository Git identity\n' >&2
 	exit 2
 fi
-export REGIME_LOADER_GIT_SHA
+export MACRO_LOADER_GIT_SHA
 
-if [[ "${REGIME_LOADER_SUNDAY_VERIFY_ONLY:-}" == "true" ]]; then
+if [[ "${MACRO_LOADER_SUNDAY_VERIFY_ONLY:-}" == "true" ]]; then
 	printf 'Sunday runner verification completed without data operations\n'
 	exit 0
 fi
@@ -30,15 +30,15 @@ mkdir -p "$LOG_DIR"
 mkdir -p "$LOCK_DIR"
 exec 9>"$LOCK_PATH"
 if ! flock -n 9; then
-	printf 'Sunday regime-loader job is already running\n' >&2
+	printf 'Sunday macro-loader job is already running\n' >&2
 	exit 3
 fi
 exec >>"$LOG_PATH" 2>&1
 
-printf '\n[%s] Starting Sunday regime-loader job\n' "$(date --iso-8601=seconds)"
+printf '\n[%s] Starting Sunday macro-loader job\n' "$(date --iso-8601=seconds)"
 
 if [[ -e "$MAINTENANCE_PATH" ]]; then
-	printf 'Sunday regime-loader job is disabled for production reconstruction\n' >&2
+	printf 'Sunday macro-loader job is disabled for production reconstruction\n' >&2
 	exit 4
 fi
 
@@ -50,4 +50,4 @@ printf '[%s] Running delta-only daily pipeline\n' "$(date --iso-8601=seconds)"
 printf '[%s] Synchronizing canonical Gold to PostgreSQL\n' "$(date --iso-8601=seconds)"
 "$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres
 
-printf '[%s] Sunday regime-loader job completed\n' "$(date --iso-8601=seconds)"
+printf '[%s] Sunday macro-loader job completed\n' "$(date --iso-8601=seconds)"

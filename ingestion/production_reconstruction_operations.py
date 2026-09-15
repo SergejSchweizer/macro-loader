@@ -28,8 +28,8 @@ from ingestion.postgres_gold_repository import (
     PostgresSyncConfig,
 )
 
-_MAINTENANCE_MARKER = ".maintenance/regime-loader-reconstruction"
-_RUNNER_LOCK = ".locks/regime-loader-sunday.lock"
+_MAINTENANCE_MARKER = ".maintenance/macro-loader-reconstruction"
+_RUNNER_LOCK = ".locks/macro-loader-sunday.lock"
 
 
 @dataclass(slots=True)
@@ -128,8 +128,8 @@ class GuardedProductionReconstructionOperations:
                 self.admin_config.user,
                 "--dbname",
                 self.admin_config.database,
-                "--schema=regime_loader",
-                "--schema=regime_loader_sync",
+                "--schema=macro_loader",
+                "--schema=macro_loader_sync",
                 "--file",
                 str(database_dump),
             ],
@@ -176,7 +176,7 @@ class GuardedProductionReconstructionOperations:
             cwd=self.project_root,
             check=False,
             capture_output=True,
-            env={**os.environ, "REGIME_LOADER_SUNDAY_VERIFY_ONLY": "true"},
+            env={**os.environ, "MACRO_LOADER_SUNDAY_VERIFY_ONLY": "true"},
         )
         if completed.returncode != 0:
             raise RuntimeError("guarded Sunday wrapper verification failed")

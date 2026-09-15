@@ -59,11 +59,11 @@ def _record(
 def test_only_one_gold_dataset_and_exact_postgres_identities() -> None:
     assert POSTGRES_DATASET_ID == "regime_features_daily"
     assert (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE) == (
-        "regime_loader",
-        "regime_features_daily",
+        "macro_loader",
+        "macro_features_daily",
     )
     assert (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE, POSTGRES_ROW_HASH_TABLE) == (
-        "regime_loader_sync",
+        "macro_loader_sync",
         "gold_sync_state",
         "gold_row_hashes",
     )

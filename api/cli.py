@@ -1,4 +1,4 @@
-"""Operational CLI composition root for regime-loader."""
+"""Operational CLI composition root for macro-loader."""
 
 from __future__ import annotations
 
@@ -127,7 +127,7 @@ class ProductionReconstructionRuntime:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="regime-loader")
+    parser = argparse.ArgumentParser(prog="macro-loader")
     parser.add_argument("--lake-root", type=Path, default=Path("lake"))
     parser.add_argument("--today", type=date.fromisoformat, default=None)
     parser.add_argument("--overlap-days", type=int, default=7)
@@ -172,7 +172,7 @@ def _git_commit_hash() -> str:
 
 
 def _logger(stderr: TextIO) -> logging.Logger:
-    logger = logging.getLogger("regime_loader.cli")
+    logger = logging.getLogger("macro_loader.cli")
     logger.handlers.clear()
     logger.propagate = False
     logger.setLevel(logging.INFO)
@@ -346,7 +346,7 @@ def build_production_reconstruction_runtime(
         lake_root=lake_root,
         project_root=project_root,
         today=today,
-        sunday_runner=project_root / "ops" / "run-regime-loader-sunday.sh",
+        sunday_runner=project_root / "ops" / "run-macro-loader-sunday.sh",
     )
     return ProductionReconstructionRuntime(
         reconstruction=ProductionReconstruction(operations, tuple(SERIES_REGISTRY))

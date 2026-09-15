@@ -1,8 +1,8 @@
-# Install with: crontab ops/regime-loader.cron
+# Install with: crontab ops/macro-loader.cron
 # Sunday 10:00 follows Europe/Vienna wall-clock time, including DST changes.
 # The runner owns configuration export, logging, daily execution, and PostgreSQL sync.
 
 CRON_TZ=Europe/Vienna
 
 # Sunday at 10:00: publish local Gold, then synchronize PostgreSQL on success.
-0 10 * * 0 /home/dev_market/regime-loader/ops/run-regime-loader-sunday.sh
+0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh

@@ -1,1 +1,1 @@
-"""Operational and repository tooling for regime-loader."""
+"""Operational and repository tooling for macro-loader."""

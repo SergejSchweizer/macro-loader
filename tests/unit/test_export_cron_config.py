@@ -8,13 +8,13 @@ import pytest
 from scripts.export_cron_config import export
 
 
-def _config(*, password: str = "repo secret", user: str = "regime-loader") -> str:
+def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str:
     return f"""runtime:
   home: /home/a
   path: /bin
   project_root: /project path
   lake_root: /lake
-  log_path: /project path/.logs/regime-loader.log
+  log_path: /project path/.logs/macro-loader.log
   ssl_cert_file: /cert
   gold_mirror_root: /mirror
   postgres_host: 10.10.1.3
@@ -47,12 +47,12 @@ def test_export_cron_config_quotes_required_runtime_and_postgres_values(tmp_path
     assert values["PROJECT_ROOT"] == "/project path"
     assert values["PGHOST"] == "10.10.1.3"
     assert values["PGPORT"] == "54321"
-    assert values["PGUSER"] == "regime-loader"
+    assert values["PGUSER"] == "macro-loader"
     assert values["PGDATABASE"] == "quant_data"
     assert values["PGPASSWORD"] == "repo secret"
     assert all("ADMIN" not in name for name in values)
     assert "admin secret" not in export(config)
-    assert values["LOG_PATH"] == "/project path/.logs/regime-loader.log"
+    assert values["LOG_PATH"] == "/project path/.logs/macro-loader.log"
 
 
 def test_export_rejects_wrong_postgres_endpoint_or_user(tmp_path: Path) -> None:
@@ -80,12 +80,12 @@ def test_export_rejects_noncanonical_log_path(tmp_path: Path) -> None:
     config = tmp_path / "config.yaml"
     config.write_text(
         _config().replace(
-            "/project path/.logs/regime-loader.log",
-            "/var/log/regime-loader.log",
+            "/project path/.logs/macro-loader.log",
+            "/var/log/macro-loader.log",
         ),
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match=r"\.logs/regime-loader\.log"):
+    with pytest.raises(ValueError, match=r"\.logs/macro-loader\.log"):
         export(config)
 
 
