@@ -59,7 +59,7 @@ def export(path: Path) -> str:
     values = {
         "FRED_API_KEY": _value(parsed, "secrets", "fred_api_key"),
         "SSL_CERT_FILE": _value(parsed, "runtime", "ssl_cert_file"),
-        "MARKET_REGIME_GOLD_MIRROR_ROOT": _value(parsed, "runtime", "gold_mirror_root"),
+        "MARKET_MACRO_GOLD_MIRROR_ROOT": _value(parsed, "runtime", "gold_mirror_root"),
         "PATH": _value(parsed, "runtime", "path"),
         "HOME": _value(parsed, "runtime", "home"),
         "PROJECT_ROOT": project_root,

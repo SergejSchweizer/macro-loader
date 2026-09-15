@@ -240,7 +240,7 @@ def test_stale_building_with_complete_files_is_failed_never_auto_promoted(tmp_pa
     )
     catalog.append(
         GoldCatalogRecord(
-            dataset_id="regime_features_daily",
+            dataset_id="macro_features_daily",
             build_id=stale_id,
             status=GoldBuildStatus.BUILDING,
             current=False,
@@ -282,7 +282,7 @@ def test_materialized_view_writer_rejects_wrong_catalog_path_shape_and_clears_wi
 
     build_id = "20260819T020000Z"
     invalid = GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=build_id,
         status=GoldBuildStatus.COMPLETE,
         current=True,

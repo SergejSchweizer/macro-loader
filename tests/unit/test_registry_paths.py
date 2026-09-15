@@ -103,13 +103,13 @@ def test_lake_paths_match_documented_contract() -> None:
         "lake/silver/series=vix/year=2026/month=08/data.parquet"
     )
     assert paths.gold_build_root(build) == Path(
-        "lake/gold/dataset=regime_features_daily/versions/build_id=20260818T020000Z"
+        "lake/gold/dataset=macro_features_daily/versions/build_id=20260818T020000Z"
     )
     assert paths.gold_data(build).name == "data.parquet"
     assert paths.gold_build_manifest(build).name == "manifest.json"
     assert paths.gold_build_profile(build).name == "feature_profile.png"
     assert paths.gold_manifest_parquet() == Path(
-        "lake/gold/dataset=regime_features_daily/manifest.parquet"
+        "lake/gold/dataset=macro_features_daily/manifest.parquet"
     )
     assert paths.gold_manifest_json().name == "manifest.json"
     assert paths.gold_profile().name == "feature_profile.png"

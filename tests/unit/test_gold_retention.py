@@ -25,7 +25,7 @@ def _complete(
 ) -> GoldCatalogRecord:
     build_id = f"20260819T0200{index:02d}Z"
     return GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=build_id,
         status=GoldBuildStatus.COMPLETE,
         current=current,
@@ -46,7 +46,7 @@ def _complete(
 def _noncomplete(index: int, status: GoldBuildStatus) -> GoldCatalogRecord:
     build_id = f"20260819T0300{index:02d}Z"
     return GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=build_id,
         status=status,
         current=False,

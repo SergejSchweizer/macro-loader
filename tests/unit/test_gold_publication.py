@@ -33,7 +33,7 @@ def _frame() -> pl.DataFrame:
 
 def _complete(build_id: str, *, current: bool = True) -> GoldCatalogRecord:
     return GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=build_id,
         status=GoldBuildStatus.COMPLETE,
         current=current,
@@ -53,7 +53,7 @@ def _complete(build_id: str, *, current: bool = True) -> GoldCatalogRecord:
 
 def _building(build_id: str, *, current: bool = False) -> GoldCatalogRecord:
     return GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=build_id,
         status=GoldBuildStatus.BUILDING,
         current=current,

@@ -110,7 +110,7 @@ A normal request from `2000-01-03` is a test failure.
 
 - Version build directories are creation-only and immutable.
 - Build `manifest.json` describes the immutable artifact bundle; it does not own catalog publication status.
-- `lake/gold/dataset=regime_features_daily/manifest.parquet` is the sole publication authority.
+- `lake/gold/dataset=macro_features_daily/manifest.parquet` is the sole publication authority.
 - Consumer selection is catalog-driven, never filesystem-recency-driven.
 - Root JSON/PNG are recoverable materialized views and must be reconciled from the catalog after interruption.
 - Retention must never create a catalog-selectable row whose physical bundle has already been partly deleted.

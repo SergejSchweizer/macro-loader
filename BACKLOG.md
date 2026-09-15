@@ -149,7 +149,7 @@ lake/
   silver/
     series=<series_id>/year=<YYYY>/month=<MM>/data.parquet
   gold/
-    dataset=regime_features_daily/
+    dataset=macro_features_daily/
       versions/build_id=<YYYYMMDDTHHMMSSZ>/
         data.parquet
         manifest.json
@@ -226,7 +226,7 @@ Schema version changes for column name/order/type changes; feature version chang
 
 ### Gold catalog schema
 
-Authoritative `lake/gold/dataset=regime_features_daily/manifest.parquet` fields:
+Authoritative `lake/gold/dataset=macro_features_daily/manifest.parquet` fields:
 
 ```text
 dataset_id
@@ -1317,7 +1317,7 @@ Design patterns: Adapter, Repository, State Machine, Dependency Injection.
 
 Description:
 - R1: After the authoritative catalog promotion and root-view refresh succeed, optionally mirror the complete Gold directory through an injected adapter.
-- R2: Configure the rsync destination through `MARKET_REGIME_GOLD_MIRROR_ROOT`; mirroring failure must not roll back an already-complete catalog row.
+- R2: Configure the rsync destination through `MARKET_MACRO_GOLD_MIRROR_ROOT`; mirroring failure must not roll back an already-complete catalog row.
 - R3: Document the configured host mirror and test the exact rsync semantics.
 
 Acceptance:

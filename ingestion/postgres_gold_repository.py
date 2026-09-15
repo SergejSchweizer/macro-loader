@@ -164,15 +164,15 @@ class PostgresAdminConfig:
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> PostgresAdminConfig:
         try:
-            port = int(values.get("MARKET_REGIME_POSTGRES_ADMIN_PORT", ""))
+            port = int(values.get("MARKET_MACRO_POSTGRES_ADMIN_PORT", ""))
         except ValueError as exc:
-            raise ValueError("MARKET_REGIME_POSTGRES_ADMIN_PORT must be an integer") from exc
+            raise ValueError("MARKET_MACRO_POSTGRES_ADMIN_PORT must be an integer") from exc
         config = cls(
-            host=values.get("MARKET_REGIME_POSTGRES_ADMIN_HOST", ""),
+            host=values.get("MARKET_MACRO_POSTGRES_ADMIN_HOST", ""),
             port=port,
-            user=values.get("MARKET_REGIME_POSTGRES_ADMIN_USER", ""),
-            database=values.get("MARKET_REGIME_POSTGRES_ADMIN_DATABASE", ""),
-            password=values.get("MARKET_REGIME_POSTGRES_ADMIN_PASSWORD", ""),
+            user=values.get("MARKET_MACRO_POSTGRES_ADMIN_USER", ""),
+            database=values.get("MARKET_MACRO_POSTGRES_ADMIN_DATABASE", ""),
+            password=values.get("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD", ""),
         )
         runtime_password = values.get("PGPASSWORD", "")
         if runtime_password and runtime_password == config.password:

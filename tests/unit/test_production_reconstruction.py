@@ -16,7 +16,7 @@ class OperationsStub:
         self.failure = failure
         self.verification = verification
         self.calls: list[str] = []
-        self.replay = GoldSyncResult("regime_features_daily", "20260828T120000Z", 0, 0, 0, 1)
+        self.replay = GoldSyncResult("macro_features_daily", "20260828T120000Z", 0, 0, 0, 1)
 
     def _call(self, name: str) -> None:
         self.calls.append(name)
@@ -134,7 +134,7 @@ def test_reconstruction_keeps_scheduling_disabled_after_failed_independent_verif
 
 def test_reconstruction_rejects_mutating_replay() -> None:
     operations = OperationsStub()
-    operations.replay = GoldSyncResult("regime_features_daily", "20260828T120000Z", 1, 0, 0, 0)
+    operations.replay = GoldSyncResult("macro_features_daily", "20260828T120000Z", 1, 0, 0, 0)
 
     report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
 

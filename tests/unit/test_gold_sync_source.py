@@ -51,7 +51,7 @@ def _bundle(tmp_path: Path) -> tuple[FilesystemGoldFrameSource, GoldCatalogRecor
     manifest_path.write_bytes(manifest.to_json_bytes())
     paths.gold_build_profile(BUILD_ID).write_bytes(b"png")
     record = GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=BUILD_ID,
         status=GoldBuildStatus.COMPLETE,
         current=True,

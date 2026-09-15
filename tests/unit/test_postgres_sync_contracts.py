@@ -38,7 +38,7 @@ def _record(
     *, schema: int = GOLD_SCHEMA_VERSION, feature: int = 3, current: bool = True
 ) -> GoldCatalogRecord:
     return GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id="20260822T100000Z",
         status=GoldBuildStatus.COMPLETE,
         current=current,
@@ -57,7 +57,7 @@ def _record(
 
 
 def test_only_one_gold_dataset_and_exact_postgres_identities() -> None:
-    assert POSTGRES_DATASET_ID == "regime_features_daily"
+    assert POSTGRES_DATASET_ID == "macro_features_daily"
     assert (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE) == (
         "macro_loader",
         "macro_features_daily",

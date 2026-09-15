@@ -14,7 +14,7 @@ from application.gold_catalog import (
 )
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 
-POSTGRES_DATASET_ID = "regime_features_daily"
+POSTGRES_DATASET_ID = "macro_features_daily"
 POSTGRES_CONSUMER_SCHEMA = "macro_loader"
 POSTGRES_CONSUMER_TABLE = "macro_features_daily"
 POSTGRES_SYNC_SCHEMA = "macro_loader_sync"

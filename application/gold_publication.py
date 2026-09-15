@@ -12,7 +12,7 @@ import polars as pl
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION, SilverInputSignature
 
-_DATASET_ID = "regime_features_daily"
+_DATASET_ID = "macro_features_daily"
 Clock = Callable[[], datetime]
 EventSink = Callable[[str], None]
 

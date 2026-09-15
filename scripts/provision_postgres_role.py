@@ -55,26 +55,26 @@ class ProvisioningConfig:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ProvisioningConfig:
-        host = env.get("MARKET_REGIME_POSTGRES_HOST", POSTGRES_HOST).strip()
-        port_text = env.get("MARKET_REGIME_POSTGRES_PORT", str(POSTGRES_PORT)).strip()
-        database = env.get("MARKET_REGIME_POSTGRES_DATABASE", "").strip()
-        admin_user = env.get("MARKET_REGIME_POSTGRES_ADMIN_USER", "").strip()
-        admin_password = env.get("MARKET_REGIME_POSTGRES_ADMIN_PASSWORD", "")
-        app_password = env.get("MARKET_REGIME_POSTGRES_PASSWORD", "")
+        host = env.get("MARKET_MACRO_POSTGRES_HOST", POSTGRES_HOST).strip()
+        port_text = env.get("MARKET_MACRO_POSTGRES_PORT", str(POSTGRES_PORT)).strip()
+        database = env.get("MARKET_MACRO_POSTGRES_DATABASE", "").strip()
+        admin_user = env.get("MARKET_MACRO_POSTGRES_ADMIN_USER", "").strip()
+        admin_password = env.get("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD", "")
+        app_password = env.get("MARKET_MACRO_POSTGRES_PASSWORD", "")
         try:
             port = int(port_text)
         except ValueError as exc:
-            raise ValueError("MARKET_REGIME_POSTGRES_PORT must be an integer") from exc
+            raise ValueError("MARKET_MACRO_POSTGRES_PORT must be an integer") from exc
         if host != POSTGRES_HOST or port != POSTGRES_PORT:
             raise ValueError(f"provisioning endpoint must be {POSTGRES_HOST}:{POSTGRES_PORT}")
         if not database:
-            raise ValueError("MARKET_REGIME_POSTGRES_DATABASE is required")
+            raise ValueError("MARKET_MACRO_POSTGRES_DATABASE is required")
         if not admin_user:
-            raise ValueError("MARKET_REGIME_POSTGRES_ADMIN_USER is required")
+            raise ValueError("MARKET_MACRO_POSTGRES_ADMIN_USER is required")
         if not admin_password:
-            raise ValueError("MARKET_REGIME_POSTGRES_ADMIN_PASSWORD is required")
+            raise ValueError("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD is required")
         if not app_password:
-            raise ValueError("MARKET_REGIME_POSTGRES_PASSWORD is required")
+            raise ValueError("MARKET_MACRO_POSTGRES_PASSWORD is required")
         if admin_password == app_password:
             raise ValueError("application password must differ from administrator password")
         return cls(host, port, database, admin_user, admin_password, app_password)

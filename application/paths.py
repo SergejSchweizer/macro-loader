@@ -10,7 +10,7 @@ from pathlib import Path
 from application.contracts import Provider
 
 _BUILD_ID_RE = re.compile(r"^\d{8}T\d{6}Z$")
-_GOLD_DATASET = "regime_features_daily"
+_GOLD_DATASET = "macro_features_daily"
 
 
 @dataclass(frozen=True, slots=True)
