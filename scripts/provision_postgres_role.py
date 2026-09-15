@@ -164,6 +164,7 @@ $provision$;
 
 GRANT CONNECT ON DATABASE {database_i} TO {role_i};
 GRANT {owner_i} TO {admin_i};
+REVOKE {owner_i} FROM {role_i}, {sync_role_i};
 {schemas}
 {table_ownership}
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
