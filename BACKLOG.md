@@ -1692,7 +1692,7 @@ Safe first parallel wave after PR-40: PR-41, PR-42, PR-43, PR-44, PR-47, PR-48, 
 ## PR-40: Repository Audit And PostgreSQL Temporal Conformance Plan
 
 PR name: `postgres-temporal-conformance-plan`
-Status: In Progress
+Status: Ready for review
 Updated: 2026-08-28
 PR: #42
 Git branch: `pr-40/postgres-temporal-conformance-plan`
@@ -2328,7 +2328,7 @@ Git branch: `pr-66/fed-policy-expectations-features`
 Git status: active-clean
 Agent lane: Gold/policy expectations; one agent only
 Depends on: PR-70
-Commit: `feat(pr-66): add Fed policy expectations features`
+Commit: `db0d755 feat(pr-66): add official Fed policy expectations features`
 Design patterns: Adapter, Repository, Strategy/Policy Object, Versioned Migration.
 
 Description:
