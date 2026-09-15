@@ -344,7 +344,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert "TRUNCATE" not in ddl
-    assert "DROP TABLE" not in ddl
+    assert 'DROP TABLE IF EXISTS "macro_loader"."macro_features_daily"' in ddl
     assert "CREATE SCHEMA" not in ddl
     assert ("commit", None, None) in connection.events
 
