@@ -2317,3 +2317,29 @@ The repository's earlier MVP and PR-31..PR-39 completion statements describe his
 - PR-23–25: Delta-only-Tagespipeline, Backlog-Governance und Cron-Template.
 - PR-26–30: Live-Provider-Reparaturen, Polars-Parallelisierung, Gold-Mirror, geschützte YAML-Konfiguration und diagnostisches Gold-Profil.
 - PR-31–39: Historischer PostgreSQL-Serving-Plan, Sync-Verträge/Planner/Adapter, Service-Rolle, Betriebskonfiguration, vollständige Delta-Synchronisierung, CLI und Sonntags-Cron; durch das Corrective Program nicht als finale Produktionszertifizierung zu verstehen.
+
+## PR-66: Add Official Fed Policy Expectations And FOMC Clock Features
+
+PR name: `fed-policy-expectations-features`
+Status: In Progress
+Updated: 2026-09-15
+PR: TBD
+Git branch: `pr-66/fed-policy-expectations-features`
+Git status: active-clean
+Agent lane: Gold/policy expectations; one agent only
+Depends on: PR-70
+Commit: `feat(pr-66): add Fed policy expectations features`
+Design patterns: Adapter, Repository, Strategy/Policy Object, Versioned Migration.
+
+Description:
+- R1: Ingest only official public CME 30-Day Fed Funds settlement data, official Federal Reserve EFFR data, and the official FOMC calendar; do not call paid CME APIs or substitute unofficial probabilities.
+- R2: Persist normalized FedWatch outcome snapshots with explicit `23:59:59.999999 UTC` end-of-day availability and preserve the maximum history exposed by the free source; unavailable dates remain null.
+- R3: Add exactly `fed_next_expected_move_bp`, `fed_next_uncertainty_bp`, `fed_3m_expected_move_bp`, `fed_next_expected_move_bp_delta_5obs`, and `fomc_business_days_to_next`; no other Fed-family derived features.
+- R4: Define the three-calendar-month meeting-selection rule, preserve causal daily keys, add immutable Gold/versioned PostgreSQL migration support, and test formulas, source limits, EOD boundaries, calendar/business-day behavior, and no-look-ahead semantics offline.
+
+Acceptance:
+- A1: CME-methodology outcome probabilities produce the specified weighted mean and standard deviation exactly on hand-calculable fixtures.
+- A2: The three-month feature includes only scheduled decision dates strictly after observation date and no later than observation date plus three calendar months; the five-observation delta uses only prior observations.
+- A3: EOD availability is validated exactly and missing free-history snapshots are not filled or fabricated.
+- A4: FOMC dates come from the official calendar adapter and US-business-day counts exclude weekends and observed federal holidays.
+- A5: Gold/PostgreSQL schema and semantic versions migrate idempotently, with all required quality gates passing.

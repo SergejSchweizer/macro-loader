@@ -441,6 +441,15 @@ The fixed causal pairs are `(h, W) = (1, 60), (5, 60), (20, 120)`. Undefined val
 
 Cross-series ratios/spreads require same `timestamp_m1` values.
 
+The Fed policy family is computed from normalized end-of-day CME public 30-Day
+Fed Funds settlement outcomes and the official Federal Reserve FOMC calendar.
+For observation date `t`, the next meeting is the first scheduled decision
+date strictly after `t`; the three-month feature sums the probability-weighted
+expected move for every scheduled meeting in `(t, t + 3 calendar months]`.
+The five-observation delta is the only Fed-policy delta. Snapshot availability
+is explicitly `23:59:59.999999 UTC`; missing free-history observations remain
+null rather than being fabricated or carried forward.
+
 Forbidden:
 
 - forward fill;
@@ -457,8 +466,8 @@ Before final Gold validation, feature NaN is normalized to null. Infinity is rej
 Initial constants:
 
 ```text
-schema_version  = 3
-feature_version = 2
+schema_version  = 5
+feature_version = 4
 ```
 
 `schema_version` changes for column name/order/type changes. `feature_version` changes when formulas/parameters change without a schema change. Runtime never auto-increments either.

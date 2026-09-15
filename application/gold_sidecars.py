@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 
 import polars as pl
 
+from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS
 from application.gold_frame import (
     GOLD_COLUMNS,
     GOLD_FEATURE_VERSION,
@@ -69,6 +70,22 @@ def gold_formula_parameters(
             "input": "one-observation simple returns derived from strictly positive levels",
             "output": "geometric mean return in percent",
             "invalid_transition": "null",
+        },
+        "fed_policy_expectations": {
+            "features": list(FED_POLICY_FEATURE_COLUMNS),
+            "source": (
+                "official CME public 30-Day Fed Funds settlements plus official "
+                "Federal Reserve FOMC calendar and EFFR"
+            ),
+            "availability": "end of day at 23:59:59.999999 UTC",
+            "three_month_selection": (
+                "sum expected per-meeting moves for scheduled decision dates strictly "
+                "after observation date and no later than observation date plus three "
+                "calendar months"
+            ),
+            "historical_limit": (
+                "free public CME settlement endpoint; unavailable historical dates remain null"
+            ),
         },
     }
 

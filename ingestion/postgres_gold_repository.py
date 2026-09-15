@@ -263,6 +263,15 @@ _RETURN_COLUMNS = tuple(column for column in GOLD_COLUMNS if "_return_geom_" in 
 _RETURN_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
     f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL" for column in _RETURN_COLUMNS
 )
+_FED_POLICY_COLUMNS = tuple(
+    column
+    for column in GOLD_COLUMNS
+    if column.startswith("fed_") or column == "fomc_business_days_to_next"
+)
+_FED_POLICY_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
+    f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+    for column in _FED_POLICY_COLUMNS
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,6 +346,7 @@ _MIGRATIONS = (
     (_ROW_HASH_DDL,),
     (_MOMENTUM_COLUMN_MIGRATION,),
     (_RETURN_COLUMN_MIGRATION,),
+    (_FED_POLICY_COLUMN_MIGRATION,),
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

@@ -32,6 +32,8 @@ from application.registry import SERIES_REGISTRY
 from ingestion.bronze_uow import FilesystemBronzeUnitOfWork
 from ingestion.cboe_provider import CboeProvider
 from ingestion.ecb_provider import EcbProvider
+from ingestion.fed_policy_provider import FedPolicyProvider
+from ingestion.fed_policy_store import FedPolicySnapshotStore
 from ingestion.fred_provider import FredProvider
 from ingestion.gold_build_store import GoldBuildStore
 from ingestion.gold_catalog_repository import GoldCatalogRepository
@@ -235,6 +237,7 @@ def build_runtime(
     )
     silver = SilverSeriesRepository(paths)
     inventory = InventoryRefreshService(paths)
+    fed_policy_source = FedPolicySnapshotStore(paths, FedPolicyProvider(transport))
 
     git_hash = _git_commit_hash() if command in _GOLD_COMMANDS else _UNUSED_GIT_IDENTITY
     build_store = GoldBuildStore(paths)
@@ -258,6 +261,7 @@ def build_runtime(
         publisher=publisher,
         retention=retention,
         inventory=inventory,
+        fed_policy_source=fed_policy_source,
         event_sink=event_sink,
     )
     return Runtime(pipeline=pipeline, transport=transport, paths=paths)
@@ -371,7 +375,7 @@ def _dispatch(
     elif command == "silver-build":
         runtime.pipeline.silver_build(series)
     elif command == "gold-build":
-        runtime.pipeline.gold_build()
+        runtime.pipeline.gold_build(today=today)
     elif command == "run-daily":
         runtime.pipeline.run_daily(series, today=today)
     elif command == "inventory":
