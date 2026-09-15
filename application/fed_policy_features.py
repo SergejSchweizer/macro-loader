@@ -51,9 +51,7 @@ def _validate_snapshot(frame: pl.DataFrame) -> None:
     if frame.schema["available_at_utc"] != pl.Datetime("us", "UTC"):
         raise TypeError("Fed policy available_at_utc must be UTC microsecond datetime")
     expected_time = time(*EOD_UTC)
-    if bool(
-        frame.select(pl.col("available_at_utc").dt.time() != expected_time).to_series().any()
-    ):
+    if bool(frame.select(pl.col("available_at_utc").dt.time() != expected_time).to_series().any()):
         raise ValueError("FedWatch snapshots are only available at the explicit UTC EOD boundary")
     if bool(
         frame.select((pl.col("probability") < 0) | (pl.col("probability") > 1)).to_series().any()

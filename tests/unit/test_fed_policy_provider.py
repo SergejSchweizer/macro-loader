@@ -42,9 +42,7 @@ class FakeTransport:
 
 
 def test_official_calendar_parser_uses_decision_day() -> None:
-    assert _fomc_decision_dates("#### 2026 FOMC Meetings\nJanuary\n27-28\n") == (
-        date(2026, 1, 28),
-    )
+    assert _fomc_decision_dates("#### 2026 FOMC Meetings\nJanuary\n27-28\n") == (date(2026, 1, 28),)
 
 
 def test_provider_normalizes_public_inputs_to_eod_outcomes() -> None:
