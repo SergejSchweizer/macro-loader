@@ -16,12 +16,12 @@ from scripts.provision_postgres_role import (
 
 def _env() -> dict[str, str]:
     return {
-        "MARKET_REGIME_POSTGRES_HOST": "10.10.1.3",
-        "MARKET_REGIME_POSTGRES_PORT": "54321",
-        "MARKET_REGIME_POSTGRES_DATABASE": "quant_data",
-        "MARKET_REGIME_POSTGRES_ADMIN_USER": "postgres",
-        "MARKET_REGIME_POSTGRES_ADMIN_PASSWORD": "admin-secret",
-        "MARKET_REGIME_POSTGRES_PASSWORD": "repo-secret",
+        "MARKET_MACRO_POSTGRES_HOST": "10.10.1.3",
+        "MARKET_MACRO_POSTGRES_PORT": "54321",
+        "MARKET_MACRO_POSTGRES_DATABASE": "quant_data",
+        "MARKET_MACRO_POSTGRES_ADMIN_USER": "postgres",
+        "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD": "admin-secret",
+        "MARKET_MACRO_POSTGRES_PASSWORD": "repo-secret",
     }
 
 
@@ -80,7 +80,7 @@ def test_sql_is_idempotent_and_fails_on_incompatible_existing_state() -> None:
 
 def test_admin_and_application_passwords_must_be_distinct() -> None:
     env = _env()
-    env["MARKET_REGIME_POSTGRES_PASSWORD"] = env["MARKET_REGIME_POSTGRES_ADMIN_PASSWORD"]
+    env["MARKET_MACRO_POSTGRES_PASSWORD"] = env["MARKET_MACRO_POSTGRES_ADMIN_PASSWORD"]
     try:
         ProvisioningConfig.from_env(env)
     except ValueError as exc:
@@ -91,7 +91,7 @@ def test_admin_and_application_passwords_must_be_distinct() -> None:
 
 def test_wrong_endpoint_and_missing_secrets_fail() -> None:
     env = _env()
-    env["MARKET_REGIME_POSTGRES_HOST"] = "localhost"
+    env["MARKET_MACRO_POSTGRES_HOST"] = "localhost"
     try:
         ProvisioningConfig.from_env(env)
     except ValueError as exc:
@@ -100,11 +100,11 @@ def test_wrong_endpoint_and_missing_secrets_fail() -> None:
         raise AssertionError("wrong endpoint must fail")
 
     env = _env()
-    env["MARKET_REGIME_POSTGRES_PASSWORD"] = ""
+    env["MARKET_MACRO_POSTGRES_PASSWORD"] = ""
     try:
         ProvisioningConfig.from_env(env)
     except ValueError as exc:
-        assert "MARKET_REGIME_POSTGRES_PASSWORD" in str(exc)
+        assert "MARKET_MACRO_POSTGRES_PASSWORD" in str(exc)
     else:
         raise AssertionError("missing application password must fail")
 

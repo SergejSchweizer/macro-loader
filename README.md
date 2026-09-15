@@ -114,7 +114,7 @@ lake/
     series=<series_id>/year=<YYYY>/month=<MM>/data.parquet
 
   gold/
-    dataset=regime_features_daily/
+    dataset=macro_features_daily/
       versions/build_id=<YYYYMMDDTHHMMSSZ>/
         data.parquet
         manifest.json
@@ -211,7 +211,7 @@ versions/build_id=<YYYYMMDDTHHMMSSZ>/
 The publication authority is:
 
 ```text
-lake/gold/dataset=regime_features_daily/manifest.parquet
+lake/gold/dataset=macro_features_daily/manifest.parquet
 ```
 
 Only `manifest.parquet` chooses the current build. Consumers and PostgreSQL synchronization must never use directory order, mtime, or `max(build_id)`.
@@ -256,10 +256,10 @@ Default retention keeps five physical successful builds per `(schema_version, fe
 
 ## PostgreSQL Gold Serving Replica
 
-PostgreSQL is a serving/research replica, not the canonical data store. The only synchronized dataset is `regime_features_daily`.
+PostgreSQL is a serving/research replica, not the canonical data store. The only synchronized dataset is `macro_features_daily`.
 
 ```text
-canonical source: lake/gold/dataset=regime_features_daily/...
+canonical source: lake/gold/dataset=macro_features_daily/...
 consumer table:  macro_loader.macro_features_daily
 sync state:      macro_loader_sync.gold_sync_state
 row digests:     macro_loader_sync.gold_row_hashes
@@ -380,7 +380,7 @@ With the default overlap this is seven calendar days. `run-daily` has no hidden 
 
 Use a **persistent** lake path. A container-local ephemeral path would lose incremental state and defeat delta planning.
 
-FRED-backed source commands require `FRED_API_KEY`. Gold-capable commands (`gold-build`, `run-daily`) record the source Git commit and packaged/deployed environments should set `MARKET_REGIME_GIT_COMMIT` explicitly.
+FRED-backed source commands require `FRED_API_KEY`. Gold-capable commands (`gold-build`, `run-daily`) record the source Git commit and packaged/deployed environments should set `MARKET_MACRO_GIT_COMMIT` explicitly.
 
 `gold-sync-postgres` uses only the dedicated runtime role and exact endpoint:
 
@@ -397,7 +397,7 @@ Runtime sync first performs a read-only schema-contract preflight. Missing or in
 `postgres-verify` uses the same strictly validated runtime `PG*` endpoint configuration. It does
 not run the synchronization mutation path and does not create durable probe rows or objects.
 
-Schema migration is an explicit, separately authorized `postgres-migrate` operation. It requires the protected admin-only environment variables `MARKET_REGIME_POSTGRES_ADMIN_HOST`, `MARKET_REGIME_POSTGRES_ADMIN_PORT`, `MARKET_REGIME_POSTGRES_ADMIN_USER`, `MARKET_REGIME_POSTGRES_ADMIN_DATABASE`, and `MARKET_REGIME_POSTGRES_ADMIN_PASSWORD`. The admin user and password are distinct from the runtime role/credential and are never exported by the normal cron configuration.
+Schema migration is an explicit, separately authorized `postgres-migrate` operation. It requires the protected admin-only environment variables `MARKET_MACRO_POSTGRES_ADMIN_HOST`, `MARKET_MACRO_POSTGRES_ADMIN_PORT`, `MARKET_MACRO_POSTGRES_ADMIN_USER`, `MARKET_MACRO_POSTGRES_ADMIN_DATABASE`, and `MARKET_MACRO_POSTGRES_ADMIN_PASSWORD`. The admin user and password are distinct from the runtime role/credential and are never exported by the normal cron configuration.
 
 The `macro-loader` runtime role is a non-owning LOGIN principal. It has schema `USAGE`, DML only on the loader-owned consumer and sync tables, and read-only access to the migration ledger; it cannot create schemas or objects, change grants, or access unrelated schemas. The admin-managed `macro-loader-owner` role owns loader schemas and tables without LOGIN capability.
 

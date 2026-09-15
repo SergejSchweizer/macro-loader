@@ -251,11 +251,11 @@ def test_config_requires_exact_endpoint_role_and_hides_password() -> None:
 def test_admin_config_uses_distinct_namespace_role_and_redacted_password() -> None:
     config = PostgresAdminConfig.from_mapping(
         {
-            "MARKET_REGIME_POSTGRES_ADMIN_HOST": "10.10.1.3",
-            "MARKET_REGIME_POSTGRES_ADMIN_PORT": "54321",
-            "MARKET_REGIME_POSTGRES_ADMIN_USER": "macro-loader-admin",
-            "MARKET_REGIME_POSTGRES_ADMIN_DATABASE": "quant_data",
-            "MARKET_REGIME_POSTGRES_ADMIN_PASSWORD": "admin-secret",
+            "MARKET_MACRO_POSTGRES_ADMIN_HOST": "10.10.1.3",
+            "MARKET_MACRO_POSTGRES_ADMIN_PORT": "54321",
+            "MARKET_MACRO_POSTGRES_ADMIN_USER": "macro-loader-admin",
+            "MARKET_MACRO_POSTGRES_ADMIN_DATABASE": "quant_data",
+            "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD": "admin-secret",
         }
     )
     assert config.user == "macro-loader-admin"
@@ -275,11 +275,11 @@ def test_admin_config_uses_distinct_namespace_role_and_redacted_password() -> No
     with pytest.raises(ValueError, match="password must differ"):
         PostgresAdminConfig.from_mapping(
             {
-                "MARKET_REGIME_POSTGRES_ADMIN_HOST": "10.10.1.3",
-                "MARKET_REGIME_POSTGRES_ADMIN_PORT": "54321",
-                "MARKET_REGIME_POSTGRES_ADMIN_USER": "macro-loader-admin",
-                "MARKET_REGIME_POSTGRES_ADMIN_DATABASE": "quant_data",
-                "MARKET_REGIME_POSTGRES_ADMIN_PASSWORD": "shared-secret",
+                "MARKET_MACRO_POSTGRES_ADMIN_HOST": "10.10.1.3",
+                "MARKET_MACRO_POSTGRES_ADMIN_PORT": "54321",
+                "MARKET_MACRO_POSTGRES_ADMIN_USER": "macro-loader-admin",
+                "MARKET_MACRO_POSTGRES_ADMIN_DATABASE": "quant_data",
+                "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD": "shared-secret",
                 "PGPASSWORD": "shared-secret",
             }
         )

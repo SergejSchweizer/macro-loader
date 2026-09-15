@@ -23,7 +23,7 @@ from application.momentum_features import MOMENTUM_POLICY, MomentumFeaturePolicy
 from application.return_features import RETURN_WINDOWS
 from application.volatility_features import VOLATILITY_POLICY, VolatilityFeaturePolicy
 
-_DATASET_ID = "regime_features_daily"
+_DATASET_ID = "macro_features_daily"
 _GIT_HASH_RE = re.compile(r"^[0-9a-f]{40,64}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _TEST_GIT_FALLBACK = "0" * 40

@@ -65,7 +65,7 @@ def _configurations() -> tuple[PostgresSyncConfig, PostgresAdminConfig]:
 def _operations(tmp_path: Path) -> module.GuardedProductionReconstructionOperations:
     runtime, admin = _configurations()
     sync = SimpleNamespace(
-        sync=lambda: GoldSyncResult("regime_features_daily", "20260828T000000Z", 0, 0, 0, 1)
+        sync=lambda: GoldSyncResult("macro_features_daily", "20260828T000000Z", 0, 0, 0, 1)
     )
     verifier = SimpleNamespace(verify=lambda: PostgresConformanceReport("PASS", ("schema",), {}))
     return module.GuardedProductionReconstructionOperations(
@@ -142,7 +142,7 @@ def test_backup_snapshots_full_lake_and_private_database_dump(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     operations = _operations(tmp_path)
-    gold_root = operations.lake_root / "gold/dataset=regime_features_daily"
+    gold_root = operations.lake_root / "gold/dataset=macro_features_daily"
     data_path = gold_root / "versions/build_id=20260828T000000Z/data.parquet"
     data_path.parent.mkdir(parents=True)
     (gold_root / "manifest.parquet").write_text("catalog")
@@ -182,7 +182,7 @@ def test_backup_rejects_missing_evidence_or_invalid_database_dump(
         operations.validate_backup()
 
     operations.lake_root.mkdir()
-    gold_root = operations.lake_root / "gold/dataset=regime_features_daily"
+    gold_root = operations.lake_root / "gold/dataset=macro_features_daily"
     gold_root.mkdir(parents=True)
     (gold_root / "manifest.parquet").write_text("catalog")
     (gold_root / "data.parquet").write_text("data")

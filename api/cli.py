@@ -153,7 +153,7 @@ def _today(value: date | None) -> date:
 
 
 def _git_commit_hash() -> str:
-    for name in ("MARKET_REGIME_GIT_COMMIT", "GITHUB_SHA"):
+    for name in ("MARKET_MACRO_GIT_COMMIT", "GITHUB_SHA"):
         value = os.environ.get(name, "").strip().lower()
         if value:
             return value
@@ -166,7 +166,7 @@ def _git_commit_hash() -> str:
         )
     except (OSError, subprocess.CalledProcessError) as exc:
         raise ValueError(
-            "Gold-capable runtime requires MARKET_REGIME_GIT_COMMIT or a Git checkout"
+            "Gold-capable runtime requires MARKET_MACRO_GIT_COMMIT or a Git checkout"
         ) from exc
     return result.stdout.strip().lower()
 
@@ -186,7 +186,7 @@ def _configured_secrets() -> tuple[str, ...]:
     return (
         os.environ.get("FRED_API_KEY", ""),
         os.environ.get("PGPASSWORD", ""),
-        os.environ.get("MARKET_REGIME_POSTGRES_ADMIN_PASSWORD", ""),
+        os.environ.get("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD", ""),
     )
 
 
@@ -246,7 +246,7 @@ def build_runtime(
     bundle = GoldBundleAdapter(paths, build_store, sidecar_store)
     catalog = GoldCatalogRepository(paths.gold_manifest_parquet())
     views = GoldMaterializedViewWriter(paths)
-    mirror_root = os.environ.get("MARKET_REGIME_GOLD_MIRROR_ROOT", "").strip()
+    mirror_root = os.environ.get("MARKET_MACRO_GOLD_MIRROR_ROOT", "").strip()
     mirror = RsyncGoldMirror(paths.root / "gold", Path(mirror_root)) if mirror_root else None
     publisher = GoldPublisher(catalog, bundle, views, mirror=mirror)
     retention = GoldRetentionService(catalog, GoldBundleSweeper(paths), views)

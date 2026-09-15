@@ -97,7 +97,7 @@ def test_manifest_has_exact_deterministic_json_contract_without_publication_stat
     assert sorted(payload) == list(expected_manifest_keys())
     assert payload["artifact_state"] == "built"
     assert "status" not in payload
-    assert payload["dataset_id"] == "regime_features_daily"
+    assert payload["dataset_id"] == "macro_features_daily"
     assert payload["columns"] == list(GOLD_COLUMNS)
     assert payload["row_count"] == 2
     assert payload["started_at_utc"] == "2026-08-19T02:00:00.000000Z"

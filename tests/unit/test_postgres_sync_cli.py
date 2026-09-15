@@ -36,11 +36,11 @@ def _postgres_env(monkeypatch: pytest.MonkeyPatch, *, password: str = "repo-secr
 
 
 def _postgres_admin_env(monkeypatch: pytest.MonkeyPatch, *, password: str = "admin-secret") -> None:
-    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_HOST", "10.10.1.3")
-    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_PORT", "54321")
-    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_USER", "macro-loader-admin")
-    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_DATABASE", "quant_data")
-    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_PASSWORD", password)
+    monkeypatch.setenv("MARKET_MACRO_POSTGRES_ADMIN_HOST", "10.10.1.3")
+    monkeypatch.setenv("MARKET_MACRO_POSTGRES_ADMIN_PORT", "54321")
+    monkeypatch.setenv("MARKET_MACRO_POSTGRES_ADMIN_USER", "macro-loader-admin")
+    monkeypatch.setenv("MARKET_MACRO_POSTGRES_ADMIN_DATABASE", "quant_data")
+    monkeypatch.setenv("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD", password)
 
 
 def test_filesystem_gold_source_hashes_and_reads_only_contained_catalog_path(
@@ -173,7 +173,7 @@ def test_gold_sync_command_dispatches_only_sync_service_and_logs_exact_result(
             nonlocal sync_calls
             sync_calls += 1
             return GoldSyncResult(
-                dataset_id="regime_features_daily",
+                dataset_id="macro_features_daily",
                 source_build_id="20260822T100000Z",
                 inserted=2,
                 updated=1,
@@ -201,7 +201,7 @@ def test_gold_sync_command_dispatches_only_sync_service_and_logs_exact_result(
     payload = json.loads(stderr.getvalue())
     assert payload == {
         "command": "gold-sync-postgres",
-        "dataset_id": "regime_features_daily",
+        "dataset_id": "macro_features_daily",
         "deleted": 1,
         "inserted": 2,
         "source_build_id": "20260822T100000Z",

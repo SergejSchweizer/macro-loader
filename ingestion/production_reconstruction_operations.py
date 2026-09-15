@@ -102,8 +102,8 @@ class GuardedProductionReconstructionOperations:
         if not record.data_path:
             raise RuntimeError("current Gold catalog record has no data path")
         required_paths = (
-            self.lake_root / "gold" / "dataset=regime_features_daily" / "manifest.parquet",
-            self.lake_root / "gold" / "dataset=regime_features_daily" / record.data_path,
+            self.lake_root / "gold" / "dataset=macro_features_daily" / "manifest.parquet",
+            self.lake_root / "gold" / "dataset=macro_features_daily" / record.data_path,
             self.lake_root / "state" / "ingestion_state.parquet",
         )
         if any(not path.is_file() for path in required_paths):

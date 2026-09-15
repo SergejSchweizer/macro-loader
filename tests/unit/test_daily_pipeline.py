@@ -107,7 +107,7 @@ class FakePublisher:
         self.publish_count += 1
         self.frames.append(frame)
         record = GoldCatalogRecord(
-            dataset_id="regime_features_daily",
+            dataset_id="macro_features_daily",
             build_id=f"20260819T0200{self.publish_count:02d}Z",
             status=GoldBuildStatus.COMPLETE,
             current=True,

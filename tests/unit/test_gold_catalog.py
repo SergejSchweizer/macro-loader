@@ -33,7 +33,7 @@ def _record(
     paths: bool = True,
 ) -> GoldCatalogRecord:
     return GoldCatalogRecord(
-        dataset_id="regime_features_daily",
+        dataset_id="macro_features_daily",
         build_id=build_id,
         status=status,
         current=current,

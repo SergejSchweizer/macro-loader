@@ -132,7 +132,7 @@ PR-54 tables, columns, and keys. Missing or incompatible schema fails closed; ru
 sync never creates, alters, drops, grants, or migrates PostgreSQL objects.
 
 `postgres-migrate` is the separate explicit admin command that applies idempotent schema
-migrations. It is composed with protected `MARKET_REGIME_POSTGRES_ADMIN_*` credentials,
+migrations. It is composed with protected `MARKET_MACRO_POSTGRES_ADMIN_*` credentials,
 which are distinct from runtime `PG*` credentials. Normal cron export provides runtime
 configuration only and never exports administrator credentials.
 
@@ -230,7 +230,7 @@ lake/
     series=<series_id>/year=<YYYY>/month=<MM>/data.parquet
 
   gold/
-    dataset=regime_features_daily/
+    dataset=macro_features_daily/
       versions/build_id=<YYYYMMDDTHHMMSSZ>/
         data.parquet
         manifest.json
@@ -508,7 +508,7 @@ plot_path
 Authoritative file:
 
 ```text
-lake/gold/dataset=regime_features_daily/manifest.parquet
+lake/gold/dataset=macro_features_daily/manifest.parquet
 ```
 
 Exact catalog fields:
