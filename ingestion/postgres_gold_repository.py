@@ -241,6 +241,16 @@ _MIGRATION_LEDGER_DDL = f"""CREATE TABLE IF NOT EXISTS {_MIGRATION_LEDGER} (
     version INTEGER PRIMARY KEY,
     applied_at_utc TIMESTAMPTZ(6) NOT NULL
 )"""
+_OWNERSHIP_MIGRATIONS = tuple(
+    f"ALTER TABLE IF EXISTS {_quote(schema)}.{_quote(table)} "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
+    for schema, table in (
+        (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
+        (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
+        (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
+        (POSTGRES_SYNC_SCHEMA, _MIGRATION_LEDGER_TABLE),
+    )
+)
 _MOMENTUM_COLUMNS = tuple(column for column in GOLD_COLUMNS if "_momentum_autocorr_" in column)
 _MOMENTUM_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
     f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
@@ -948,6 +958,8 @@ class PostgresGoldSchemaMigrator:
                         "VALUES (%s, CURRENT_TIMESTAMP)",
                         (version,),
                     )
+                for statement in _OWNERSHIP_MIGRATIONS:
+                    cursor.execute(statement)
                 PostgresGoldSyncRepository._assert_schema_contract(cursor)
             finally:
                 cursor.close()
