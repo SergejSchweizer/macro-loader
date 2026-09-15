@@ -17,7 +17,11 @@ from ingestion.postgres_gold_repository import (
     _default_connection,
     _session_configuration,
 )
-from scripts.provision_postgres_role import POSTGRES_OWNER_ROLE, POSTGRES_ROLE
+from scripts.provision_postgres_role import (
+    POSTGRES_OWNER_ROLE,
+    POSTGRES_ROLE,
+    POSTGRES_SYNC_ROLE,
+)
 
 _TEMPORAL_PROBES = (
     datetime(2026, 3, 29, 0, 59, 59, 123456, tzinfo=UTC),
@@ -46,7 +50,7 @@ ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 _ROLE_SQL = """SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
     rolreplication, rolbypassrls
 FROM pg_roles
-WHERE rolname IN (%s, %s)
+WHERE rolname IN (%s, %s, %s)
 ORDER BY rolname"""
 _SCHEMA_OWNER_SQL = """SELECT namespaces.nspname, roles.rolname
 FROM pg_namespace AS namespaces
@@ -100,7 +104,7 @@ class PostgresLiveDatabaseConformanceInspector:
                 connection.close()
         return PostgresDatabaseConformanceEvidence(
             schema_table_count=len(_SCHEMA_SPECIFICATION),
-            role_count=2,
+            role_count=3,
             temporal_probe_count=len(_TEMPORAL_PROBES),
         )
 
@@ -153,10 +157,11 @@ class PostgresLiveDatabaseConformanceInspector:
     @staticmethod
     def _assert_roles(cursor: CursorPort) -> None:
         schemas = (POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA)
-        cursor.execute(_ROLE_SQL, (POSTGRES_OWNER_ROLE, POSTGRES_ROLE))
+        cursor.execute(_ROLE_SQL, (POSTGRES_OWNER_ROLE, POSTGRES_ROLE, POSTGRES_SYNC_ROLE))
         if tuple(cursor.fetchall()) != (
             (POSTGRES_ROLE, True, False, False, False, False, False),
             (POSTGRES_OWNER_ROLE, False, False, False, False, False, False),
+            (POSTGRES_SYNC_ROLE, True, False, False, False, False, False),
         ):
             raise ValueError("roles differ")
 
@@ -172,26 +177,28 @@ class PostgresLiveDatabaseConformanceInspector:
         if tuple(cursor.fetchall()) != expected_tables:
             raise ValueError("table ownership differs")
 
-        for schema in schemas:
-            cursor.execute(
-                "SELECT has_schema_privilege(%s, %s, 'USAGE'), "
-                "has_schema_privilege(%s, %s, 'CREATE')",
-                (POSTGRES_ROLE, schema, POSTGRES_ROLE, schema),
-            )
-            if cursor.fetchone() != (True, False):
-                raise ValueError("runtime schema grants differ")
+        for role in (POSTGRES_ROLE, POSTGRES_SYNC_ROLE):
+            for schema in schemas:
+                cursor.execute(
+                    "SELECT has_schema_privilege(%s, %s, 'USAGE'), "
+                    "has_schema_privilege(%s, %s, 'CREATE')",
+                    (role, schema, role, schema),
+                )
+                if cursor.fetchone() != (True, False):
+                    raise ValueError("runtime schema grants differ")
         for table in _SCHEMA_SPECIFICATION:
             has_dml = table.name != "schema_migrations"
-            expected = (True, has_dml, has_dml, has_dml)
-            cursor.execute(
-                "SELECT has_table_privilege(%s, %s, 'SELECT'), "
-                "has_table_privilege(%s, %s, 'INSERT'), "
-                "has_table_privilege(%s, %s, 'UPDATE'), "
-                "has_table_privilege(%s, %s, 'DELETE')",
-                (POSTGRES_ROLE, f"{table.schema}.{table.name}") * 4,
-            )
-            if cursor.fetchone() != expected:
-                raise ValueError("runtime table grants differ")
+            for role, role_has_dml in ((POSTGRES_ROLE, False), (POSTGRES_SYNC_ROLE, has_dml)):
+                expected = (True, role_has_dml, role_has_dml, role_has_dml)
+                cursor.execute(
+                    "SELECT has_table_privilege(%s, %s, 'SELECT'), "
+                    "has_table_privilege(%s, %s, 'INSERT'), "
+                    "has_table_privilege(%s, %s, 'UPDATE'), "
+                    "has_table_privilege(%s, %s, 'DELETE')",
+                    (role, f"{table.schema}.{table.name}") * 4,
+                )
+                if cursor.fetchone() != expected:
+                    raise ValueError("runtime table grants differ")
 
     def _assert_session(self, cursor: CursorPort) -> None:
         cursor.execute("SHOW TIME ZONE")

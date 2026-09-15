@@ -13,7 +13,7 @@ from ingestion.postgres_gold_repository import (
     PostgresGoldRepositoryError,
     PostgresSyncConfig,
 )
-from scripts.provision_postgres_role import POSTGRES_OWNER_ROLE, POSTGRES_ROLE
+from scripts.provision_postgres_role import POSTGRES_OWNER_ROLE, POSTGRES_ROLE, POSTGRES_SYNC_ROLE
 
 
 class FakeCursor:
@@ -57,6 +57,7 @@ class FakeCursor:
             self._many = [
                 (POSTGRES_ROLE, True, False, False, False, False, False),
                 (POSTGRES_OWNER_ROLE, False, False, False, False, False, False),
+                (POSTGRES_SYNC_ROLE, True, False, False, False, False, False),
             ]
         elif "FROM pg_namespace AS namespaces" in query and "classes" not in query:
             self._many = [
@@ -74,7 +75,8 @@ class FakeCursor:
             self._one = (True, False)
         elif "has_table_privilege" in query:
             assert params is not None
-            self._one = (True, "schema_migrations" not in str(params[1]))
+            has_dml = params[0] == POSTGRES_SYNC_ROLE and "schema_migrations" not in str(params[1])
+            self._one = (True, has_dml)
             self._one = (self._one[0], self._one[1], self._one[1], self._one[1])
         elif query == "SHOW TIME ZONE":
             self._one = (self.timezone,)
@@ -131,7 +133,7 @@ def test_live_inspector_independently_checks_schema_roles_session_and_temporal_p
         _config(), connection_factory=lambda _: connection
     )
 
-    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(4, 2, 2)
+    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(4, 3, 2)
     assert connection.rollbacks == 1
     assert connection.closed
     assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2
