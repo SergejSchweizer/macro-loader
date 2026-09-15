@@ -236,7 +236,7 @@ def test_real_postgres_independent_conformance_verifier_passes(
         {
             "consumer_row_count": 1,
             "digest_row_count": 1,
-            "role_count": 2,
+            "role_count": 3,
             "schema_table_count": 4,
             "temporal_probe_count": 2,
         },
@@ -488,7 +488,7 @@ def test_real_postgres_schema_drift_fails_closed_before_sync(
 
 
 @pytest.mark.integration
-def test_real_postgres_runtime_role_is_dml_only(postgres_dsn: str) -> None:
+def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: str) -> None:
     with psycopg.connect(postgres_dsn) as admin_connection:
         admin_connection.execute(
             provision_sql("macro_loader_test", "runtime-secret", "macro_loader_test")
@@ -503,9 +503,16 @@ def test_real_postgres_runtime_role_is_dml_only(postgres_dsn: str) -> None:
     )
     with psycopg.connect(runtime_dsn) as runtime_connection:
         runtime_connection.execute("SELECT * FROM macro_loader_sync.schema_migrations")
-        runtime_connection.execute("DELETE FROM macro_loader_sync.gold_sync_state")
-        runtime_connection.rollback()
         for operation, statement in (
+            (
+                "INSERT",
+                "INSERT INTO macro_loader_sync.gold_sync_state "
+                "(dataset_id, source_build_id, data_sha256, schema_version, "
+                "feature_version, row_count, synced_at_utc) VALUES "
+                "('probe', 'probe', repeat('a', 64), 1, 1, 0, CURRENT_TIMESTAMP)",
+            ),
+            ("UPDATE", "UPDATE macro_loader_sync.gold_sync_state SET source_build_id = 'probe'"),
+            ("DELETE", "DELETE FROM macro_loader_sync.gold_sync_state"),
             ("CREATE", "CREATE TABLE macro_loader.forbidden (id INTEGER)"),
             (
                 "ALTER",
@@ -522,6 +529,13 @@ def test_real_postgres_runtime_role_is_dml_only(postgres_dsn: str) -> None:
                 pytest.fail(f"runtime role unexpectedly permitted {operation}")
             finally:
                 runtime_connection.rollback()
+
+    sync_dsn = postgres_dsn.replace(
+        "macro_loader_test:macro_loader_test", "macro-loader-sync:runtime-secret"
+    )
+    with psycopg.connect(sync_dsn) as sync_connection:
+        sync_connection.execute("DELETE FROM macro_loader_sync.gold_sync_state")
+        sync_connection.rollback()
 
         runtime_connection.execute(
             'GRANT SELECT ON macro_loader.macro_features_daily TO "runtime-grant-probe"'
