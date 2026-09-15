@@ -277,6 +277,8 @@ _FED_POLICY_RENAME_MIGRATION = "ALTER TABLE " + _CONSUMER + " " + ", ".join(
         'DROP COLUMN IF EXISTS "fed_3m_expected_move_bp"',
         'DROP COLUMN IF EXISTS "fed_next_expected_move_bp_delta_5obs"',
         'DROP COLUMN IF EXISTS "fomc_business_days_to_next"',
+        'ADD COLUMN IF NOT EXISTS "fed_m3_expected_move_bp" DOUBLE PRECISION NULL',
+        'ADD COLUMN IF NOT EXISTS "fed_repricing_5obs_bp" DOUBLE PRECISION NULL',
     ]
 )
 
