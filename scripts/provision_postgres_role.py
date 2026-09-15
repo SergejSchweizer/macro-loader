@@ -10,14 +10,14 @@ from dataclasses import dataclass
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
-POSTGRES_ROLE = "regime-loader"
-POSTGRES_OWNER_ROLE = "regime-loader-owner"
-POSTGRES_SCHEMAS = ("regime_loader", "regime_loader_sync")
+POSTGRES_ROLE = "macro-loader"
+POSTGRES_OWNER_ROLE = "macro-loader-owner"
+POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
-    ("regime_loader", "regime_features_daily"),
-    ("regime_loader_sync", "gold_sync_state"),
-    ("regime_loader_sync", "gold_row_hashes"),
-    ("regime_loader_sync", "schema_migrations"),
+    ("macro_loader", "macro_features_daily"),
+    ("macro_loader_sync", "gold_sync_state"),
+    ("macro_loader_sync", "gold_row_hashes"),
+    ("macro_loader_sync", "schema_migrations"),
 )
 
 
@@ -127,7 +127,7 @@ BEGIN
               AND (NOT rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
                    OR rolreplication OR rolbypassrls)
         ) THEN
-            RAISE EXCEPTION 'existing regime-loader role has incompatible privileges';
+            RAISE EXCEPTION 'existing macro-loader role has incompatible privileges';
         END IF;
         ALTER ROLE {role_i} PASSWORD {password_l};
     END IF;
@@ -138,8 +138,8 @@ GRANT CONNECT ON DATABASE {database_i} TO {role_i};
 GRANT {owner_i} TO {admin_i};
 {schemas}
 {table_ownership}
-REVOKE ALL ON ALL TABLES IN SCHEMA "regime_loader" FROM {role_i};
-REVOKE ALL ON ALL TABLES IN SCHEMA "regime_loader_sync" FROM {role_i};
+REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
+REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
 DO $grants$
 BEGIN
 {table_grants}

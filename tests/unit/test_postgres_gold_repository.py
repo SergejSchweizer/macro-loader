@@ -40,7 +40,7 @@ def _config(password: str = "repo-secret") -> PostgresSyncConfig:
 
 def _admin_config(password: str = "admin-secret") -> PostgresAdminConfig:
     return PostgresAdminConfig(
-        POSTGRES_HOST, POSTGRES_PORT, "regime-loader-admin", "quant_data", password
+        POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "quant_data", password
     )
 
 
@@ -201,11 +201,11 @@ def test_schema_reconstructor_recreates_only_loader_schemas_and_revalidates_cont
     ).recreate()
 
     queries = _execute_queries(connection)
-    assert 'DROP SCHEMA IF EXISTS "regime_loader" CASCADE' in queries
-    assert 'DROP SCHEMA IF EXISTS "regime_loader_sync" CASCADE' in queries
-    assert all("DROP SCHEMA" not in query or "regime_loader" in query for query in queries)
-    assert 'SET ROLE "regime-loader-owner"' in queries
-    assert 'GRANT USAGE ON SCHEMA "regime_loader" TO "regime-loader"' in queries
+    assert 'DROP SCHEMA IF EXISTS "macro_loader" CASCADE' in queries
+    assert 'DROP SCHEMA IF EXISTS "macro_loader_sync" CASCADE' in queries
+    assert all("DROP SCHEMA" not in query or "macro_loader" in query for query in queries)
+    assert 'SET ROLE "macro-loader-owner"' in queries
+    assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro-loader"' in queries
     assert verified
     assert ("commit", None, None) in connection.events
 
@@ -227,12 +227,12 @@ def test_config_requires_exact_endpoint_role_and_hides_password() -> None:
         {
             "PGHOST": "10.10.1.3",
             "PGPORT": "54321",
-            "PGUSER": "regime-loader",
+            "PGUSER": "macro-loader",
             "PGDATABASE": "quant_data",
             "PGPASSWORD": "repo-secret",
         }
     )
-    assert (config.host, config.port, config.user) == ("10.10.1.3", 54321, "regime-loader")
+    assert (config.host, config.port, config.user) == ("10.10.1.3", 54321, "macro-loader")
     assert "repo-secret" not in repr(config)
     with pytest.raises(ValueError, match="host"):
         PostgresSyncConfig("localhost", 54321, POSTGRES_USER, "quant_data", "x")
@@ -253,23 +253,23 @@ def test_admin_config_uses_distinct_namespace_role_and_redacted_password() -> No
         {
             "MARKET_REGIME_POSTGRES_ADMIN_HOST": "10.10.1.3",
             "MARKET_REGIME_POSTGRES_ADMIN_PORT": "54321",
-            "MARKET_REGIME_POSTGRES_ADMIN_USER": "regime-loader-admin",
+            "MARKET_REGIME_POSTGRES_ADMIN_USER": "macro-loader-admin",
             "MARKET_REGIME_POSTGRES_ADMIN_DATABASE": "quant_data",
             "MARKET_REGIME_POSTGRES_ADMIN_PASSWORD": "admin-secret",
         }
     )
-    assert config.user == "regime-loader-admin"
+    assert config.user == "macro-loader-admin"
     assert "admin-secret" not in repr(config)
     with pytest.raises(ValueError, match="host"):
-        PostgresAdminConfig("localhost", POSTGRES_PORT, "regime-loader-admin", "quant_data", "x")
+        PostgresAdminConfig("localhost", POSTGRES_PORT, "macro-loader-admin", "quant_data", "x")
     with pytest.raises(ValueError, match="port"):
-        PostgresAdminConfig(POSTGRES_HOST, 5432, "regime-loader-admin", "quant_data", "x")
+        PostgresAdminConfig(POSTGRES_HOST, 5432, "macro-loader-admin", "quant_data", "x")
     with pytest.raises(ValueError, match="user"):
         PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "", "quant_data", "x")
     with pytest.raises(ValueError, match="database"):
-        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "regime-loader-admin", "", "x")
+        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "", "x")
     with pytest.raises(ValueError, match="password"):
-        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "regime-loader-admin", "quant_data", "")
+        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "quant_data", "")
     with pytest.raises(ValueError, match="differ from runtime"):
         PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "quant_data", "x")
     with pytest.raises(ValueError, match="password must differ"):
@@ -277,7 +277,7 @@ def test_admin_config_uses_distinct_namespace_role_and_redacted_password() -> No
             {
                 "MARKET_REGIME_POSTGRES_ADMIN_HOST": "10.10.1.3",
                 "MARKET_REGIME_POSTGRES_ADMIN_PORT": "54321",
-                "MARKET_REGIME_POSTGRES_ADMIN_USER": "regime-loader-admin",
+                "MARKET_REGIME_POSTGRES_ADMIN_USER": "macro-loader-admin",
                 "MARKET_REGIME_POSTGRES_ADMIN_DATABASE": "quant_data",
                 "MARKET_REGIME_POSTGRES_ADMIN_PASSWORD": "shared-secret",
                 "PGPASSWORD": "shared-secret",
@@ -316,7 +316,7 @@ def test_default_connection_passes_connect_timeout_and_application_name(
         )
     )
     assert captured["connect_timeout"] == 9
-    assert captured["application_name"] == "regime-loader"
+    assert captured["application_name"] == "macro-loader"
 
 
 def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> None:
@@ -326,7 +326,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     migrator.migrate()
     queries = _execute_queries(connection)
     assert queries[:5] == [
-        "SET application_name = 'regime-loader'",
+        "SET application_name = 'macro-loader'",
         "SET TIME ZONE 'UTC'",
         "SET lock_timeout = '5000ms'",
         "SET statement_timeout = '30000ms'",
@@ -336,10 +336,10 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert '"timestamp_m1" TIMESTAMPTZ(6) NOT NULL PRIMARY KEY' in ddl
     for column in GOLD_COLUMNS[1:]:
         assert f'"{column}" DOUBLE PRECISION NULL' in ddl
-    assert '"regime_loader"."regime_features_daily"' in ddl
-    assert '"regime_loader_sync"."gold_sync_state"' in ddl
-    assert '"regime_loader_sync"."gold_row_hashes"' in ddl
-    assert '"regime_loader_sync"."schema_migrations"' in ddl
+    assert '"macro_loader"."macro_features_daily"' in ddl
+    assert '"macro_loader_sync"."gold_sync_state"' in ddl
+    assert '"macro_loader_sync"."gold_row_hashes"' in ddl
+    assert '"macro_loader_sync"."schema_migrations"' in ddl
     assert queries.count(module._CONSUMER_DDL) == 1
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
@@ -498,19 +498,19 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     queries = _execute_queries(connection)
     lock_index = next(i for i, query in enumerate(queries) if "pg_advisory_xact_lock" in query)
     insert_index = next(
-        i for i, query in enumerate(queries) if query.startswith('INSERT INTO "regime_loader"')
+        i for i, query in enumerate(queries) if query.startswith('INSERT INTO "macro_loader"')
     )
     update_index = next(
-        i for i, query in enumerate(queries) if query.startswith('UPDATE "regime_loader"')
+        i for i, query in enumerate(queries) if query.startswith('UPDATE "macro_loader"')
     )
     delete_index = next(
-        i for i, query in enumerate(queries) if query.startswith('DELETE FROM "regime_loader"')
+        i for i, query in enumerate(queries) if query.startswith('DELETE FROM "macro_loader"')
     )
     summary_index = next(i for i, query in enumerate(queries) if query.startswith("SELECT COUNT"))
     state_index = next(
         i
         for i, query in enumerate(queries)
-        if 'INSERT INTO "regime_loader_sync"."gold_sync_state"' in query
+        if 'INSERT INTO "macro_loader_sync"."gold_sync_state"' in query
     )
     assert lock_index < insert_index < update_index < delete_index < summary_index < state_index
     assert queries.count(module._INSERT_ROW_SQL) == 1
@@ -544,7 +544,7 @@ def test_locked_transaction_uses_deterministic_namespaced_key_before_reads() -> 
     assert lock_index < state_index
     assert lock_event[2] == (expected_key,)
     assert expected_key == module._advisory_lock_key(POSTGRES_DATASET_ID)
-    assert "regime-loader" in module.POSTGRES_ADVISORY_LOCK_NAMESPACE
+    assert "macro-loader" in module.POSTGRES_ADVISORY_LOCK_NAMESPACE
 
 
 def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() -> None:
@@ -612,7 +612,7 @@ def test_missing_planned_update_rolls_back_before_state_write() -> None:
 
     queries = _execute_queries(connection)
     assert not any(
-        'INSERT INTO "regime_loader_sync"."gold_sync_state"' in query for query in queries
+        'INSERT INTO "macro_loader_sync"."gold_sync_state"' in query for query in queries
     )
     assert ("rollback", None, None) in connection.events
 
@@ -669,7 +669,7 @@ def test_post_write_verification_failure_rolls_back_before_state_write() -> None
         repository.apply_delta(POSTGRES_DATASET_ID, GoldDeltaPlan((), (), (), (), ()), _state())
     queries = _execute_queries(connection)
     assert not any(
-        'INSERT INTO "regime_loader_sync"."gold_sync_state"' in query for query in queries
+        'INSERT INTO "macro_loader_sync"."gold_sync_state"' in query for query in queries
     )
     assert ("rollback", None, None) in connection.events
 

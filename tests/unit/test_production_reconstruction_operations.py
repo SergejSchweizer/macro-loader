@@ -57,7 +57,7 @@ class Pipeline:
 
 
 def _configurations() -> tuple[PostgresSyncConfig, PostgresAdminConfig]:
-    runtime = PostgresSyncConfig("10.10.1.3", 54321, "regime-loader", "db", "runtime")
+    runtime = PostgresSyncConfig("10.10.1.3", 54321, "macro-loader", "db", "runtime")
     admin = PostgresAdminConfig("10.10.1.3", 54321, "admin", "db", "admin")
     return runtime, admin
 
@@ -95,7 +95,7 @@ def test_locks_and_endpoint_preflight_require_exact_production_server(
     connection.cursor_value.row = ("10.10.1.3", 54321)
     operations.preflight_endpoint()
 
-    assert (operations.project_root / ".maintenance/regime-loader-reconstruction").is_file()
+    assert (operations.project_root / ".maintenance/macro-loader-reconstruction").is_file()
     assert connection.cursor_value.queries[0][1] == (module._lock_key(),)
     operations.enable_scheduling()
     assert connection.closed
@@ -135,7 +135,7 @@ def test_maintenance_marker_is_idempotent_for_explicit_reconstruction_retries(
     operations.disable_scheduling()
     operations.disable_scheduling()
 
-    assert (operations.project_root / ".maintenance/regime-loader-reconstruction").is_file()
+    assert (operations.project_root / ".maintenance/macro-loader-reconstruction").is_file()
 
 
 def test_backup_snapshots_full_lake_and_private_database_dump(

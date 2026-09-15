@@ -30,7 +30,7 @@ def _frame() -> pl.DataFrame:
 def _postgres_env(monkeypatch: pytest.MonkeyPatch, *, password: str = "repo-secret") -> None:
     monkeypatch.setenv("PGHOST", "10.10.1.3")
     monkeypatch.setenv("PGPORT", "54321")
-    monkeypatch.setenv("PGUSER", "regime-loader")
+    monkeypatch.setenv("PGUSER", "macro-loader")
     monkeypatch.setenv("PGDATABASE", "quant_data")
     monkeypatch.setenv("PGPASSWORD", password)
 
@@ -38,7 +38,7 @@ def _postgres_env(monkeypatch: pytest.MonkeyPatch, *, password: str = "repo-secr
 def _postgres_admin_env(monkeypatch: pytest.MonkeyPatch, *, password: str = "admin-secret") -> None:
     monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_HOST", "10.10.1.3")
     monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_PORT", "54321")
-    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_USER", "regime-loader-admin")
+    monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_USER", "macro-loader-admin")
     monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_DATABASE", "quant_data")
     monkeypatch.setenv("MARKET_REGIME_POSTGRES_ADMIN_PASSWORD", password)
 
@@ -80,7 +80,7 @@ def test_postgres_runtime_composition_uses_exact_protected_endpoint_without_conn
     assert isinstance(config, cli.PostgresSyncConfig)
     assert config.host == "10.10.1.3"
     assert config.port == 54321
-    assert config.user == "regime-loader"
+    assert config.user == "macro-loader"
     assert config.database == "quant_data"
     assert config.password == "repo-secret"
     assert "repo-secret" not in repr(config)
@@ -141,7 +141,7 @@ def test_postgres_migration_composition_uses_only_distinct_admin_configuration(
     assert len(captured) == 1
     config = captured[0]
     assert isinstance(config, cli.PostgresAdminConfig)
-    assert config.user == "regime-loader-admin"
+    assert config.user == "macro-loader-admin"
     assert "admin-secret" not in repr(config)
 
 
@@ -217,7 +217,7 @@ def test_postgres_failure_is_nonzero_and_redacts_password_and_credential_text(
 ) -> None:
     _postgres_env(monkeypatch)
     stderr = io.StringIO()
-    credential_text = "postgresql://regime-loader:repo-secret@10.10.1.3:54321/quant_data"
+    credential_text = "postgresql://macro-loader:repo-secret@10.10.1.3:54321/quant_data"
 
     def broken_runtime(**kwargs: object) -> cli.PostgresSyncRuntime:
         raise RuntimeError(f"database failed: {credential_text}")

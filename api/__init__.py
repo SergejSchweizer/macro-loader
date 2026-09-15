@@ -1,1 +1,1 @@
-"""CLI adapters for regime-loader."""
+"""CLI adapters for macro-loader."""

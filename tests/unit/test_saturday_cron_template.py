@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-CRON_TEMPLATE = Path("ops/regime-loader.cron")
-CRON_RUNNER = Path("ops/run-regime-loader-sunday.sh")
+CRON_TEMPLATE = Path("ops/macro-loader.cron")
+CRON_RUNNER = Path("ops/run-macro-loader-sunday.sh")
 QUALITY_GATES_WORKFLOW = Path(".github/workflows/quality-gates.yml")
 
 
@@ -32,12 +32,12 @@ def test_sunday_gold_sync_cron_template_is_operational() -> None:
     runner = CRON_RUNNER.read_text(encoding="utf-8")
 
     assert job.startswith("0 10 * * 0 ")
-    assert job == "0 10 * * 0 /home/dev_market/regime-loader/ops/run-regime-loader-sunday.sh"
+    assert job == "0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh"
     assert '"$PROJECT_ROOT/scripts/export_cron_config.py" "$CONFIG_FILE"' in runner
     assert 'cd "$PROJECT_ROOT"' in runner
     assert 'git -C "$PROJECT_ROOT" rev-parse --verify HEAD' in runner
-    assert "export REGIME_LOADER_GIT_SHA" in runner
-    assert 'LOCK_PATH="$LOCK_DIR/regime-loader-sunday.lock"' in runner
+    assert "export MACRO_LOADER_GIT_SHA" in runner
+    assert 'LOCK_PATH="$LOCK_DIR/macro-loader-sunday.lock"' in runner
     assert "if ! flock -n 9; then" in runner
     assert "exit 3" in runner
     assert 'mkdir -p "$LOG_DIR"' in runner
@@ -77,7 +77,7 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
     (project_root / "ops").mkdir(parents=True)
     (project_root / "scripts").mkdir()
     (project_root / ".venv" / "bin").mkdir(parents=True)
-    runner_path = project_root / "ops" / "run-regime-loader-sunday.sh"
+    runner_path = project_root / "ops" / "run-macro-loader-sunday.sh"
     runner_path.write_text(CRON_RUNNER.read_text(encoding="utf-8"), encoding="utf-8")
     runner_path.chmod(0o755)
     (project_root / "config.yaml").write_text("fixture\n", encoding="utf-8")
@@ -86,9 +86,9 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
         "#!/usr/bin/env bash\nprintf 'export LAKE_ROOT=%q\\n' fixture-lake\n",
     )
     _write_executable(
-        project_root / ".venv" / "bin" / "regime-loader",
+        project_root / ".venv" / "bin" / "macro-loader",
         "#!/usr/bin/env bash\n"
-        'printf \'%s|%s|%s\\n\' "$PWD" "$REGIME_LOADER_GIT_SHA" "$*" '
+        'printf \'%s|%s|%s\\n\' "$PWD" "$MACRO_LOADER_GIT_SHA" "$*" '
         '>> "$RUNNER_RECORD"\n'
         'if [[ "${RUNNER_FAIL_DAILY:-}" == "true" && "$*" == *"run-daily" ]]; then exit 7; fi\n',
     )
@@ -114,7 +114,7 @@ def test_sunday_runner_uses_repository_root_and_exports_one_git_identity(tmp_pat
     }
 
     completed = subprocess.run(
-        [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
         cwd=unrelated_cwd,
         env=environment,
         check=False,
@@ -141,7 +141,7 @@ def test_sunday_runner_stops_before_commands_when_git_identity_is_unavailable(
     }
 
     completed = subprocess.run(
-        [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -158,7 +158,7 @@ def test_sunday_runner_rejects_lock_contention_before_any_cli_command(tmp_path: 
     project_root, bin_dir = _runner_fixture(tmp_path)
     lock_dir = project_root / ".locks"
     lock_dir.mkdir()
-    lock_path = lock_dir / "regime-loader-sunday.lock"
+    lock_path = lock_dir / "macro-loader-sunday.lock"
     record_path = tmp_path / "runner-record"
     environment = {
         **os.environ,
@@ -169,7 +169,7 @@ def test_sunday_runner_rejects_lock_contention_before_any_cli_command(tmp_path: 
     with lock_path.open("w", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         completed = subprocess.run(
-            [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+            [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
             cwd=tmp_path,
             env=environment,
             check=False,
@@ -186,7 +186,7 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
     tmp_path: Path,
 ) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
-    marker = project_root / ".maintenance" / "regime-loader-reconstruction"
+    marker = project_root / ".maintenance" / "macro-loader-reconstruction"
     marker.parent.mkdir()
     marker.touch()
     record_path = tmp_path / "runner-record"
@@ -197,7 +197,7 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
     }
 
     blocked = subprocess.run(
-        [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -205,9 +205,9 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
         text=True,
     )
     verified = subprocess.run(
-        [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
         cwd=tmp_path,
-        env={**environment, "REGIME_LOADER_SUNDAY_VERIFY_ONLY": "true"},
+        env={**environment, "MACRO_LOADER_SUNDAY_VERIFY_ONLY": "true"},
         check=False,
         capture_output=True,
         text=True,
@@ -215,7 +215,7 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
 
     assert blocked.returncode == 4
     assert "disabled for production reconstruction" in (
-        project_root / ".logs" / "regime-loader.log"
+        project_root / ".logs" / "macro-loader.log"
     ).read_text(encoding="utf-8")
     assert verified.returncode == 0
     assert not record_path.exists()
@@ -234,7 +234,7 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
     }
 
     failed = subprocess.run(
-        [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -242,7 +242,7 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
         text=True,
     )
     retry = subprocess.run(
-        [str(project_root / "ops" / "run-regime-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
         cwd=tmp_path,
         env={key: value for key, value in environment.items() if key != "RUNNER_FAIL_DAILY"},
         check=False,

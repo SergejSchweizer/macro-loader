@@ -47,7 +47,7 @@ def test_report_rejects_unordered_or_duplicate_checks() -> None:
 def test_verifier_fails_closed_without_exposing_adapter_error() -> None:
     class BrokenCatalog:
         def read(self) -> object:
-            raise RuntimeError("postgresql://regime-loader:secret@example.test/db")
+            raise RuntimeError("postgresql://macro-loader:secret@example.test/db")
 
     verifier = GoldPostgresConformanceVerifier(
         catalog=BrokenCatalog(),  # type: ignore[arg-type]

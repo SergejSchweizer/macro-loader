@@ -1,4 +1,4 @@
-# REGIME-LOADER
+# MACRO-LOADER
 
 Reusable daily market-state loader for quantitative research and portfolio systems.
 
@@ -260,9 +260,9 @@ PostgreSQL is a serving/research replica, not the canonical data store. The only
 
 ```text
 canonical source: lake/gold/dataset=regime_features_daily/...
-consumer table:  regime_loader.regime_features_daily
-sync state:      regime_loader_sync.gold_sync_state
-row digests:     regime_loader_sync.gold_row_hashes
+consumer table:  macro_loader.macro_features_daily
+sync state:      macro_loader_sync.gold_sync_state
+row digests:     macro_loader_sync.gold_row_hashes
 ```
 
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
@@ -277,7 +277,7 @@ Install/sync the project and use the console entry point:
 
 ```bash
 uv sync
-uv run regime-loader --help
+uv run macro-loader --help
 ```
 
 The exact command surface is:
@@ -302,35 +302,35 @@ Examples:
 
 ```bash
 # Normal bounded source update only.
-uv run regime-loader \
+uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   update --series us_10y
 
 # Explicit operator reconciliation; never invoked by run-daily.
-uv run regime-loader \
+uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   reconcile --series us_10y
 
 # Full local Gold publication path.
-uv run regime-loader \
+uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   run-daily
 
 # Synchronize the currently catalog-selected Gold build only.
-uv run regime-loader \
+uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   gold-sync-postgres
 
 # Explicitly apply PostgreSQL schema migrations with protected admin credentials.
-uv run regime-loader postgres-migrate
+uv run macro-loader postgres-migrate
 
 # Independently verify the current Gold bundle and PostgreSQL serving replica.
-uv run regime-loader \
+uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   postgres-verify
 
 # Rebuild and print the local inventory.
-uv run regime-loader \
+uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   inventory --json
 ```
@@ -387,7 +387,7 @@ FRED-backed source commands require `FRED_API_KEY`. Gold-capable commands (`gold
 ```text
 PGHOST=10.10.1.3
 PGPORT=54321
-PGUSER=regime-loader
+PGUSER=macro-loader
 PGDATABASE=<serving database>
 PGPASSWORD=<repository-specific secret>
 ```
@@ -399,14 +399,14 @@ not run the synchronization mutation path and does not create durable probe rows
 
 Schema migration is an explicit, separately authorized `postgres-migrate` operation. It requires the protected admin-only environment variables `MARKET_REGIME_POSTGRES_ADMIN_HOST`, `MARKET_REGIME_POSTGRES_ADMIN_PORT`, `MARKET_REGIME_POSTGRES_ADMIN_USER`, `MARKET_REGIME_POSTGRES_ADMIN_DATABASE`, and `MARKET_REGIME_POSTGRES_ADMIN_PASSWORD`. The admin user and password are distinct from the runtime role/credential and are never exported by the normal cron configuration.
 
-The `regime-loader` runtime role is a non-owning LOGIN principal. It has schema `USAGE`, DML only on the loader-owned consumer and sync tables, and read-only access to the migration ledger; it cannot create schemas or objects, change grants, or access unrelated schemas. The admin-managed `regime-loader-owner` role owns loader schemas and tables without LOGIN capability.
+The `macro-loader` runtime role is a non-owning LOGIN principal. It has schema `USAGE`, DML only on the loader-owned consumer and sync tables, and read-only access to the migration ledger; it cannot create schemas or objects, change grants, or access unrelated schemas. The admin-managed `macro-loader-owner` role owns loader schemas and tables without LOGIN capability.
 
 Do not commit either credential set as a connection string. Deployment configuration lives in ignored `config.yaml`. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and role and exports shell-safe runtime `PG*`, lake, project, mirror, FRED, and logging variables only.
 
 The canonical main log is enforced as:
 
 ```text
-${PROJECT_ROOT}/.logs/regime-loader.log
+${PROJECT_ROOT}/.logs/macro-loader.log
 ```
 
 The optional Gold mirror still runs only as part of local publication; a PostgreSQL sync failure does not roll back the authoritative Gold catalog.
@@ -417,25 +417,25 @@ The data lake is intended to run on the deployment host/NAS, not as scheduled Gi
 
 ```cron
 CRON_TZ=Europe/Vienna
-0 10 * * 0 /home/dev_market/regime-loader/ops/run-regime-loader-sunday.sh
+0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh
 ```
 
-The one Sunday job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends both command streams to `regime-loader.log`. The PostgreSQL sync runs only after `run-daily` succeeds.
+The one Sunday job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. The PostgreSQL sync runs only after `run-daily` succeeds.
 
 Install it for the service account after reviewing the absolute project path:
 
 ```bash
-crontab ops/regime-loader.cron
+crontab ops/macro-loader.cron
 ```
 
 Operational semantics are explicit:
 
 - `run-daily` failure prevents PostgreSQL synchronization;
 - `gold-sync-postgres` failure makes the cron job non-zero but does **not** roll back or invalidate the already published local Gold build;
-- after a database-only failure, retry only `uv run regime-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
+- after a database-only failure, retry only `uv run macro-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
 - the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed weekly runs;
 - source maximum-history reconciliation remains a separate explicit schedule/command and is never part of the Sunday main chain;
-- both main commands append stdout/stderr to the same `${PROJECT_ROOT}/.logs/regime-loader.log` through `LOG_PATH`.
+- both main commands append stdout/stderr to the same `${PROJECT_ROOT}/.logs/macro-loader.log` through `LOG_PATH`.
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
 
