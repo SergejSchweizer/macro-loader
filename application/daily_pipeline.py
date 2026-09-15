@@ -11,6 +11,7 @@ import polars as pl
 
 from application.bronze_orchestration import BatchRunResult, BronzeOrchestrator
 from application.contracts import SeriesContract
+from application.errors import ProviderHttpError
 from application.fed_policy_features import build_fed_policy_features
 from application.gold_frame import GoldFrameBuild, assemble_gold_frame
 from application.gold_publication import GoldPublisher
@@ -313,7 +314,20 @@ class DailyMedallionPipeline:
         volatility, macro = self._polars_execution.map(lambda build: build(), feature_builders)
         fed_policy = None
         if self._fed_policy_source is not None:
-            snapshots = self._fed_policy_source.refresh(today - timedelta(days=10), today)
+            try:
+                snapshots = self._fed_policy_source.refresh(today - timedelta(days=10), today)
+            except ProviderHttpError as error:
+                # Public FedWatch history is legitimately unavailable on some dates.
+                # Preserve existing snapshots and publish nulls for unavailable observations;
+                # never substitute unofficial probabilities or carry them forward.
+                self._event(
+                    run_id,
+                    command,
+                    stage="fed-policy",
+                    status="unavailable",
+                    error=str(error),
+                )
+                snapshots = self._fed_policy_source.read()
             fed_policy = build_fed_policy_features(snapshots)
         result = assemble_gold_frame(
             volatility,
