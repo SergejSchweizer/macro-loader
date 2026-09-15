@@ -28,7 +28,7 @@ def _env() -> dict[str, str]:
 def test_exact_endpoint_and_repository_role() -> None:
     config = ProvisioningConfig.from_env(_env())
     assert (config.host, config.port) == (POSTGRES_HOST, POSTGRES_PORT)
-    assert POSTGRES_ROLE == "regime-loader"
+    assert POSTGRES_ROLE == "macro-loader"
     command = psql_command(config)
     assert command[command.index("--host") + 1] == "10.10.1.3"
     assert command[command.index("--port") + 1] == "54321"
@@ -36,7 +36,7 @@ def test_exact_endpoint_and_repository_role() -> None:
 
 def test_sql_is_least_privilege_and_schema_scoped() -> None:
     sql = provision_sql("quant_data", "repo-secret", "postgres-admin")
-    assert 'CREATE ROLE "regime-loader"' in sql
+    assert 'CREATE ROLE "macro-loader"' in sql
     assert f'CREATE ROLE "{POSTGRES_OWNER_ROLE}" NOLOGIN' in sql
     for token in (
         "LOGIN PASSWORD",
@@ -47,25 +47,23 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
         "NOBYPASSRLS",
     ):
         assert token in sql
-    assert POSTGRES_SCHEMAS == ("regime_loader", "regime_loader_sync")
+    assert POSTGRES_SCHEMAS == ("macro_loader", "macro_loader_sync")
     assert (
-        f'CREATE SCHEMA IF NOT EXISTS "regime_loader" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"' in sql
+        f'CREATE SCHEMA IF NOT EXISTS "macro_loader" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"' in sql
     )
     assert (
-        f'CREATE SCHEMA IF NOT EXISTS "regime_loader_sync" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"'
+        f'CREATE SCHEMA IF NOT EXISTS "macro_loader_sync" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"'
         in sql
     )
-    assert 'REVOKE CREATE ON SCHEMA "regime_loader" FROM "regime-loader"' in sql
-    assert 'GRANT USAGE ON SCHEMA "regime_loader" TO "regime-loader"' in sql
+    assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro-loader"' in sql
+    assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro-loader"' in sql
     assert "GRANT USAGE, CREATE" not in sql
     for schema, table in POSTGRES_TABLES[:-1]:
         assert (
-            f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "{schema}"."{table}" TO "regime-loader"'
+            f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "{schema}"."{table}" TO "macro-loader"'
             in sql
         )
-    assert (
-        'GRANT SELECT ON TABLE "regime_loader_sync"."schema_migrations" TO "regime-loader"' in sql
-    )
+    assert 'GRANT SELECT ON TABLE "macro_loader_sync"."schema_migrations" TO "macro-loader"' in sql
     assert "GRANT ALL" not in sql
     assert "public" not in {schema.lower() for schema in POSTGRES_SCHEMAS}
 
@@ -74,10 +72,10 @@ def test_sql_is_idempotent_and_fails_on_incompatible_existing_state() -> None:
     sql = provision_sql("quant_data", "repo-secret", "postgres-admin")
     assert "IF NOT EXISTS (SELECT 1 FROM pg_roles" in sql
     assert "CREATE SCHEMA IF NOT EXISTS" in sql
-    assert "existing regime-loader role has incompatible privileges" in sql
-    assert f'ALTER SCHEMA "regime_loader" OWNER TO "{POSTGRES_OWNER_ROLE}"' in sql
+    assert "existing macro-loader role has incompatible privileges" in sql
+    assert f'ALTER SCHEMA "macro_loader" OWNER TO "{POSTGRES_OWNER_ROLE}"' in sql
     assert f'ALTER DEFAULT PRIVILEGES FOR ROLE "{POSTGRES_OWNER_ROLE}"' in sql
-    assert "to_regclass('regime_loader_sync.schema_migrations') IS NOT NULL" in sql
+    assert "to_regclass('macro_loader_sync.schema_migrations') IS NOT NULL" in sql
 
 
 def test_admin_and_application_passwords_must_be_distinct() -> None:

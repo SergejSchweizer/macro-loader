@@ -1,6 +1,6 @@
 # Backlog
 
-This backlog is the implementation source of truth for `regime-loader`.
+This backlog is the implementation source of truth for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
@@ -1412,7 +1412,7 @@ MVP is complete only when PR-01 through PR-24 are merged and:
 This section consolidates the former `BACKLOG_POSTGRES.md`. Only the canonical
 Gold dataset is replicated to PostgreSQL; Parquet Gold remains authoritative.
 The target is `10.10.1.3:54321`, the application role is exactly
-`regime-loader`, and credentials are runtime-only and never committed,
+`macro-loader`, and credentials are runtime-only and never committed,
 logged, or persisted. PostgreSQL temporal storage follows the shared
 `pg-temporal-v1` contract used by `xetra-loader` and `crypto-loader`: every
 persisted instant is exactly `TIMESTAMPTZ(6)`, every PostgreSQL session is UTC,
@@ -1422,7 +1422,7 @@ than a string format; sanitized acceptance artifacts serialize instants as
 `YYYY-MM-DDTHH:MM:SS.ffffffZ` for diagnostics only. The first synchronization
 loads the complete current Gold history; later synchronizations reconcile the
 complete row-digest state, including missed runs and historical corrections.
-Sync logs use the existing `${PROJECT_ROOT}/.logs/regime-loader.log` path.
+Sync logs use the existing `${PROJECT_ROOT}/.logs/macro-loader.log` path.
 
 Dependency graph:
 
@@ -1452,7 +1452,7 @@ Design patterns: Specification/Policy Object; Architectural baseline only.
 Description:
 - R1: Define PR-31 through PR-39 with exact dependencies, Git metadata, and one-to-one requirements and acceptance criteria.
 - R2: Define Gold-only serving to PostgreSQL at `10.10.1.3:54321`; Parquet Gold remains authoritative.
-- R3: Define the dedicated `regime-loader` runtime role and protected credential handling.
+- R3: Define the dedicated `macro-loader` runtime role and protected credential handling.
 - R4: Define UTC `timestamp_m1` storage as `TIMESTAMPTZ(6)` and observation-day identity.
 - R5: Define complete bootstrap and complete accumulated-delta reconciliation semantics.
 - R6: Define the shared project log path and an executable offline governance contract.
@@ -1552,8 +1552,8 @@ Commit: `feat(pr-35): postgres-service-role-provisioning add least privilege rol
 Design patterns: Command, Least Privilege, Idempotent Provisioning.
 
 Description:
-- R1: Provision or validate exactly the `regime-loader` LOGIN role at the dedicated endpoint.
-- R2: Enforce least-privilege attributes and only the `regime_loader` and `regime_loader_sync` schema rights.
+- R1: Provision or validate exactly the `macro-loader` LOGIN role at the dedicated endpoint.
+- R2: Enforce least-privilege attributes and only the `macro_loader` and `macro_loader_sync` schema rights.
 - R3: Keep administrator and runtime credentials separate, protected, redacted, and idempotent; incompatible state fails safely.
 
 Acceptance:
@@ -1577,7 +1577,7 @@ Design patterns: Adapter, Dependency Injection.
 Description:
 - R1: Extend protected ignored YAML config with exact PostgreSQL host, port, role, database, and password settings.
 - R2: Export shell-safe `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`, and `PGPASSWORD`; validate and redact failures.
-- R3: Define `${PROJECT_ROOT}/.logs/regime-loader.log` as the canonical log path.
+- R3: Define `${PROJECT_ROOT}/.logs/macro-loader.log` as the canonical log path.
 
 Acceptance:
 - A1 (verifies R1): valid settings resolve exactly.
@@ -1801,7 +1801,7 @@ Commit: `fix(pr-44): stabilize sunday runner cwd`
 Design patterns: Command, Fail-Fast Preflight.
 
 Description:
-- R1: Make `ops/run-regime-loader-sunday.sh` `cd` to the resolved repository root before invoking any CLI command so fallback `git rev-parse HEAD` is deterministic when cron starts from an arbitrary home/root directory.
+- R1: Make `ops/run-macro-loader-sunday.sh` `cd` to the resolved repository root before invoking any CLI command so fallback `git rev-parse HEAD` is deterministic when cron starts from an arbitrary home/root directory.
 - R2: Resolve and export the exact repository commit identity once before `run-daily`; fail before data mutation when Git identity cannot be resolved instead of publishing an untraceable Gold build.
 - R3: Add an offline runner test that launches the script from an unrelated working directory with faked commands and proves the expected repository root/Git SHA are propagated.
 
@@ -2077,7 +2077,7 @@ Commit: `fix(pr-56): harden postgres runtime role`
 Design patterns: Least Privilege, Idempotent Provisioning, Permission Probe.
 
 Description:
-- R1: Make `regime-loader` a non-owner LOGIN runtime principal with only the exact DML/USAGE permissions required for normal sync; remove schema ownership and `CREATE` privileges from the runtime role.
+- R1: Make `macro-loader` a non-owner LOGIN runtime principal with only the exact DML/USAGE permissions required for normal sync; remove schema ownership and `CREATE` privileges from the runtime role.
 - R2: Own loader schemas/tables through a separate non-login/admin-managed owner and make provisioning/migration idempotently repair grants/default privileges without touching unrelated roles/schemas.
 - R3: Add actual permission probes proving runtime SELECT/INSERT/UPDATE/DELETE as required while CREATE/ALTER/DROP/GRANT and unrelated-schema access fail.
 
@@ -2197,9 +2197,9 @@ Design patterns: Command, Unit of Work, Backup/Restore, Fail-Closed Verification
 
 Description:
 - R1: Enter a documented maintenance window: disable the Sunday chain, acquire the PR-45 runner lock plus the PostgreSQL maintenance/advisory lock, and preflight exact target `10.10.1.3:54321`; abort on another target or concurrent writer.
-- R2: Before any destructive/reconciling step, create and validate operator-controlled backups/snapshots of `regime_loader`, `regime_loader_sync`, current Gold catalog/build/manifest evidence, and lake state required to restore the pre-cutover serving lineage; record private checksums/restore instructions without committing credentials or raw market data.
+- R2: Before any destructive/reconciling step, create and validate operator-controlled backups/snapshots of `macro_loader`, `macro_loader_sync`, current Gold catalog/build/manifest evidence, and lake state required to restore the pre-cutover serving lineage; record private checksums/restore instructions without committing credentials or raw market data.
 - R3: Run explicit full source `reconcile` for all 13 registered series under PR-47/48/49 provider contracts, preserving local history where shorter sources do not imply deletion; rebuild all Silver and publish one new certified current Gold build carrying PR-50/51 formula and input provenance.
-- R4: Through the PR-55 admin path, force one controlled recreation/migration of only `regime_loader` and `regime_loader_sync` from current canonical PR-54 DDL even if the old schema appears compatible; preserve unrelated schemas, roles, and other repositories exactly.
+- R4: Through the PR-55 admin path, force one controlled recreation/migration of only `macro_loader` and `macro_loader_sync` from current canonical PR-54 DDL even if the old schema appears compatible; preserve unrelated schemas, roles, and other repositories exactly.
 - R5: Republish the complete new current Gold into the empty serving target through the PR-56 least-privilege runtime path and require exact source/consumer/hash-index/state reconciliation under PR-57.
 - R6: Run PR-60 independently and require exact schema/types/keys/roles/permissions, zero source-consumer key/digest differences, matching row counts/bounds/versions, UTC `TIMESTAMPTZ(6)` semantics, and successful microsecond probes.
 - R7: Immediately rerun unchanged `gold-sync-postgres` and require exactly zero inserts, updates, deletes, digest changes, or state-semantic rewrites; run the guarded Sunday wrapper in non-destructive verification mode and prove it uses the corrected cwd/lock/timezone contract.

@@ -80,7 +80,7 @@ class FakeCursor:
             self._one = (self.timezone,)
         elif query.startswith("SHOW "):
             settings: dict[str, object] = {
-                "SHOW application_name": "regime-loader",
+                "SHOW application_name": "macro-loader",
                 "SHOW lock_timeout": "5s",
                 "SHOW statement_timeout": "30s",
                 "SHOW idle_in_transaction_session_timeout": "30s",

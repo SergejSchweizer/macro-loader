@@ -41,7 +41,7 @@ from scripts.provision_postgres_role import provision_sql
 pytestmark = pytest.mark.xdist_group("postgres-real")
 
 _ROLLBACK_STATE_SQL = """
-INSERT INTO regime_loader_sync.gold_sync_state (
+INSERT INTO macro_loader_sync.gold_sync_state (
     dataset_id, source_build_id, data_sha256, schema_version, feature_version,
     row_count, min_timestamp, max_timestamp, synced_at_utc
 ) VALUES ('rollback', 'build', %s, 2, 1, 0, NULL, NULL, %s)
@@ -59,16 +59,16 @@ def postgres_dsn() -> str:
 @pytest.fixture
 def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGoldSyncRepository:
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        connection.execute("DROP SCHEMA IF EXISTS regime_loader_sync CASCADE")
-        connection.execute("DROP SCHEMA IF EXISTS regime_loader CASCADE")
-        connection.execute("CREATE SCHEMA regime_loader")
-        connection.execute("CREATE SCHEMA regime_loader_sync")
+        connection.execute("DROP SCHEMA IF EXISTS macro_loader_sync CASCADE")
+        connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
+        connection.execute("CREATE SCHEMA macro_loader")
+        connection.execute("CREATE SCHEMA macro_loader_sync")
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
     monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
-    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "regime_loader_test")
+    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
     return PostgresGoldSyncRepository(
         PostgresSyncConfig(
-            "localhost", 5432, "regime_loader_test", "regime_loader_test", "regime_loader_test"
+            "localhost", 5432, "macro_loader_test", "macro_loader_test", "macro_loader_test"
         )
     )
 
@@ -78,9 +78,7 @@ def migrator(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGold
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
     monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
     return PostgresGoldSchemaMigrator(
-        PostgresAdminConfig(
-            "localhost", 5432, "regime_loader_admin", "regime_loader_test", "admin"
-        ),
+        PostgresAdminConfig("localhost", 5432, "macro_loader_admin", "macro_loader_test", "admin"),
         connection_factory=lambda _config: psycopg.connect(postgres_dsn),
     )
 
@@ -177,28 +175,26 @@ def test_real_postgres_independent_conformance_verifier_passes(
     migrator.migrate()
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(
-            provision_sql("regime_loader_test", "runtime-secret", "regime_loader_test")
+            provision_sql("macro_loader_test", "runtime-secret", "macro_loader_test")
         )
         connection.commit()
     timestamp = _timestamp(20)
     assert _sync_service(repository, timestamp).sync().inserted == 1
 
-    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "regime-loader")
+    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
     runtime_config = PostgresSyncConfig(
-        "localhost", 5432, "regime-loader", "regime_loader_test", "runtime-secret"
+        "localhost", 5432, "macro-loader", "macro_loader_test", "runtime-secret"
     )
     inspector = PostgresLiveDatabaseConformanceInspector(
         runtime_config,
         connection_factory=lambda _: psycopg.connect(
             postgres_dsn.replace(
-                "regime_loader_test:regime_loader_test", "regime-loader:runtime-secret"
+                "macro_loader_test:macro_loader_test", "macro-loader:runtime-secret"
             )
         ),
     )
     with psycopg.connect(
-        postgres_dsn.replace(
-            "regime_loader_test:regime_loader_test", "regime-loader:runtime-secret"
-        )
+        postgres_dsn.replace("macro_loader_test:macro_loader_test", "macro-loader:runtime-secret")
     ) as connection:
         cursor = connection.cursor()
         try:
@@ -256,7 +252,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
             (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
         ).fetchall()
         migrations = connection.execute(
-            "SELECT version FROM regime_loader_sync.schema_migrations ORDER BY version"
+            "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
     assert {column[0] for column in columns} == set(GOLD_COLUMNS)
     assert migrations == [(1,), (2,), (3,), (4,), (5,)]
@@ -289,7 +285,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         connection.execute(_ROLLBACK_STATE_SQL, ("c" * 64, timestamp))
         connection.rollback()
         assert connection.execute(
-            "SELECT COUNT(*) FROM regime_loader_sync.gold_sync_state WHERE dataset_id = 'rollback'"
+            "SELECT COUNT(*) FROM macro_loader_sync.gold_sync_state WHERE dataset_id = 'rollback'"
         ).fetchone() == (0,)
 
 
@@ -299,19 +295,19 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     (
         (
             "changed consumer row",
-            'UPDATE regime_loader.regime_features_daily SET "vix_level" = 999.0',
+            'UPDATE macro_loader.macro_features_daily SET "vix_level" = 999.0',
         ),
-        ("missing consumer row", "DELETE FROM regime_loader.regime_features_daily"),
+        ("missing consumer row", "DELETE FROM macro_loader.macro_features_daily"),
         (
             "changed digest",
-            "UPDATE regime_loader_sync.gold_row_hashes SET row_sha256 = 'f' || repeat('f', 63)",
+            "UPDATE macro_loader_sync.gold_row_hashes SET row_sha256 = 'f' || repeat('f', 63)",
         ),
-        ("missing digest", "DELETE FROM regime_loader_sync.gold_row_hashes"),
+        ("missing digest", "DELETE FROM macro_loader_sync.gold_row_hashes"),
         (
             "stale state",
-            "UPDATE regime_loader_sync.gold_sync_state SET data_sha256 = 'f' || repeat('f', 63)",
+            "UPDATE macro_loader_sync.gold_sync_state SET data_sha256 = 'f' || repeat('f', 63)",
         ),
-        ("missing state", "DELETE FROM regime_loader_sync.gold_sync_state"),
+        ("missing state", "DELETE FROM macro_loader_sync.gold_sync_state"),
     ),
 )
 def test_real_postgres_tampering_fails_closed(
@@ -397,13 +393,13 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     postgres_dsn: str, monkeypatch: pytest.MonkeyPatch, migrator: PostgresGoldSchemaMigrator
 ) -> None:
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        connection.execute("DROP SCHEMA IF EXISTS regime_loader_sync CASCADE")
-        connection.execute("DROP SCHEMA IF EXISTS regime_loader CASCADE")
-        connection.execute("CREATE SCHEMA regime_loader")
-        connection.execute("CREATE SCHEMA regime_loader_sync")
+        connection.execute("DROP SCHEMA IF EXISTS macro_loader_sync CASCADE")
+        connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
+        connection.execute("CREATE SCHEMA macro_loader")
+        connection.execute("CREATE SCHEMA macro_loader_sync")
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
     monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
-    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "regime_loader_test")
+    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
     policy = PostgresTimeoutPolicy(
         connect_timeout_seconds=5,
         lock_timeout_ms=200,
@@ -414,9 +410,9 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
         PostgresSyncConfig(
             "localhost",
             5432,
-            "regime_loader_test",
-            "regime_loader_test",
-            "regime_loader_test",
+            "macro_loader_test",
+            "macro_loader_test",
+            "macro_loader_test",
             policy,
         )
     )
@@ -426,7 +422,7 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     try:
         cursor = session.cursor()
         try:
-            assert cursor.execute("SHOW application_name").fetchone() == ("regime-loader",)
+            assert cursor.execute("SHOW application_name").fetchone() == ("macro-loader",)
             assert cursor.execute("SHOW lock_timeout").fetchone() == ("200ms",)
             assert cursor.execute("SHOW statement_timeout").fetchone() == ("500ms",)
             assert cursor.execute("SHOW idle_in_transaction_session_timeout").fetchone() == (
@@ -459,15 +455,14 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
 @pytest.mark.parametrize(
     "drift_sql",
     (
-        "ALTER TABLE regime_loader_sync.gold_row_hashes DROP COLUMN row_sha256",
-        "ALTER TABLE regime_loader.regime_features_daily ADD COLUMN forbidden INTEGER",
-        "ALTER TABLE regime_loader_sync.gold_sync_state "
+        "ALTER TABLE macro_loader_sync.gold_row_hashes DROP COLUMN row_sha256",
+        "ALTER TABLE macro_loader.macro_features_daily ADD COLUMN forbidden INTEGER",
+        "ALTER TABLE macro_loader_sync.gold_sync_state "
         "ALTER COLUMN schema_version TYPE TEXT USING schema_version::text",
-        "ALTER TABLE regime_loader.regime_features_daily "
+        "ALTER TABLE macro_loader.macro_features_daily "
         "ALTER COLUMN timestamp_m1 TYPE TIMESTAMPTZ(3)",
-        "ALTER TABLE regime_loader_sync.gold_sync_state ALTER COLUMN source_build_id DROP NOT NULL",
-        "ALTER TABLE regime_loader.regime_features_daily "
-        "DROP CONSTRAINT regime_features_daily_pkey",
+        "ALTER TABLE macro_loader_sync.gold_sync_state ALTER COLUMN source_build_id DROP NOT NULL",
+        "ALTER TABLE macro_loader.macro_features_daily DROP CONSTRAINT macro_features_daily_pkey",
     ),
     ids=("missing", "extra", "wrong-type", "wrong-precision", "wrong-nullability", "wrong-key"),
 )
@@ -491,7 +486,7 @@ def test_real_postgres_schema_drift_fails_closed_before_sync(
 def test_real_postgres_runtime_role_is_dml_only(postgres_dsn: str) -> None:
     with psycopg.connect(postgres_dsn) as admin_connection:
         admin_connection.execute(
-            provision_sql("regime_loader_test", "runtime-secret", "regime_loader_test")
+            provision_sql("macro_loader_test", "runtime-secret", "macro_loader_test")
         )
         admin_connection.execute('CREATE ROLE "runtime-grant-probe" NOLOGIN')
         admin_connection.execute("CREATE SCHEMA unrelated")
@@ -499,19 +494,19 @@ def test_real_postgres_runtime_role_is_dml_only(postgres_dsn: str) -> None:
         admin_connection.commit()
 
     runtime_dsn = postgres_dsn.replace(
-        "regime_loader_test:regime_loader_test", "regime-loader:runtime-secret"
+        "macro_loader_test:macro_loader_test", "macro-loader:runtime-secret"
     )
     with psycopg.connect(runtime_dsn) as runtime_connection:
-        runtime_connection.execute("SELECT * FROM regime_loader_sync.schema_migrations")
-        runtime_connection.execute("DELETE FROM regime_loader_sync.gold_sync_state")
+        runtime_connection.execute("SELECT * FROM macro_loader_sync.schema_migrations")
+        runtime_connection.execute("DELETE FROM macro_loader_sync.gold_sync_state")
         runtime_connection.rollback()
         for operation, statement in (
-            ("CREATE", "CREATE TABLE regime_loader.forbidden (id INTEGER)"),
+            ("CREATE", "CREATE TABLE macro_loader.forbidden (id INTEGER)"),
             (
                 "ALTER",
-                "ALTER TABLE regime_loader.regime_features_daily ADD COLUMN forbidden INTEGER",
+                "ALTER TABLE macro_loader.macro_features_daily ADD COLUMN forbidden INTEGER",
             ),
-            ("DROP", "DROP TABLE regime_loader.regime_features_daily"),
+            ("DROP", "DROP TABLE macro_loader.macro_features_daily"),
             ("unrelated SELECT", "SELECT * FROM unrelated.private_data"),
         ):
             try:
@@ -524,12 +519,12 @@ def test_real_postgres_runtime_role_is_dml_only(postgres_dsn: str) -> None:
                 runtime_connection.rollback()
 
         runtime_connection.execute(
-            'GRANT SELECT ON regime_loader.regime_features_daily TO "runtime-grant-probe"'
+            'GRANT SELECT ON macro_loader.macro_features_daily TO "runtime-grant-probe"'
         )
         grant_result = runtime_connection.execute(
             "SELECT has_table_privilege("
             "'runtime-grant-probe', "
-            "'regime_loader.regime_features_daily', "
+            "'macro_loader.macro_features_daily', "
             "'SELECT'"
             ")"
         )

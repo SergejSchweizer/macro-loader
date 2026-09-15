@@ -31,11 +31,11 @@ from application.postgres_sync import (
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
-POSTGRES_USER = "regime-loader"
-POSTGRES_ADVISORY_LOCK_NAMESPACE = "regime-loader:postgres-gold-sync:v1"
+POSTGRES_USER = "macro-loader"
+POSTGRES_ADVISORY_LOCK_NAMESPACE = "macro-loader:postgres-gold-sync:v1"
 
 TransactionResult = TypeVar("TransactionResult")
-POSTGRES_APPLICATION_NAME = "regime-loader"
+POSTGRES_APPLICATION_NAME = "macro-loader"
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +212,7 @@ _ROW_HASHES = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_ROW_HASH_TABLE)}
 _FEATURE_COLUMNS = GOLD_COLUMNS[1:]
 _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
-_POSTGRES_OWNER_ROLE = "regime-loader-owner"
+_POSTGRES_OWNER_ROLE = "macro-loader-owner"
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,

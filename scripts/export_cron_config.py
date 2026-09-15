@@ -11,8 +11,8 @@ import yaml
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = "54321"
-POSTGRES_USER = "regime-loader"
-LOG_BASENAME = "regime-loader.log"
+POSTGRES_USER = "macro-loader"
+LOG_BASENAME = "macro-loader.log"
 
 
 def _value(config: dict[str, Any], section: str, key: str) -> str:

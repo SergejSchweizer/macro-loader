@@ -148,7 +148,7 @@ def _profile_png(frame: pl.DataFrame) -> bytes:
     buffer = BytesIO()
     canvas.print_png(  # type: ignore[no-untyped-call]
         buffer,
-        metadata={"Software": "regime-loader"},
+        metadata={"Software": "macro-loader"},
     )
     return buffer.getvalue()
 
