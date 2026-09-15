@@ -16,11 +16,7 @@ def _snapshots(observations: list[date], *, second_meeting: bool = True) -> pl.D
     for observation in observations:
         for meeting, outcomes in [
             (date(2026, 1, 28), ((0.0, 0.8), (25.0, 0.2))),
-            *(
-                [(date(2026, 3, 18), ((0.0, 0.5), (-25.0, 0.5)))]
-                if second_meeting
-                else []
-            ),
+            *([(date(2026, 3, 18), ((0.0, 0.5), (-25.0, 0.5)))] if second_meeting else []),
             (date(2026, 4, 29), ((0.0, 0.25), (25.0, 0.75))),
         ]:
             for move, probability in outcomes:
