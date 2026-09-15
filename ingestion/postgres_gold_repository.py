@@ -281,6 +281,10 @@ _FED_POLICY_RENAME_MIGRATION = "ALTER TABLE " + _CONSUMER + " " + ", ".join(
         'ADD COLUMN IF NOT EXISTS "fed_repricing_5obs_bp" DOUBLE PRECISION NULL',
     ]
 )
+_CONSUMER_LAYOUT_MIGRATION = (
+    f"DROP TABLE IF EXISTS {_CONSUMER}",
+    _CONSUMER_DDL,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +361,7 @@ _MIGRATIONS = (
     (_RETURN_COLUMN_MIGRATION,),
     (_FED_POLICY_COLUMN_MIGRATION,),
     (_FED_POLICY_RENAME_MIGRATION,),
+    _CONSUMER_LAYOUT_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

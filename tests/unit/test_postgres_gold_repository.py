@@ -340,7 +340,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert '"macro_loader_sync"."gold_sync_state"' in ddl
     assert '"macro_loader_sync"."gold_row_hashes"' in ddl
     assert '"macro_loader_sync"."schema_migrations"' in ddl
-    assert queries.count(module._CONSUMER_DDL) == 1
+    assert queries.count(module._CONSUMER_DDL) == 2
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert "TRUNCATE" not in ddl

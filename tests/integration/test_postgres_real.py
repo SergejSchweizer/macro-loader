@@ -260,7 +260,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
     assert {column[0] for column in columns} == set(GOLD_COLUMNS)
-    assert migrations == [(1,), (2,), (3,), (4,), (5,), (6,), (7,)]
+    assert migrations == [(1,), (2,), (3,), (4,), (5,), (6,), (7,), (8,)]
 
     timestamp = _timestamp(20)
     row = GoldRowPayload(timestamp, tuple(1.0 for _ in GOLD_COLUMNS[1:]))
