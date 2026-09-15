@@ -6,6 +6,7 @@ from scripts.provision_postgres_role import (
     POSTGRES_PORT,
     POSTGRES_ROLE,
     POSTGRES_SCHEMAS,
+    POSTGRES_SYNC_ROLE,
     POSTGRES_TABLES,
     ProvisioningConfig,
     provision_sql,
@@ -60,8 +61,8 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     assert "GRANT USAGE, CREATE" not in sql
     for schema, table in POSTGRES_TABLES[:-1]:
         assert (
-            f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "{schema}"."{table}" TO "macro-loader"'
-            in sql
+            f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "{schema}"."{table}" '
+            f'TO "{POSTGRES_SYNC_ROLE}"' in sql
         )
     assert 'GRANT SELECT ON TABLE "macro_loader_sync"."schema_migrations" TO "macro-loader"' in sql
     assert "GRANT ALL" not in sql
