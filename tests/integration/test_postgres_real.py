@@ -530,15 +530,14 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
             finally:
                 runtime_connection.rollback()
 
-        try:
-            runtime_connection.execute(
-                'GRANT SELECT ON macro_loader.macro_features_daily TO "runtime-grant-probe"'
-            )
-        except psycopg.errors.InsufficientPrivilege:
-            pass
-        else:
-            pytest.fail("runtime role unexpectedly permitted GRANT")
-        runtime_connection.rollback()
+        grant_option = runtime_connection.execute(
+            """SELECT has_table_privilege(
+                current_user,
+                'macro_loader.macro_features_daily',
+                'SELECT WITH GRANT OPTION'
+            )"""
+        ).fetchone()
+        assert grant_option == (False,)
 
     sync_dsn = postgres_dsn.replace(
         "macro_loader_test:macro_loader_test", "macro-loader-sync:runtime-secret"
