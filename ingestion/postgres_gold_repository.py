@@ -32,6 +32,7 @@ from application.postgres_sync import (
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
 POSTGRES_USER = "macro-loader"
+POSTGRES_SYNC_USER = "macro-loader-sync"
 POSTGRES_ADVISORY_LOCK_NAMESPACE = "macro-loader:postgres-gold-sync:v1"
 
 TransactionResult = TypeVar("TransactionResult")
@@ -110,8 +111,10 @@ class PostgresSyncConfig:
             raise ValueError(f"PostgreSQL sync host must be {POSTGRES_HOST}")
         if self.port != POSTGRES_PORT:
             raise ValueError(f"PostgreSQL sync port must be {POSTGRES_PORT}")
-        if self.user != POSTGRES_USER:
-            raise ValueError(f"PostgreSQL sync user must be {POSTGRES_USER}")
+        if self.user not in (POSTGRES_USER, POSTGRES_SYNC_USER):
+            raise ValueError(
+                f"PostgreSQL sync user must be {POSTGRES_USER} or {POSTGRES_SYNC_USER}"
+            )
         if not self.database:
             raise ValueError("PostgreSQL sync database is required")
         if not self.password:

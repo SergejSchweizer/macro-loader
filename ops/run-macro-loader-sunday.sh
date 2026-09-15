@@ -48,6 +48,8 @@ printf '[%s] Running delta-only daily pipeline\n' "$(date --iso-8601=seconds)"
 "$CLI" --lake-root "$LAKE_ROOT" run-daily
 
 printf '[%s] Synchronizing canonical Gold to PostgreSQL\n' "$(date --iso-8601=seconds)"
-"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres
+PGUSER="${PGSYNCUSER:-macro-loader-sync}" \
+PGPASSWORD="${PGSYNCPASSWORD:-${PGPASSWORD:-}}" \
+	"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres
 
 printf '[%s] Sunday macro-loader job completed\n' "$(date --iso-8601=seconds)"

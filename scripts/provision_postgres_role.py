@@ -11,6 +11,7 @@ from dataclasses import dataclass
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
 POSTGRES_ROLE = "macro-loader"
+POSTGRES_SYNC_ROLE = "macro-loader-sync"
 POSTGRES_OWNER_ROLE = "macro-loader-owner"
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
@@ -40,6 +41,14 @@ def _conditional_table_grant(schema: str, table: str, role: str) -> str:
     return (
         f"IF to_regclass({_literal(f'{schema}.{table}')}) IS NOT NULL THEN\n"
         f"    GRANT {privileges} ON TABLE {_table_identifier(schema, table)} TO {role};\n"
+        "END IF;"
+    )
+
+
+def _conditional_read_grant(schema: str, table: str, role: str) -> str:
+    return (
+        f"IF to_regclass({_literal(f'{schema}.{table}')}) IS NOT NULL THEN\n"
+        f"    GRANT SELECT ON TABLE {_table_identifier(schema, table)} TO {role};\n"
         "END IF;"
     )
 
@@ -84,6 +93,8 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
     """Return idempotent fail-closed DDL without exposing administrator credentials."""
     role_i = _identifier(POSTGRES_ROLE)
     role_l = _literal(POSTGRES_ROLE)
+    sync_role_i = _identifier(POSTGRES_SYNC_ROLE)
+    sync_role_l = _literal(POSTGRES_SYNC_ROLE)
     owner_i = _identifier(POSTGRES_OWNER_ROLE)
     owner_l = _literal(POSTGRES_OWNER_ROLE)
     admin_i = _identifier(admin_user)
@@ -93,8 +104,8 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
         f"CREATE SCHEMA IF NOT EXISTS {_identifier(schema)} AUTHORIZATION {owner_i};\n"
         f"ALTER SCHEMA {_identifier(schema)} OWNER TO {owner_i};\n"
         f"REVOKE ALL ON SCHEMA {_identifier(schema)} FROM PUBLIC;\n"
-        f"REVOKE CREATE ON SCHEMA {_identifier(schema)} FROM {role_i};\n"
-        f"GRANT USAGE ON SCHEMA {_identifier(schema)} TO {role_i};"
+        f"REVOKE CREATE ON SCHEMA {_identifier(schema)} FROM {role_i}, {sync_role_i};\n"
+        f"GRANT USAGE ON SCHEMA {_identifier(schema)} TO {role_i}, {sync_role_i};"
         for schema in POSTGRES_SCHEMAS
     )
     table_ownership = "\n".join(
@@ -102,13 +113,23 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
         for schema, table in POSTGRES_TABLES
     )
     table_grants = "\n".join(
-        _conditional_table_grant(schema, table, role_i) for schema, table in POSTGRES_TABLES
+        [
+            *(_conditional_read_grant(schema, table, role_i) for schema, table in POSTGRES_TABLES),
+            *(
+                _conditional_table_grant(schema, table, sync_role_i)
+                for schema, table in POSTGRES_TABLES
+            ),
+        ]
     )
     default_privileges = "\n".join(
         f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner_i} IN SCHEMA {_identifier(schema)} "
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role_i};\n"
+        f"GRANT SELECT ON TABLES TO {role_i};\n"
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner_i} IN SCHEMA {_identifier(schema)} "
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {sync_role_i};\n"
         f"ALTER DEFAULT PRIVILEGES FOR ROLE {admin_i} IN SCHEMA {_identifier(schema)} "
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role_i};"
+        f"GRANT SELECT ON TABLES TO {role_i};\n"
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {admin_i} IN SCHEMA {_identifier(schema)} "
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {sync_role_i};"
         for schema in POSTGRES_SCHEMAS
     )
     return f"""DO $provision$
@@ -131,21 +152,34 @@ BEGIN
         END IF;
         ALTER ROLE {role_i} PASSWORD {password_l};
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {sync_role_l}) THEN
+        CREATE ROLE {sync_role_i}
+            LOGIN PASSWORD {password_l}
+            NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+    ELSE
+        ALTER ROLE {sync_role_i} PASSWORD {password_l};
+    END IF;
 END
 $provision$;
 
 GRANT CONNECT ON DATABASE {database_i} TO {role_i};
 GRANT {owner_i} TO {admin_i};
+REVOKE {owner_i} FROM {role_i}, {sync_role_i};
 {schemas}
 {table_ownership}
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
-REVOKE INSERT, UPDATE, DELETE ON TABLE "macro_loader_sync"."schema_migrations" FROM {role_i};
+REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {sync_role_i};
+REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {sync_role_i};
+REVOKE GRANT OPTION FOR SELECT ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
+REVOKE GRANT OPTION FOR SELECT ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
 DO $grants$
 BEGIN
 {table_grants}
 END
 $grants$;
+REVOKE INSERT, UPDATE, DELETE ON TABLE "macro_loader_sync"."schema_migrations"
+    FROM {role_i}, {sync_role_i};
 {default_privileges}
 """
 

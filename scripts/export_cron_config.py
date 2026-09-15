@@ -12,6 +12,7 @@ import yaml
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = "54321"
 POSTGRES_USER = "macro-loader"
+POSTGRES_SYNC_USER = "macro-loader-sync"
 LOG_BASENAME = "macro-loader.log"
 
 
@@ -44,6 +45,8 @@ def _postgres_values(config: dict[str, Any]) -> dict[str, str]:
         "PGUSER": user,
         "PGDATABASE": database,
         "PGPASSWORD": password,
+        "PGSYNCUSER": POSTGRES_SYNC_USER,
+        "PGSYNCPASSWORD": password,
     }
 
 
