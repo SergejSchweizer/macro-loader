@@ -272,6 +272,13 @@ _FED_POLICY_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
     f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
     for column in _FED_POLICY_COLUMNS
 )
+_FED_POLICY_RENAME_MIGRATION = "ALTER TABLE " + _CONSUMER + " " + ", ".join(
+    [
+        'DROP COLUMN IF EXISTS "fed_3m_expected_move_bp"',
+        'DROP COLUMN IF EXISTS "fed_next_expected_move_bp_delta_5obs"',
+        'DROP COLUMN IF EXISTS "fomc_business_days_to_next"',
+    ]
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -347,6 +354,7 @@ _MIGRATIONS = (
     (_MOMENTUM_COLUMN_MIGRATION,),
     (_RETURN_COLUMN_MIGRATION,),
     (_FED_POLICY_COLUMN_MIGRATION,),
+    (_FED_POLICY_RENAME_MIGRATION,),
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

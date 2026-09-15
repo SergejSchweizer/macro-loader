@@ -1,16 +1,15 @@
 """Pure Fed policy-expectations feature calculations.
 
 The input is a normalized, end-of-day snapshot of CME FedWatch meeting
-outcomes.  This module deliberately emits only the five requested features;
+outcomes.  This module deliberately emits only the four requested features;
 source availability metadata remains in the policy snapshot layer.
 """
 
 from __future__ import annotations
 
-import calendar
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time
 from math import sqrt
 
 import polars as pl
@@ -18,9 +17,8 @@ import polars as pl
 FED_POLICY_FEATURE_COLUMNS = (
     "fed_next_expected_move_bp",
     "fed_next_uncertainty_bp",
-    "fed_3m_expected_move_bp",
-    "fed_next_expected_move_bp_delta_5obs",
-    "fomc_business_days_to_next",
+    "fed_m3_expected_move_bp",
+    "fed_repricing_5obs_bp",
 )
 FED_POLICY_SNAPSHOT_COLUMNS = (
     "observation_date",
@@ -39,64 +37,6 @@ class FedMeetingOutcome:
     meeting_date: date
     move_bp: float
     probability: float
-
-
-def _observed_holiday(day: date) -> date:
-    if day.weekday() == 5:
-        return day - timedelta(days=1)
-    if day.weekday() == 6:
-        return day + timedelta(days=1)
-    return day
-
-
-def _us_federal_holidays(year: int) -> frozenset[date]:
-    """Return observed US federal holidays for a calendar year."""
-    def nth_weekday(month: int, weekday: int, occurrence: int) -> date:
-        first = date(year, month, 1)
-        return first + timedelta(days=(weekday - first.weekday()) % 7 + 7 * (occurrence - 1))
-
-    holidays = {
-        _observed_holiday(date(year, 1, 1)),
-        _observed_holiday(date(year, 6, 19)),
-        _observed_holiday(date(year, 7, 4)),
-        _observed_holiday(date(year, 11, 11)),
-        _observed_holiday(date(year, 12, 25)),
-    }
-    # Federal holidays defined by weekday occurrence.
-    holidays.add(nth_weekday(1, 0, 3))
-    holidays.add(nth_weekday(2, 0, 3))
-    holidays.add(
-        max(
-            date(year, 5, day)
-            for day in range(25, 32)
-            if date(year, 5, day).weekday() == 0
-        )
-    )
-    holidays.add(nth_weekday(9, 0, 1))
-    holidays.add(nth_weekday(10, 0, 2))
-    holidays.add(nth_weekday(11, 3, 4))
-    return frozenset(holidays)
-
-
-def us_business_days_between(start: date, end: date) -> int:
-    """Count US business days strictly after ``start`` through ``end``."""
-    if end <= start:
-        return 0
-    holidays = _us_federal_holidays(start.year) | _us_federal_holidays(end.year)
-    cursor = start + timedelta(days=1)
-    count = 0
-    while cursor <= end:
-        if cursor.weekday() < 5 and cursor not in holidays:
-            count += 1
-        cursor += timedelta(days=1)
-    return count
-
-
-def _add_months(day: date, months: int) -> date:
-    ordinal = day.year * 12 + day.month - 1 + months
-    year, month_index = divmod(ordinal, 12)
-    month = month_index + 1
-    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
 
 
 def _validate_snapshot(frame: pl.DataFrame) -> None:
@@ -148,7 +88,7 @@ def _feature_row(
     meetings = sorted(by_meeting)
     if not meetings:
         return {
-            "timestamp_m1": datetime.combine(observation_date, datetime.min.time()),
+            "timestamp_m1": datetime.combine(observation_date, datetime.min.time(), tzinfo=UTC),
             **{column: None for column in FED_POLICY_FEATURE_COLUMNS},
         }
     next_meeting = meetings[0]
@@ -157,24 +97,18 @@ def _feature_row(
     next_uncertainty = sqrt(
         sum(item.probability * (item.move_bp - next_mean) ** 2 for item in next_outcomes)
     )
-    horizon = _add_months(observation_date, 3)
-    horizon_mean = sum(
-        _meeting_mean(by_meeting[meeting]) for meeting in meetings if meeting <= horizon
-    )
+    third_mean = sum(_meeting_mean(by_meeting[meeting]) for meeting in meetings[:3])
     return {
-        "timestamp_m1": datetime.combine(observation_date, datetime.min.time()),
+        "timestamp_m1": datetime.combine(observation_date, datetime.min.time(), tzinfo=UTC),
         "fed_next_expected_move_bp": next_mean,
         "fed_next_uncertainty_bp": next_uncertainty,
-        "fed_3m_expected_move_bp": horizon_mean,
-        "fed_next_expected_move_bp_delta_5obs": None,
-        "fomc_business_days_to_next": float(
-            us_business_days_between(observation_date, next_meeting)
-        ),
+        "fed_m3_expected_move_bp": third_mean,
+        "fed_repricing_5obs_bp": None,
     }
 
 
 def build_fed_policy_features(snapshot_frame: pl.DataFrame) -> pl.DataFrame:
-    """Build the exact five causal Fed policy features from EOD snapshots."""
+    """Build the exact four causal Fed policy features from EOD snapshots."""
     if snapshot_frame.is_empty() and not snapshot_frame.columns:
         return pl.DataFrame(
             schema={
@@ -207,7 +141,7 @@ def build_fed_policy_features(snapshot_frame: pl.DataFrame) -> pl.DataFrame:
     )
     result = result.with_columns(
         (pl.col("fed_next_expected_move_bp") - pl.col("fed_next_expected_move_bp").shift(5)).alias(
-            "fed_next_expected_move_bp_delta_5obs"
+            "fed_repricing_5obs_bp"
         )
     )
     return result.select(["timestamp_m1", *FED_POLICY_FEATURE_COLUMNS]).sort("timestamp_m1")

@@ -17,8 +17,8 @@ from application.return_features import return_feature_columns
 from application.silver import SILVER_SCHEMA
 from application.volatility_features import VOLATILITY_SERIES
 
-GOLD_SCHEMA_VERSION = 5
-GOLD_FEATURE_VERSION = 4
+GOLD_SCHEMA_VERSION = 6
+GOLD_FEATURE_VERSION = 5
 GOLD_SOURCE_SERIES = tuple(SERIES_REGISTRY)
 
 _VOLATILITY_BASE_COLUMNS = tuple(
@@ -91,9 +91,9 @@ class GoldSemanticVersions:
 
     def __post_init__(self) -> None:
         if self.schema_version != GOLD_SCHEMA_VERSION:
-            raise ValueError("schema_version is source-controlled and fixed at 5")
+            raise ValueError("schema_version is source-controlled and fixed at 6")
         if self.feature_version != GOLD_FEATURE_VERSION:
-            raise ValueError("feature_version is source-controlled and fixed at 4")
+            raise ValueError("feature_version is source-controlled and fixed at 5")
 
 
 GOLD_VERSIONS = GoldSemanticVersions()

@@ -179,8 +179,8 @@ Feature semantics are fixed and causal:
 - each of the 13 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level also includes rolling geometric-mean simple returns over 10, 25, 60, 120, and 240 observations, expressed as percentages;
-- the Fed policy family contains exactly five features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the deterministic three-calendar-month FOMC horizon, the five-observation expected-move delta, and US-business-days to the next FOMC decision;
-- FedWatch snapshots use only official public CME 30-Day Fed Funds settlements plus official Federal Reserve EFFR/calendar data, are marked available at `23:59:59.999999Z`, and are null where the free CME endpoint does not expose history;
+- the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
+- FedWatch snapshots use official CME FedWatch exports, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
 - cross-series ratios/spreads require the same `timestamp_m1`;
@@ -189,8 +189,8 @@ Feature semantics are fixed and causal:
 Initial semantic versions:
 
 ```text
-schema_version  = 5
-feature_version = 4
+schema_version  = 6
+feature_version = 5
 ```
 
 Schema version changes for column name/order/type changes. Feature version changes for formula/parameter changes that preserve schema.

@@ -8,7 +8,6 @@ import pytest
 from application.fed_policy_features import (
     FED_POLICY_FEATURE_COLUMNS,
     build_fed_policy_features,
-    us_business_days_between,
 )
 
 
@@ -22,6 +21,7 @@ def _snapshots(observations: list[date], *, second_meeting: bool = True) -> pl.D
                 if second_meeting
                 else []
             ),
+            (date(2026, 4, 29), ((0.0, 0.25), (25.0, 0.75))),
         ]:
             for move, probability in outcomes:
                 rows.append(
@@ -61,15 +61,14 @@ def test_exact_fed_policy_formulas_and_three_month_selection() -> None:
     assert tuple(frame.columns[1:]) == FED_POLICY_FEATURE_COLUMNS
     assert row["fed_next_expected_move_bp"] == pytest.approx(5.0)
     assert row["fed_next_uncertainty_bp"] == pytest.approx(10.0)
-    assert row["fed_3m_expected_move_bp"] == pytest.approx(-7.5)
-    assert row["fed_next_expected_move_bp_delta_5obs"] is None
-    assert row["fomc_business_days_to_next"] == 17.0
+    assert row["fed_m3_expected_move_bp"] == pytest.approx(11.25)
+    assert row["fed_repricing_5obs_bp"] is None
 
 
 def test_only_prior_observation_is_used_for_five_observation_delta() -> None:
     observations = [date(2026, 1, 2) + timedelta(days=index) for index in range(6)]
     frame = build_fed_policy_features(_snapshots(observations))
-    assert frame[-1, "fed_next_expected_move_bp_delta_5obs"] == pytest.approx(0.0)
+    assert frame[-1, "fed_repricing_5obs_bp"] == pytest.approx(0.0)
 
 
 def test_eod_boundary_and_invalid_probabilities_fail_closed() -> None:
@@ -86,11 +85,6 @@ def test_eod_boundary_and_invalid_probabilities_fail_closed() -> None:
     )
     with pytest.raises(ValueError, match="sum to one"):
         build_fed_policy_features(invalid)
-
-
-def test_us_business_days_exclude_weekends_and_observed_holidays() -> None:
-    assert us_business_days_between(date(2025, 12, 24), date(2025, 12, 29)) == 2
-    assert us_business_days_between(date(2026, 1, 1), date(2026, 1, 2)) == 1
 
 
 def test_empty_snapshot_has_exact_schema() -> None:

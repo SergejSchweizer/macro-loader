@@ -78,10 +78,9 @@ def gold_formula_parameters(
                 "Federal Reserve FOMC calendar and EFFR"
             ),
             "availability": "end of day at 23:59:59.999999 UTC",
-            "three_month_selection": (
-                "sum expected per-meeting moves for scheduled decision dates strictly "
-                "after observation date and no later than observation date plus three "
-                "calendar months"
+            "m3_selection": (
+                "expected cumulative move through exactly the third scheduled decision "
+                "date strictly after observation date, relative to the current target midpoint"
             ),
             "historical_limit": (
                 "free public CME settlement endpoint; unavailable historical dates remain null"

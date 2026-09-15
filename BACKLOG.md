@@ -1692,7 +1692,7 @@ Safe first parallel wave after PR-40: PR-41, PR-42, PR-43, PR-44, PR-47, PR-48, 
 ## PR-40: Repository Audit And PostgreSQL Temporal Conformance Plan
 
 PR name: `postgres-temporal-conformance-plan`
-Status: Ready for review
+Status: In Progress
 Updated: 2026-08-28
 PR: #42
 Git branch: `pr-40/postgres-temporal-conformance-plan`
@@ -2328,18 +2328,18 @@ Git branch: `pr-66/fed-policy-expectations-features`
 Git status: active-clean
 Agent lane: Gold/policy expectations; one agent only
 Depends on: PR-70
-Commit: `db0d755 feat(pr-66): add official Fed policy expectations features`
+Commit: `feat(pr-66): add official Fed policy expectations features`
 Design patterns: Adapter, Repository, Strategy/Policy Object, Versioned Migration.
 
 Description:
 - R1: Ingest only official public CME 30-Day Fed Funds settlement data, official Federal Reserve EFFR data, and the official FOMC calendar; do not call paid CME APIs or substitute unofficial probabilities.
 - R2: Persist normalized FedWatch outcome snapshots with explicit `23:59:59.999999 UTC` end-of-day availability and preserve the maximum history exposed by the free source; unavailable dates remain null.
-- R3: Add exactly `fed_next_expected_move_bp`, `fed_next_uncertainty_bp`, `fed_3m_expected_move_bp`, `fed_next_expected_move_bp_delta_5obs`, and `fomc_business_days_to_next`; no other Fed-family derived features.
-- R4: Define the three-calendar-month meeting-selection rule, preserve causal daily keys, add immutable Gold/versioned PostgreSQL migration support, and test formulas, source limits, EOD boundaries, calendar/business-day behavior, and no-look-ahead semantics offline.
+- R3: Add exactly `fed_next_expected_move_bp`, `fed_next_uncertainty_bp`, `fed_m3_expected_move_bp`, and `fed_repricing_5obs_bp`; no other Fed-family derived features.
+- R4: Define the third-future-meeting selection rule, preserve causal daily keys, add immutable Gold/versioned PostgreSQL migration support, and test formulas, source limits, EOD boundaries, and no-look-ahead semantics offline.
 
 Acceptance:
 - A1: CME-methodology outcome probabilities produce the specified weighted mean and standard deviation exactly on hand-calculable fixtures.
-- A2: The three-month feature includes only scheduled decision dates strictly after observation date and no later than observation date plus three calendar months; the five-observation delta uses only prior observations.
+- A2: The M3 feature sums expected moves through exactly the third scheduled decision date strictly after observation date; repricing uses only the prior five-observation value.
 - A3: EOD availability is validated exactly and missing free-history snapshots are not filled or fabricated.
-- A4: FOMC dates come from the official calendar adapter and US-business-day counts exclude weekends and observed federal holidays.
+- A4: FOMC dates come from the official calendar adapter.
 - A5: Gold/PostgreSQL schema and semantic versions migrate idempotently, with all required quality gates passing.
