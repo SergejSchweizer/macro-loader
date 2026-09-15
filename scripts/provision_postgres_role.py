@@ -170,6 +170,8 @@ REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {sync_role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {sync_role_i};
+REVOKE GRANT OPTION FOR SELECT ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
+REVOKE GRANT OPTION FOR SELECT ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
 DO $grants$
 BEGIN
 {table_grants}
