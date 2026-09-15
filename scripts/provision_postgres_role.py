@@ -140,6 +140,7 @@ GRANT {owner_i} TO {admin_i};
 {table_ownership}
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
+REVOKE INSERT, UPDATE, DELETE ON TABLE "macro_loader_sync"."schema_migrations" FROM {role_i};
 DO $grants$
 BEGIN
 {table_grants}
