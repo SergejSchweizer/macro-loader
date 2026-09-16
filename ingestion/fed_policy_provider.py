@@ -228,7 +228,13 @@ class FedPolicyProvider:
                     meeting = datetime.strptime(match.group(1), "%Y%m%d").date()
                     if meeting > end:
                         candidates.append((meeting, link))
-                for meeting, link in sorted(candidates)[:3]:
+                # Each CME MeetingExport contains the complete available
+                # observation history for that meeting.  Download every
+                # future-meeting export exposed by the Chinese CME page so a
+                # backfill gets the maximum legitimately available history;
+                # limiting this to the first few meetings silently truncated
+                # older observations.
+                for meeting, link in sorted(candidates):
                     with page.expect_download(timeout=60_000) as download_info:
                         link.click()
                     csv_text = download_info.value.path().read_bytes().decode("utf-8")
