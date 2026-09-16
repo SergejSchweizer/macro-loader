@@ -78,7 +78,7 @@ class EcbProvider:
 
     @staticmethod
     def _is_no_result(status_code: int, content: bytes) -> bool:
-        if status_code not in {400, 404, 406}:
+        if status_code not in {400, 403, 404, 406, 429}:
             return False
         text = content.decode(errors="ignore").lower()
         return (
@@ -89,6 +89,8 @@ class EcbProvider:
             # with HTTP 400. Treat it as unavailable data (NULL), rather
             # than aborting the complete daily batch.
             or "blocked due to security concerns" in text
+            or "security concerns" in text
+            or "access has been blocked" in text
         )
 
     def _validate_contract(self, series: SeriesContract) -> None:
