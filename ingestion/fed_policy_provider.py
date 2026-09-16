@@ -15,6 +15,7 @@ import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO, StringIO
+from typing import Any
 
 import polars as pl
 
@@ -217,6 +218,7 @@ class FedPolicyProvider:
                 frame.get_by_role("link", name=re.compile("Downloads", re.I)).first.click()
                 frame.wait_for_timeout(2_000)
                 links = frame.locator('a[href*="Export/FedWatch/MeetingExport.aspx"]')
+                candidates: list[tuple[date, Any]] = []
                 for index in range(links.count()):
                     link = links.nth(index)
                     href = link.get_attribute("href") or ""
@@ -224,6 +226,9 @@ class FedPolicyProvider:
                     if not match:
                         continue
                     meeting = datetime.strptime(match.group(1), "%Y%m%d").date()
+                    if meeting > end:
+                        candidates.append((meeting, link))
+                for meeting, link in sorted(candidates)[:3]:
                     with page.expect_download(timeout=60_000) as download_info:
                         link.click()
                     csv_text = download_info.value.path().read_bytes().decode("utf-8")
@@ -238,8 +243,11 @@ class FedPolicyProvider:
                         observation = datetime.strptime(values[0], "%m/%d/%Y").date()
                         if not start <= observation <= end or meeting <= observation:
                             continue
-                        probabilities = [float(value) for value in values[1 : 1 + len(buckets)]]
-                        if abs(sum(probabilities) - 1.0) > 1e-3:
+                        probabilities = [
+                            float(value or 0.0) for value in values[1 : 1 + len(buckets)]
+                        ]
+                        total_probability = sum(probabilities)
+                        if abs(total_probability - 1.0) > 1e-3 or total_probability <= 0:
                             continue
                         baseline = (
                             round(effr[observation] * 100 / 25) * 25
@@ -255,7 +263,10 @@ class FedPolicyProvider:
                             if probability > 0:
                                 rows.append(
                                     self._snapshot_row(
-                                        observation, meeting, midpoint - baseline, probability
+                                        observation,
+                                        meeting,
+                                        midpoint - baseline,
+                                        probability / total_probability,
                                     )
                                 )
             finally:
