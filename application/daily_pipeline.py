@@ -315,7 +315,7 @@ class DailyMedallionPipeline:
         fed_policy = None
         if self._fed_policy_source is not None:
             try:
-                snapshots = self._fed_policy_source.refresh(today - timedelta(days=10), today)
+                snapshots = self._fed_policy_source.refresh(today - timedelta(days=30), today)
             except ProviderHttpError as error:
                 # Public FedWatch history is legitimately unavailable on some dates.
                 # Preserve existing snapshots and publish nulls for unavailable observations;
