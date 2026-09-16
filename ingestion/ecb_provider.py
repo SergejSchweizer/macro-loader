@@ -78,10 +78,18 @@ class EcbProvider:
 
     @staticmethod
     def _is_no_result(status_code: int, content: bytes) -> bool:
-        if status_code not in {404, 406}:
+        if status_code not in {400, 404, 406}:
             return False
         text = content.decode(errors="ignore").lower()
-        return "no record" in text or "no result" in text or "no data" in text
+        return (
+            "no record" in text
+            or "no result" in text
+            or "no data" in text
+            # The ECB portal intermittently returns an HTML anti-bot page
+            # with HTTP 400. Treat it as unavailable data (NULL), rather
+            # than aborting the complete daily batch.
+            or "blocked due to security concerns" in text
+        )
 
     def _validate_contract(self, series: SeriesContract) -> None:
         if series.provider is not self.provider or series.series_id not in _ECB_SERIES:
