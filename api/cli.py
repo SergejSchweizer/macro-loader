@@ -237,7 +237,9 @@ def build_runtime(
     )
     silver = SilverSeriesRepository(paths)
     inventory = InventoryRefreshService(paths)
-    fed_policy_source = FedPolicySnapshotStore(paths, FedPolicyProvider(transport))
+    fed_policy_source = FedPolicySnapshotStore(
+        paths, FedPolicyProvider(transport, browser_only=True)
+    )
 
     git_hash = _git_commit_hash() if command in _GOLD_COMMANDS else _UNUSED_GIT_IDENTITY
     build_store = GoldBuildStore(paths)

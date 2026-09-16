@@ -117,9 +117,16 @@ def _outcomes(
 class FedPolicyProvider:
     """Fetch end-of-day public FedWatch inputs and normalize outcome rows."""
 
-    def __init__(self, transport: HttpTransport, *, fomc_url: str = _FOMC_URL) -> None:
+    def __init__(
+        self,
+        transport: HttpTransport,
+        *,
+        fomc_url: str = _FOMC_URL,
+        browser_only: bool = False,
+    ) -> None:
         self._transport = transport
         self._fomc_url = fomc_url
+        self._browser_only = browser_only
 
     def fetch(self, start: date, end: date) -> pl.DataFrame:
         if start > end:
@@ -132,6 +139,8 @@ class FedPolicyProvider:
             raise ValueError("official Federal Reserve FOMC calendar unavailable")
         meetings = _fomc_decision_dates(calendar_response.content.decode("utf-8", errors="replace"))
         effr = self._effr(start, end, context)
+        if self._browser_only:
+            return self._browser_fetch(start, end, effr, context)
         rows: list[dict[str, object]] = []
         try:
             for trade_date in _business_days(start, end):
