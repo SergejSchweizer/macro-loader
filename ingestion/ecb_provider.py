@@ -53,7 +53,13 @@ class EcbProvider:
         else:
             params["endPeriod"] = request.logical_end.isoformat()
         context = RequestContext(self.provider, series.series_id, series.source_id)
-        response = self._transport.send(HttpRequest("GET", url, params=params), context=context)
+        try:
+            response = self._transport.send(HttpRequest("GET", url, params=params), context=context)
+        except ProviderHttpError:
+            # ECB anti-bot/rate-limit failures are source unavailability for
+            # this update. Preserve the canonical row with NULL-derived
+            # features instead of aborting unrelated providers and Gold sync.
+            return self._empty_frame()
         if response.status_code != 200:
             if self._is_no_result(response.status_code, response.content):
                 return self._empty_frame()
