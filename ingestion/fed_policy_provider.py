@@ -132,6 +132,8 @@ class FedPolicyProvider:
         if start > end:
             raise ValueError("Fed policy start must not exceed end")
         context = RequestContext(Provider.FEDWATCH, "fed_policy", "cme-fedwatch-eod")
+        if self._browser_only:
+            return self._browser_fetch(start, end, {}, context)
         calendar_response = self._transport.send(
             HttpRequest("GET", self._fomc_url), context=context
         )
@@ -139,8 +141,6 @@ class FedPolicyProvider:
             raise ValueError("official Federal Reserve FOMC calendar unavailable")
         meetings = _fomc_decision_dates(calendar_response.content.decode("utf-8", errors="replace"))
         effr = self._effr(start, end, context)
-        if self._browser_only:
-            return self._browser_fetch(start, end, effr, context)
         rows: list[dict[str, object]] = []
         try:
             for trade_date in _business_days(start, end):
@@ -236,16 +236,21 @@ class FedPolicyProvider:
                     ]
                     for values in reader:
                         observation = datetime.strptime(values[0], "%m/%d/%Y").date()
-                        if (
-                            not start <= observation <= end
-                            or meeting <= observation
-                            or observation not in effr
-                        ):
+                        if not start <= observation <= end or meeting <= observation:
                             continue
-                        baseline = round(effr[observation] * 100 / 25) * 25
                         probabilities = [float(value) for value in values[1 : 1 + len(buckets)]]
                         if abs(sum(probabilities) - 1.0) > 1e-3:
                             continue
+                        baseline = (
+                            round(effr[observation] * 100 / 25) * 25
+                            if observation in effr
+                            else buckets[
+                                max(
+                                    range(len(probabilities)),
+                                    key=lambda index: probabilities[index],
+                                )
+                            ]
+                        )
                         for midpoint, probability in zip(buckets, probabilities, strict=True):
                             if probability > 0:
                                 rows.append(
