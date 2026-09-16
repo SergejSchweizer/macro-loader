@@ -8,21 +8,25 @@ Federal Reserve EFFR CSV.  It does not call CME's paid FedWatch API/DataMine.
 from __future__ import annotations
 
 import calendar
+import csv
 import json
+import os
 import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
-from io import BytesIO
+from io import BytesIO, StringIO
 
 import polars as pl
 
 from application.contracts import Provider
+from application.errors import ProviderHttpError
 from application.fed_policy_features import EOD_UTC, FED_POLICY_SNAPSHOT_COLUMNS
 from application.ports.http import HttpRequest, HttpTransport, RequestContext
 
 _CME_SETTLEMENTS_URL = "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/305/FUT"
 _EFFR_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 _FOMC_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+_CME_FEDWATCH_URL = "https://www.cmegroup.cn/fed-watch/"
 _MONTHS = {name: index for index, name in enumerate(calendar.month_abbr) if name}
 _MONTH_CODES = {
     1: "F",
@@ -129,41 +133,119 @@ class FedPolicyProvider:
         meetings = _fomc_decision_dates(calendar_response.content.decode("utf-8", errors="replace"))
         effr = self._effr(start, end, context)
         rows: list[dict[str, object]] = []
-        for trade_date in _business_days(start, end):
-            response = self._transport.send(
-                HttpRequest(
-                    "GET",
-                    _CME_SETTLEMENTS_URL,
-                    params={"tradeDate": trade_date.strftime("%m/%d/%Y")},
-                ),
-                context=context,
-            )
-            if response.status_code != 200:
-                continue
-            settlements = self._settlement_map(response.content)
-            if not settlements or trade_date not in effr:
-                continue
-            for meeting in meetings:
-                if meeting <= trade_date:
+        try:
+            for trade_date in _business_days(start, end):
+                response = self._transport.send(
+                    HttpRequest(
+                        "GET",
+                        _CME_SETTLEMENTS_URL,
+                        params={"tradeDate": trade_date.strftime("%m/%d/%Y")},
+                    ),
+                    context=context,
+                )
+                if response.status_code != 200:
                     continue
-                for move, probability in _outcomes(settlements, meeting, effr[trade_date]):
-                    if probability <= 0:
+                settlements = self._settlement_map(response.content)
+                if not settlements or trade_date not in effr:
+                    continue
+                for meeting in meetings:
+                    if meeting <= trade_date:
                         continue
-                    rows.append(
-                        {
-                            "observation_date": trade_date,
-                            "meeting_date": meeting,
-                            "move_bp": move,
-                            "probability": probability,
-                            "available_at_utc": datetime(
-                                trade_date.year,
-                                trade_date.month,
-                                trade_date.day,
-                                *EOD_UTC,
-                                tzinfo=UTC,
-                            ),
-                        }
-                    )
+                    for move, probability in _outcomes(settlements, meeting, effr[trade_date]):
+                        if probability > 0:
+                            rows.append(self._snapshot_row(trade_date, meeting, move, probability))
+        except ProviderHttpError:
+            return self._browser_fetch(start, end, effr, context)
+        return pl.DataFrame(
+            rows,
+            schema={
+                "observation_date": pl.Date,
+                "meeting_date": pl.Date,
+                "move_bp": pl.Float64,
+                "probability": pl.Float64,
+                "available_at_utc": pl.Datetime("us", "UTC"),
+            },
+        ).select(FED_POLICY_SNAPSHOT_COLUMNS)
+
+    @staticmethod
+    def _snapshot_row(
+        observation: date, meeting: date, move: float, probability: float
+    ) -> dict[str, object]:
+        return {
+            "observation_date": observation,
+            "meeting_date": meeting,
+            "move_bp": move,
+            "probability": probability,
+            "available_at_utc": datetime(
+                observation.year, observation.month, observation.day, *EOD_UTC, tzinfo=UTC
+            ),
+        }
+
+    def _browser_fetch(
+        self, start: date, end: date, effr: dict[date, float], context: RequestContext
+    ) -> pl.DataFrame:
+        """Download official CME exports through a persistent browser session."""
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as error:
+            raise ProviderHttpError(
+                context, "browser_dependency_missing", _CME_FEDWATCH_URL
+            ) from error
+        rows: list[dict[str, object]] = []
+        profile = os.environ.get("FEDWATCH_PROFILE_DIR", ".cache/cme-fedwatch-chromium")
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch_persistent_context(
+                profile, headless=True, accept_downloads=True
+            )
+            try:
+                page = browser.pages[0] if browser.pages else browser.new_page()
+                page.goto(_CME_FEDWATCH_URL, wait_until="domcontentloaded", timeout=90_000)
+                page.wait_for_timeout(15_000)
+                frames = [frame for frame in page.frames if "QuikStrikeView" in frame.url]
+                if not frames:
+                    raise RuntimeError("CME QuikStrike iframe did not render")
+                frame = frames[0]
+                frame.get_by_role("link", name=re.compile("Downloads", re.I)).first.click()
+                frame.wait_for_timeout(2_000)
+                links = frame.locator('a[href*="Export/FedWatch/MeetingExport.aspx"]')
+                for index in range(links.count()):
+                    link = links.nth(index)
+                    href = link.get_attribute("href") or ""
+                    match = re.search(r"MeetingDate=(\d{8})", href)
+                    if not match:
+                        continue
+                    meeting = datetime.strptime(match.group(1), "%Y%m%d").date()
+                    with page.expect_download(timeout=60_000) as download_info:
+                        link.click()
+                    csv_text = download_info.value.path().read_bytes().decode("utf-8")
+                    reader = csv.reader(StringIO(csv_text))
+                    header = next(reader)
+                    buckets = [
+                        (float(item[1:-1].split("-")[0]) + float(item[1:-1].split("-")[1])) / 2
+                        for item in header[1:]
+                        if re.fullmatch(r"\(\d+-\d+\)", item)
+                    ]
+                    for values in reader:
+                        observation = datetime.strptime(values[0], "%m/%d/%Y").date()
+                        if (
+                            not start <= observation <= end
+                            or meeting <= observation
+                            or observation not in effr
+                        ):
+                            continue
+                        baseline = round(effr[observation] * 100 / 25) * 25
+                        probabilities = [float(value) for value in values[1 : 1 + len(buckets)]]
+                        if abs(sum(probabilities) - 1.0) > 1e-3:
+                            continue
+                        for midpoint, probability in zip(buckets, probabilities, strict=True):
+                            if probability > 0:
+                                rows.append(
+                                    self._snapshot_row(
+                                        observation, meeting, midpoint - baseline, probability
+                                    )
+                                )
+            finally:
+                browser.close()
         return pl.DataFrame(
             rows,
             schema={
