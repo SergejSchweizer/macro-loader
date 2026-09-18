@@ -9,7 +9,6 @@ from datetime import date
 
 import polars as pl
 
-from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS
 from application.macro_features import MACRO_SERIES
 from application.momentum_features import momentum_feature_columns
 from application.registry import SERIES_REGISTRY
@@ -17,8 +16,8 @@ from application.return_features import return_feature_columns
 from application.silver import SILVER_SCHEMA
 from application.volatility_features import VOLATILITY_SERIES
 
-GOLD_SCHEMA_VERSION = 6
-GOLD_FEATURE_VERSION = 5
+GOLD_SCHEMA_VERSION = 7
+GOLD_FEATURE_VERSION = 6
 GOLD_SOURCE_SERIES = tuple(SERIES_REGISTRY)
 
 _VOLATILITY_BASE_COLUMNS = tuple(
@@ -38,10 +37,8 @@ _VOLATILITY_BASE_COLUMNS = tuple(
     "vix6m_minus_vix",
     "vix1y_minus_vix",
 )
-VOLATILITY_FEATURE_COLUMNS = (
-    _VOLATILITY_BASE_COLUMNS
-    + momentum_feature_columns(VOLATILITY_SERIES)
-    + return_feature_columns(VOLATILITY_SERIES)
+VOLATILITY_FEATURE_COLUMNS = momentum_feature_columns(VOLATILITY_SERIES) + return_feature_columns(
+    VOLATILITY_SERIES
 )
 
 _MACRO_BASE_COLUMNS = (
@@ -67,18 +64,12 @@ _MACRO_BASE_COLUMNS = (
     "usd_broad_delta_20obs",
     "us_10y_minus_us_2y",
 )
-MACRO_FEATURE_COLUMNS = (
-    _MACRO_BASE_COLUMNS
-    + momentum_feature_columns(MACRO_SERIES)
-    + return_feature_columns(MACRO_SERIES)
+MACRO_FEATURE_COLUMNS = momentum_feature_columns(MACRO_SERIES) + return_feature_columns(
+    MACRO_SERIES
 )
 GOLD_COLUMNS = (
     "timestamp_m1",
-    *_VOLATILITY_BASE_COLUMNS,
-    *_MACRO_BASE_COLUMNS,
-    *momentum_feature_columns((*VOLATILITY_SERIES, *MACRO_SERIES)),
-    *return_feature_columns((*VOLATILITY_SERIES, *MACRO_SERIES)),
-    *FED_POLICY_FEATURE_COLUMNS,
+    *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
 )
 
 
@@ -91,12 +82,27 @@ class GoldSemanticVersions:
 
     def __post_init__(self) -> None:
         if self.schema_version != GOLD_SCHEMA_VERSION:
-            raise ValueError("schema_version is source-controlled and fixed at 6")
+            raise ValueError("schema_version is source-controlled and fixed at 7")
         if self.feature_version != GOLD_FEATURE_VERSION:
-            raise ValueError("feature_version is source-controlled and fixed at 5")
+            raise ValueError("feature_version is source-controlled and fixed at 6")
 
 
 GOLD_VERSIONS = GoldSemanticVersions()
+
+
+def _validate_silver(series_id: str, frame: pl.DataFrame) -> pl.DataFrame:
+    if frame.schema != SILVER_SCHEMA:
+        raise ValueError(f"{series_id} Silver schema mismatch")
+    identities = frame.get_column("series_id").unique().to_list()
+    if identities and identities != [series_id]:
+        raise ValueError(f"{series_id} Silver identity mismatch")
+    if frame.get_column("value").null_count():
+        raise ValueError(f"{series_id} Silver value cannot be null")
+    if not bool(frame.get_column("value").is_finite().all()):
+        raise ValueError(f"{series_id} Silver value must be finite")
+    if bool(frame.get_column("observation_date").is_duplicated().any()):
+        raise ValueError(f"{series_id} Silver observation dates must be unique")
+    return frame.sort("observation_date")
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,35 +183,25 @@ def _input_signatures(
 
 
 def assemble_gold_frame(
-    volatility_features: pl.DataFrame,
-    macro_features: pl.DataFrame,
     silver_by_series: Mapping[str, pl.DataFrame],
     *,
-    fed_policy_features: pl.DataFrame | None = None,
     versions: GoldSemanticVersions = GOLD_VERSIONS,
 ) -> GoldFrameBuild:
-    """Outer-join both feature families into the exact canonical Gold frame."""
-    volatility = _validate_feature_frame(
-        "volatility", volatility_features, VOLATILITY_FEATURE_COLUMNS
-    )
-    macro = _validate_feature_frame("macro", macro_features, MACRO_FEATURE_COLUMNS)
-    joined = volatility.join(macro, on="timestamp_m1", how="full", coalesce=True).sort(
-        "timestamp_m1"
-    )
-    if fed_policy_features is None:
-        fed_policy_features = joined.select("timestamp_m1").with_columns(
-            [pl.lit(None, dtype=pl.Float64).alias(column) for column in FED_POLICY_FEATURE_COLUMNS]
+    """Outer-join original Silver levels into the exact canonical Gold frame."""
+    frames = [
+        _validate_silver(series_id, silver_by_series[series_id]).select(
+            pl.col("observation_date")
+            .cast(pl.Datetime("us"))
+            .dt.replace_time_zone("UTC")
+            .alias("timestamp_m1"),
+            pl.col("value").alias(f"{series_id}_level"),
         )
-    else:
-        expected_policy = ["timestamp_m1", *FED_POLICY_FEATURE_COLUMNS]
-        if fed_policy_features.columns != expected_policy:
-            raise ValueError("fed policy feature schema/order mismatch")
-        if fed_policy_features.schema["timestamp_m1"] != pl.Datetime("us", "UTC"):
-            raise TypeError("fed policy timestamp_m1 must be UTC microsecond datetime")
-        for column in FED_POLICY_FEATURE_COLUMNS:
-            if fed_policy_features.schema[column] != pl.Float64:
-                raise TypeError(f"fed policy feature {column} must be Float64")
-    joined = joined.join(fed_policy_features, on="timestamp_m1", how="left")
+        for series_id in GOLD_SOURCE_SERIES
+    ]
+    joined = frames[0]
+    for frame in frames[1:]:
+        joined = joined.join(frame, on="timestamp_m1", how="full", coalesce=True)
+    joined = joined.sort("timestamp_m1")
     joined = joined.select(list(GOLD_COLUMNS))
     numeric = list(GOLD_COLUMNS[1:])
     joined = joined.with_columns([pl.col(column).fill_nan(None) for column in numeric])

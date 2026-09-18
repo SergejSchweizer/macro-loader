@@ -9,10 +9,11 @@ import pytest
 
 import application.postgres_sync_service as sync_service_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS, GOLD_SCHEMA_VERSION
+from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.postgres_delta import source_rows_and_digests
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldSyncResult,
@@ -62,7 +63,7 @@ def _record(frame: pl.DataFrame, *, build_id: str = "20260822T100000Z") -> GoldC
         started_at_utc=datetime(2026, 8, 22, 9, tzinfo=UTC),
         completed_at_utc=datetime(2026, 8, 22, 10, tzinfo=UTC),
         schema_version=GOLD_SCHEMA_VERSION,
-        feature_version=5,
+        feature_version=GOLD_FEATURE_VERSION,
         min_timestamp=timestamps.min(),
         max_timestamp=timestamps.max(),
         row_count=frame.height,
@@ -78,7 +79,7 @@ def _state(
     *,
     data_sha256: str = "a" * 64,
     schema_version: int = GOLD_SCHEMA_VERSION,
-    feature_version: int = 5,
+    feature_version: int = GOLD_FEATURE_VERSION,
 ) -> GoldSyncState:
     timestamps = frame.get_column("timestamp_m1")
     return GoldSyncState(
@@ -278,7 +279,7 @@ def test_schema_preflight_fails_before_locked_row_mutation() -> None:
 
 def test_same_data_verifies_complete_consumer_and_digest_state_before_checkpoint() -> None:
     frame = _frame((0, 1, 2))
-    _, digests = source_rows_and_digests(frame)
+    _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(state=_state(frame, data_sha256="b" * 64), digests=digests)
     service, source = _service(frame, repository, sha256="b" * 64)
 
@@ -294,7 +295,7 @@ def test_same_data_verifies_complete_consumer_and_digest_state_before_checkpoint
 
 def test_tampered_consumer_digest_fails_before_state_advance() -> None:
     frame = _frame((0, 1, 2))
-    _, digests = source_rows_and_digests(frame)
+    _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(
         state=_state(frame, data_sha256="b" * 64),
         digests=digests,
@@ -310,7 +311,7 @@ def test_tampered_consumer_digest_fails_before_state_advance() -> None:
 
 def test_stale_state_on_unchanged_rows_fails_before_state_advance() -> None:
     frame = _frame((0, 1, 2))
-    _, digests = source_rows_and_digests(frame)
+    _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(state=_state(frame, data_sha256="a" * 64), digests=digests)
     service, _ = _service(frame, repository, sha256="b" * 64)
 
@@ -323,7 +324,7 @@ def test_stale_state_on_unchanged_rows_fails_before_state_advance() -> None:
 def test_mixed_delta_is_exact_and_unchanged_rows_are_not_submitted() -> None:
     current = _frame(tuple(range(103)))
     target = _change(_frame((*range(101), 200)), 100)
-    _, target_digests = source_rows_and_digests(target)
+    _, target_digests = source_rows_and_digests(target.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(state=_state(target), digests=target_digests)
     service, _ = _service(current, repository)
 
@@ -339,7 +340,7 @@ def test_mixed_delta_is_exact_and_unchanged_rows_are_not_submitted() -> None:
 def test_missed_runs_and_historical_revision_are_caught_up() -> None:
     target = _frame((0,))
     current = _change(_frame((0, 7, 14, 21, 28)), 0)
-    _, target_digests = source_rows_and_digests(target)
+    _, target_digests = source_rows_and_digests(target.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(state=_state(target), digests=target_digests)
     service, _ = _service(current, repository)
 
@@ -351,8 +352,8 @@ def test_missed_runs_and_historical_revision_are_caught_up() -> None:
 
 def test_incompatible_or_inconsistent_target_fails_closed_before_write() -> None:
     frame = _frame((0, 1))
-    _, digests = source_rows_and_digests(frame)
-    incompatible = FakeRepository(state=_state(frame, schema_version=7), digests=digests)
+    _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
+    incompatible = FakeRepository(state=_state(frame, schema_version=8), digests=digests)
     service, source = _service(frame, incompatible)
     with pytest.raises(GoldSyncCompatibilityError, match="semantic versions"):
         service.sync()

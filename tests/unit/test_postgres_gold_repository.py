@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 import ingestion.postgres_gold_repository as module
-from application.gold_frame import GOLD_COLUMNS
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldRowPayload,
@@ -45,7 +45,7 @@ def _admin_config(password: str = "admin-secret") -> PostgresAdminConfig:
 
 
 def _row(day: int, value: float) -> GoldRowPayload:
-    return GoldRowPayload(_ts(day), tuple(value for _ in GOLD_COLUMNS[1:]))
+    return GoldRowPayload(_ts(day), tuple(value for _ in POSTGRES_RAW_COLUMNS[1:]))
 
 
 def _state(
@@ -334,13 +334,13 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     ]
     ddl = "\n".join(queries[5:])
     assert '"timestamp_m1" TIMESTAMPTZ(6) NOT NULL PRIMARY KEY' in ddl
-    for column in GOLD_COLUMNS[1:]:
+    for column in POSTGRES_RAW_COLUMNS[1:]:
         assert f'"{column}" DOUBLE PRECISION NULL' in ddl
     assert '"macro_loader"."macro_raw"' in ddl
     assert '"macro_loader_sync"."gold_sync_state"' in ddl
     assert '"macro_loader_sync"."gold_row_hashes"' in ddl
     assert '"macro_loader_sync"."schema_migrations"' in ddl
-    assert queries.count(module._CONSUMER_DDL) == 2
+    assert queries.count(module._CONSUMER_DDL) == 3
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert "TRUNCATE" not in ddl
@@ -356,13 +356,14 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
-    assert len(module._FEATURES_VIEW_COLUMNS) == 126
-    assert all(column in GOLD_COLUMNS for column in module._FEATURES_VIEW_COLUMNS)
+    assert len(module._FEATURES_VIEW_COLUMNS) == 139
     assert all(not column.endswith("_level") for column in module._FEATURES_VIEW_COLUMNS)
     assert all(not column.startswith(("fed_", "fomc_")) for column in module._FEATURES_VIEW_COLUMNS)
-    assert '"vix_delta_1obs"' in ddl
-    assert '"us_10y_return_geom_240obs_pct"' in ddl
-    assert '"vix9d_delta_1obs"' not in ddl
+    assert 'NULL::DOUBLE PRECISION AS "vix_delta_1obs"' in ddl
+    assert 'NULL::DOUBLE PRECISION AS "vix9d_delta_1obs"' in ddl
+    assert 'NULL::DOUBLE PRECISION AS "vix9d_vix_ratio"' in ddl
+    assert 'NULL::DOUBLE PRECISION AS "us_10y_return_geom_240obs_pct"' in ddl
+    assert "WHERE FALSE" in ddl
     assert '"estr_return_geom_10obs_pct"' not in ddl
 
 
@@ -442,7 +443,7 @@ def test_read_digests_fetches_only_timestamp_and_hash_in_order() -> None:
         query for query in _execute_queries(connection) if query.startswith("SELECT timestamp")
     )
     assert "row_sha256" in digest_query
-    for feature in GOLD_COLUMNS[1:]:
+    for feature in POSTGRES_RAW_COLUMNS[1:]:
         assert feature not in digest_query
 
 
@@ -472,7 +473,7 @@ def test_read_consumer_digests_hashes_complete_rows_in_timestamp_order() -> None
     consumer_query = next(
         query for query in _execute_queries(connection) if query.startswith('SELECT "timestamp_m1"')
     )
-    assert all(f'"{column}"' in consumer_query for column in GOLD_COLUMNS)
+    assert all(f'"{column}"' in consumer_query for column in POSTGRES_RAW_COLUMNS)
 
 
 def test_summary_returns_count_and_utc_bounds() -> None:

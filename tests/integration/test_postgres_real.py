@@ -13,7 +13,7 @@ import pytest
 
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS
+from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.postgres_conformance import PostgresConformanceReport
 from application.postgres_conformance_service import GoldPostgresConformanceVerifier
 from application.postgres_sync import (
@@ -103,8 +103,8 @@ def _state(timestamp: datetime) -> GoldSyncState:
         dataset_id=POSTGRES_DATASET_ID,
         source_build_id="20260828T000000Z",
         data_sha256="a" * 64,
-        schema_version=6,
-        feature_version=5,
+        schema_version=GOLD_SCHEMA_VERSION,
+        feature_version=GOLD_FEATURE_VERSION,
         row_count=1,
         min_timestamp=timestamp,
         max_timestamp=timestamp,
@@ -127,8 +127,8 @@ def _record(timestamp: datetime) -> GoldCatalogRecord:
         current=True,
         started_at_utc=_timestamp(1),
         completed_at_utc=_timestamp(2),
-        schema_version=6,
-        feature_version=5,
+        schema_version=GOLD_SCHEMA_VERSION,
+        feature_version=GOLD_FEATURE_VERSION,
         min_timestamp=timestamp,
         max_timestamp=timestamp,
         row_count=1,

@@ -13,6 +13,7 @@ from application.gold_catalog import GoldCatalogRecord
 from application.postgres_delta import plan_gold_delta
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     GoldRowDigest,
     GoldSyncRepository,
     GoldSyncResult,
@@ -94,12 +95,15 @@ class GoldPostgresDeltaSync:
             raise GoldSyncVerificationError(
                 "PostgreSQL Gold digest count does not match authoritative sync state"
             )
-        if not self._is_schema_upgrade(prior_state, desired_state):
+        is_schema_upgrade = self._is_schema_upgrade(prior_state, desired_state)
+        if not is_schema_upgrade:
             self._require_matching_digests(target_digests, consumer_digests, "consumer rows")
 
         frame = self.source.read_path(data_path)
         self._validate_frame_metadata(frame, record)
-        plan = plan_gold_delta(frame, target_digests, prior_state)
+        plan = plan_gold_delta(
+            frame.select(list(POSTGRES_RAW_COLUMNS)), target_digests, prior_state
+        )
         if prior_state is not None and self._same_data(prior_state, desired_state):
             self._require_matching_digests(plan.source_digests, target_digests, "digest index")
         if (
@@ -108,6 +112,7 @@ class GoldPostgresDeltaSync:
             and not plan.updates
             and not plan.deletes
             and not self._same_data(prior_state, desired_state)
+            and not is_schema_upgrade
         ):
             raise GoldSyncVerificationError(
                 "PostgreSQL Gold sync state does not match canonical source"
@@ -200,6 +205,13 @@ class GoldPostgresDeltaSync:
         ):
             return
         if (
+            prior.schema_version == 6
+            and desired.schema_version == 7
+            and prior.feature_version == 5
+            and desired.feature_version == 6
+        ):
+            return
+        if (
             prior.schema_version != desired.schema_version
             or prior.feature_version != desired.feature_version
         ):
@@ -244,6 +256,12 @@ class GoldPostgresDeltaSync:
                 and prior.feature_version == 4
                 and desired.schema_version == 6
                 and desired.feature_version == 5
+            )
+            or (
+                prior.schema_version == 6
+                and prior.feature_version == 5
+                and desired.schema_version == 7
+                and desired.feature_version == 6
             )
         )
 
