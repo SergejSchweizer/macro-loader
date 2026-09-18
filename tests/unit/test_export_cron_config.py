@@ -9,24 +9,24 @@ from scripts.export_cron_config import export
 
 
 def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str:
-        return (
-                "runtime:\n"
-                "  home: /home/a\n"
-                "  path: /bin\n"
-                "  project_root: /project path\n"
-                "  lake_root: /lake\n"
-                "  log_path: /project path/.logs/macro-loader.log\n"
-                "  ssl_cert_file: /cert\n"
-                "  gold_mirror_root: /mirror\n"
-                "  postgres_host: 10.10.1.3\n"
-                "  postgres_port: \"54321\"\n"
-                f"  postgres_user: {user}\n"
-                "  postgres_database: macro_loader\n"
-                "secrets:\n"
-                "  fred_api_key: secret key\n"
-                f"  postgres_password: {password!r}\n"
-                "postgres_admin_password: admin secret\n"
-        )
+    return (
+        "runtime:\n"
+        "  home: /home/a\n"
+        "  path: /bin\n"
+        "  project_root: /project path\n"
+        "  lake_root: /lake\n"
+        "  log_path: /project path/.logs/macro-loader.log\n"
+        "  ssl_cert_file: /cert\n"
+        "  gold_mirror_root: /mirror\n"
+        "  postgres_host: 10.10.1.3\n"
+        '  postgres_port: "54321"\n'
+        f"  postgres_user: {user}\n"
+        "  postgres_database: macro_loader\n"
+        "secrets:\n"
+        "  fred_api_key: secret key\n"
+        f"  postgres_password: {password!r}\n"
+        "postgres_admin_password: admin secret\n"
+    )
 
 
 def _exports(text: str) -> dict[str, str]:
