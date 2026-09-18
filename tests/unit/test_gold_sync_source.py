@@ -8,7 +8,13 @@ import polars as pl
 import pytest
 
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS, GOLD_SOURCE_SERIES, SilverInputSignature
+from application.gold_frame import (
+    GOLD_COLUMNS,
+    GOLD_FEATURE_VERSION,
+    GOLD_SCHEMA_VERSION,
+    GOLD_SOURCE_SERIES,
+    SilverInputSignature,
+)
 from application.gold_sidecars import GoldSidecarBuilder
 from application.paths import LakePaths
 from ingestion.gold_build_store import GoldBuildStore
@@ -57,8 +63,8 @@ def _bundle(tmp_path: Path) -> tuple[FilesystemGoldFrameSource, GoldCatalogRecor
         current=True,
         started_at_utc=START,
         completed_at_utc=START,
-        schema_version=6,
-        feature_version=5,
+        schema_version=GOLD_SCHEMA_VERSION,
+        feature_version=GOLD_FEATURE_VERSION,
         min_timestamp=START,
         max_timestamp=START + timedelta(days=1),
         row_count=2,

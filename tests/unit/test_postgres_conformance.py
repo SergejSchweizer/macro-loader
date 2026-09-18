@@ -7,7 +7,7 @@ import polars as pl
 import pytest
 
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS
+from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.postgres_conformance import (
     POSTGRES_TEMPORAL_CONTRACT_VERSION,
     PostgresConformanceReport,
@@ -82,8 +82,8 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
         current=True,
         started_at_utc=timestamp,
         completed_at_utc=timestamp,
-        schema_version=6,
-        feature_version=5,
+        schema_version=GOLD_SCHEMA_VERSION,
+        feature_version=GOLD_FEATURE_VERSION,
         min_timestamp=timestamp,
         max_timestamp=timestamp,
         row_count=1,
@@ -183,8 +183,8 @@ def test_agreement_requires_identical_source_consumer_index_summary_and_state() 
         current=True,
         started_at_utc=timestamp,
         completed_at_utc=timestamp,
-        schema_version=6,
-        feature_version=5,
+        schema_version=GOLD_SCHEMA_VERSION,
+        feature_version=GOLD_FEATURE_VERSION,
         min_timestamp=timestamp,
         max_timestamp=timestamp,
         row_count=1,

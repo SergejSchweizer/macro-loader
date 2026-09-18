@@ -9,7 +9,7 @@ import pytest
 
 import application.postgres_sync_service as sync_service_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS, GOLD_SCHEMA_VERSION
+from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.postgres_delta import source_rows_and_digests
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
@@ -63,7 +63,7 @@ def _record(frame: pl.DataFrame, *, build_id: str = "20260822T100000Z") -> GoldC
         started_at_utc=datetime(2026, 8, 22, 9, tzinfo=UTC),
         completed_at_utc=datetime(2026, 8, 22, 10, tzinfo=UTC),
         schema_version=GOLD_SCHEMA_VERSION,
-        feature_version=5,
+        feature_version=GOLD_FEATURE_VERSION,
         min_timestamp=timestamps.min(),
         max_timestamp=timestamps.max(),
         row_count=frame.height,
@@ -79,7 +79,7 @@ def _state(
     *,
     data_sha256: str = "a" * 64,
     schema_version: int = GOLD_SCHEMA_VERSION,
-    feature_version: int = 5,
+    feature_version: int = GOLD_FEATURE_VERSION,
 ) -> GoldSyncState:
     timestamps = frame.get_column("timestamp_m1")
     return GoldSyncState(
@@ -353,7 +353,7 @@ def test_missed_runs_and_historical_revision_are_caught_up() -> None:
 def test_incompatible_or_inconsistent_target_fails_closed_before_write() -> None:
     frame = _frame((0, 1))
     _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
-    incompatible = FakeRepository(state=_state(frame, schema_version=7), digests=digests)
+    incompatible = FakeRepository(state=_state(frame, schema_version=8), digests=digests)
     service, source = _service(frame, incompatible)
     with pytest.raises(GoldSyncCompatibilityError, match="semantic versions"):
         service.sync()

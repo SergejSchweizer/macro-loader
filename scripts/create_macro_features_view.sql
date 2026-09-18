@@ -24,7 +24,7 @@ BEGIN
             base_column
         ) INTO first_timestamp;
 
-        IF first_timestamp < '2010-01-01 00:00:00+00'::timestamptz THEN
+        IF first_timestamp IS NOT NULL THEN
             series_id := regexp_replace(base_column, '_level$', '');
             ctes := ctes || CASE WHEN ctes = '' THEN '' ELSE ', ' END || format(
                 $sql$
@@ -112,13 +112,22 @@ BEGIN
     END LOOP;
 
     IF ctes = '' THEN
-        RAISE EXCEPTION 'macro_raw has no level features beginning before 2010';
+        RAISE EXCEPTION 'macro_raw has no nonempty level columns';
     END IF;
 
     DROP MATERIALIZED VIEW IF EXISTS macro_loader.macro_features;
     EXECUTE format(
         'CREATE MATERIALIZED VIEW macro_loader.macro_features AS WITH %s
-         SELECT raw.timestamp_m1%s FROM macro_loader.macro_raw AS raw%s
+         SELECT raw.timestamp_m1%s,
+             CASE WHEN raw.vix_level > 0 THEN raw.vix9d_level / raw.vix_level END
+                 AS vix9d_vix_ratio,
+             CASE WHEN raw.vix3m_level > 0 THEN raw.vix_level / raw.vix3m_level END
+                 AS vix_vix3m_ratio,
+             raw.vix3m_level - raw.vix_level AS vix3m_minus_vix,
+             raw.vix6m_level - raw.vix_level AS vix6m_minus_vix,
+             raw.vix1y_level - raw.vix_level AS vix1y_minus_vix,
+             raw.us_10y_level - raw.us_2y_level AS us_10y_minus_us_2y
+         FROM macro_loader.macro_raw AS raw%s
          WHERE raw.timestamp_m1 >= ''2010-01-01 00:00:00+00''::timestamptz',
         ctes,
         selected_columns,
