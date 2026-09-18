@@ -354,7 +354,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
 def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:
     ddl = module._FEATURES_VIEW_DDL
 
-    assert "CREATE MATERIALIZED VIEW IF NOT EXISTS \"macro_loader\".\"macro_features\"" in ddl
+    assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
     assert len(module._FEATURES_VIEW_COLUMNS) == 126
     assert all(column in GOLD_COLUMNS for column in module._FEATURES_VIEW_COLUMNS)
