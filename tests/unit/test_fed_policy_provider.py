@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import polars as pl
 import pytest
 
+from application.errors import ProviderHttpError
 from application.ports.http import HttpRequest, HttpResponse, RequestContext
 from ingestion.fed_policy_provider import (
     FedPolicyProvider,
@@ -16,15 +20,20 @@ from ingestion.fed_policy_provider import (
 
 class FakeTransport:
     def __init__(
-        self, *, calendar_status: int = 200, effr_status: int = 200, settlement_status: int = 200
+        self,
+        *,
+        calendar_status: int = 200,
+        effr_status: int = 200,
+        settlement_status: int = 200,
+        raise_settlement: bool = False,
     ) -> None:
         self.calendar_status = calendar_status
         self.effr_status = effr_status
         self.settlement_status = settlement_status
+        self.raise_settlement = raise_settlement
         self.requests: list[HttpRequest] = []
 
     def send(self, request: HttpRequest, *, context: RequestContext) -> HttpResponse:
-        del context
         self.requests.append(request)
         if "fomccalendars" in request.url:
             return HttpResponse(
@@ -34,6 +43,8 @@ class FakeTransport:
             )
         if "fredgraph" in request.url:
             return HttpResponse(self.effr_status, b"DATE,EFFR\n2026-01-02,3.64\n", {})
+        if self.raise_settlement:
+            raise ProviderHttpError(context, "blocked", "/settlements", 403)
         return HttpResponse(
             self.settlement_status,
             json.dumps(
@@ -83,6 +94,133 @@ def test_provider_skips_unavailable_settlement_response() -> None:
         date(2026, 1, 2), date(2026, 1, 2)
     )
     assert result.is_empty()
+
+
+def test_provider_falls_back_to_browser_after_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = FedPolicyProvider(FakeTransport(raise_settlement=True))
+    expected = pl.DataFrame({"observation_date": [date(2026, 1, 2)]})
+    monkeypatch.setattr(provider, "_browser_fetch", lambda *args: expected)
+
+    assert provider.fetch(date(2026, 1, 2), date(2026, 1, 2)).equals(expected)
+
+
+class _FakeDownload:
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    def path(self) -> Path:
+        return self._path
+
+
+class _DownloadContext:
+    def __init__(self, download: _FakeDownload) -> None:
+        self.value = download
+
+    def __enter__(self) -> _DownloadContext:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+
+class _FakeLink:
+    def __init__(self, href: str) -> None:
+        self.href = href
+
+    def get_attribute(self, name: str) -> str | None:
+        return self.href if name == "href" else None
+
+    def click(self) -> None:
+        return None
+
+
+class _FakeLinks:
+    def __init__(self, links: list[_FakeLink]) -> None:
+        self.links = links
+
+    def count(self) -> int:
+        return len(self.links)
+
+    def nth(self, index: int) -> _FakeLink:
+        return self.links[index]
+
+
+class _FakeFrame:
+    url = "https://example/QuikStrikeView"
+
+    def get_by_role(self, role: str, name: object) -> SimpleNamespace:
+        return SimpleNamespace(first=SimpleNamespace(click=lambda: None))
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        return None
+
+    def locator(self, selector: str) -> _FakeLinks:
+        return _FakeLinks(
+            [
+                _FakeLink("https://example/MeetingExport.aspx?MeetingDate=invalid"),
+                _FakeLink("https://example/MeetingExport.aspx?MeetingDate=20260128"),
+            ]
+        )
+
+
+class _FakePage:
+    frames = [_FakeFrame()]
+
+    def __init__(self, download: _FakeDownload) -> None:
+        self.download = download
+
+    def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
+        return None
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        return None
+
+    def expect_download(self, *, timeout: int) -> _DownloadContext:
+        return _DownloadContext(self.download)
+
+
+class _FakeBrowser:
+    def __init__(self, page: _FakePage) -> None:
+        self.pages = [page]
+
+    def new_page(self) -> _FakePage:
+        return self.pages[0]
+
+    def close(self) -> None:
+        return None
+
+
+def test_browser_fallback_parses_official_export_without_network(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    export = tmp_path / "fedwatch.csv"
+    export.write_text("Date,(0-25),(25-50)\n01/02/2026,0,1\n", encoding="utf-8")
+    browser = _FakeBrowser(_FakePage(_FakeDownload(export)))
+
+    class _Playwright:
+        chromium = SimpleNamespace(launch_persistent_context=lambda *args, **kwargs: browser)
+
+        def __enter__(self) -> _Playwright:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+    sync_api = ModuleType("playwright.sync_api")
+    sync_api.sync_playwright = lambda: _Playwright()
+    playwright = ModuleType("playwright")
+    monkeypatch.setitem(sys.modules, "playwright", playwright)
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", sync_api)
+
+    result = FedPolicyProvider(FakeTransport(), browser_only=True).fetch(
+        date(2026, 1, 1), date(2026, 1, 3)
+    )
+
+    assert result.height == 1
+    assert result[0, "meeting_date"] == date(2026, 1, 28)
+    assert result[0, "probability"] == 1.0
 
 
 def test_settlement_parser_ignores_malformed_and_total_rows() -> None:
