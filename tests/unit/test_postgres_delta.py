@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 import polars as pl
 import pytest
 
-from application.gold_frame import GOLD_COLUMNS
 from application.postgres_delta import (
     gold_row_sha256,
     plan_gold_delta,
@@ -13,6 +12,7 @@ from application.postgres_delta import (
 )
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     GoldRowDigest,
     GoldRowPayload,
     GoldSyncState,
@@ -25,7 +25,7 @@ def _ts(day: int, *, micros: int = 0) -> datetime:
 
 def _frame(days: tuple[int, ...], *, offset: float = 0.0) -> pl.DataFrame:
     data: dict[str, list[object]] = {"timestamp_m1": [_ts(day) for day in days]}
-    for index, column in enumerate(GOLD_COLUMNS[1:], start=1):
+    for index, column in enumerate(POSTGRES_RAW_COLUMNS[1:], start=1):
         data[column] = [float(day + index) + offset for day in days]
     return pl.DataFrame(data).with_columns(pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")))
 
@@ -46,7 +46,7 @@ def _state(frame: pl.DataFrame) -> GoldSyncState:
 
 
 def test_row_digest_is_deterministic_and_value_sensitive() -> None:
-    values = tuple(float(index) for index in range(len(GOLD_COLUMNS) - 1))
+    values = tuple(float(index) for index in range(len(POSTGRES_RAW_COLUMNS) - 1))
     row = GoldRowPayload(_ts(1), values)
     assert gold_row_sha256(row) == gold_row_sha256(row)
     changed = GoldRowPayload(_ts(1), (*values[:-1], values[-1] + 1.0))
@@ -56,7 +56,7 @@ def test_row_digest_is_deterministic_and_value_sensitive() -> None:
 
 
 def test_row_digest_has_explicit_null_and_normalizes_negative_zero() -> None:
-    values = tuple(0.0 for _ in GOLD_COLUMNS[1:])
+    values = tuple(0.0 for _ in POSTGRES_RAW_COLUMNS[1:])
     negative = GoldRowPayload(_ts(1), (-0.0, *values[1:]))
     positive = GoldRowPayload(_ts(1), values)
     null = GoldRowPayload(_ts(1), (None, *values[1:]))
@@ -66,7 +66,7 @@ def test_row_digest_has_explicit_null_and_normalizes_negative_zero() -> None:
 
 @pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
 def test_row_digest_rejects_non_finite_features(invalid: float) -> None:
-    values = [0.0 for _ in GOLD_COLUMNS[1:]]
+    values = [0.0 for _ in POSTGRES_RAW_COLUMNS[1:]]
     values[0] = invalid
     with pytest.raises(ValueError, match="NaN and infinity"):
         gold_row_sha256(GoldRowPayload(_ts(1), tuple(values)))
@@ -116,9 +116,9 @@ def test_missed_runs_and_historical_revision_are_not_hidden_by_time() -> None:
     current = _frame((1, 2, 8, 15, 22))
     current = current.with_columns(
         pl.when(pl.col("timestamp_m1") == _ts(1))
-        .then(pl.col(GOLD_COLUMNS[1]) + 100.0)
-        .otherwise(pl.col(GOLD_COLUMNS[1]))
-        .alias(GOLD_COLUMNS[1])
+        .then(pl.col(POSTGRES_RAW_COLUMNS[1]) + 100.0)
+        .otherwise(pl.col(POSTGRES_RAW_COLUMNS[1]))
+        .alias(POSTGRES_RAW_COLUMNS[1])
     )
     plan = plan_gold_delta(current, old_digests, _state(old))
     assert [row.timestamp_m1 for row in plan.updates] == [_ts(1)]
@@ -132,10 +132,10 @@ def test_duplicate_target_digest_and_invalid_source_schema_fail() -> None:
     with pytest.raises(ValueError, match="duplicate"):
         plan_gold_delta(frame, (digests[0], digests[0]), _state(frame))
     with pytest.raises(ValueError, match="column order"):
-        source_rows_and_digests(frame.select(list(reversed(GOLD_COLUMNS))))
+        source_rows_and_digests(frame.select(list(reversed(POSTGRES_RAW_COLUMNS))))
 
 
 def test_non_finite_source_frame_fails_before_plan() -> None:
-    frame = _frame((1,)).with_columns(pl.lit(float("nan")).alias(GOLD_COLUMNS[1]))
+    frame = _frame((1,)).with_columns(pl.lit(float("nan")).alias(POSTGRES_RAW_COLUMNS[1]))
     with pytest.raises(ValueError, match="NaN and infinity"):
         source_rows_and_digests(frame)

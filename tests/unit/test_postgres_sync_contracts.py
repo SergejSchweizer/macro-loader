@@ -7,11 +7,12 @@ from pathlib import Path
 import pytest
 
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS, GOLD_SCHEMA_VERSION
+from application.gold_frame import GOLD_SCHEMA_VERSION
 from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SESSION_TIMEZONE,
     POSTGRES_SYNC_SCHEMA,
@@ -79,7 +80,7 @@ def test_timestamp_contract_is_timestamptz_microseconds_utc() -> None:
 
 def test_postgres_sync_timestamps_require_zero_offset_utc() -> None:
     utc_timestamp = _now(1)
-    payload = GoldRowPayload(utc_timestamp, tuple(None for _ in GOLD_COLUMNS[1:]))
+    payload = GoldRowPayload(utc_timestamp, tuple(None for _ in POSTGRES_RAW_COLUMNS[1:]))
     assert payload.timestamp_m1 is utc_timestamp
 
     for invalid_timestamp in (
@@ -89,11 +90,11 @@ def test_postgres_sync_timestamps_require_zero_offset_utc() -> None:
         datetime(2026, 8, 1, tzinfo=timezone(timedelta(hours=-5))),
     ):
         with pytest.raises(ValueError, match="zero-offset UTC"):
-            GoldRowPayload(invalid_timestamp, tuple(None for _ in GOLD_COLUMNS[1:]))
+            GoldRowPayload(invalid_timestamp, tuple(None for _ in POSTGRES_RAW_COLUMNS[1:]))
 
 
 def test_contract_value_objects_and_counts() -> None:
-    row = GoldRowPayload(_now(1), tuple(None for _ in GOLD_COLUMNS[1:]))
+    row = GoldRowPayload(_now(1), tuple(None for _ in POSTGRES_RAW_COLUMNS[1:]))
     digest = GoldRowDigest(_now(1), "a" * 64)
     plan = GoldDeltaPlan((row,), (), (), (), (digest,))
     state = GoldSyncState(
@@ -114,7 +115,7 @@ def test_contract_value_objects_and_counts() -> None:
 
 
 def test_delta_sets_must_be_disjoint() -> None:
-    row = GoldRowPayload(_now(1), tuple(None for _ in GOLD_COLUMNS[1:]))
+    row = GoldRowPayload(_now(1), tuple(None for _ in POSTGRES_RAW_COLUMNS[1:]))
     with pytest.raises(ValueError, match="disjoint"):
         GoldDeltaPlan((row,), (), (_now(1),), (), ())
 

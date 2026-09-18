@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 
 import polars as pl
 
-from application.gold_frame import GOLD_COLUMNS
 from application.postgres_sync import (
+    POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldRowPayload,
@@ -38,10 +38,10 @@ def gold_row_sha256(row: GoldRowPayload) -> str:
     """Hash one row with stable type/null framing and exact canonical column order."""
     digest = hashlib.sha256()
     digest.update(_DIGEST_PREFIX)
-    digest.update(GOLD_COLUMNS[0].encode("utf-8"))
+    digest.update(POSTGRES_RAW_COLUMNS[0].encode("utf-8"))
     digest.update(b"\x00T")
     digest.update(struct.pack(">q", _epoch_microseconds(row.timestamp_m1)))
-    for column, value in zip(GOLD_COLUMNS[1:], row.values, strict=True):
+    for column, value in zip(POSTGRES_RAW_COLUMNS[1:], row.values, strict=True):
         digest.update(column.encode("utf-8"))
         digest.update(b"\x00")
         if value is None:
@@ -53,8 +53,8 @@ def gold_row_sha256(row: GoldRowPayload) -> str:
 
 
 def _validate_source_frame(frame: pl.DataFrame) -> None:
-    if frame.columns != list(GOLD_COLUMNS):
-        raise ValueError("PostgreSQL delta source must use exact canonical Gold column order")
+    if frame.columns != list(POSTGRES_RAW_COLUMNS):
+        raise ValueError("PostgreSQL delta source must use exact raw source column order")
     if frame.schema["timestamp_m1"] != pl.Datetime("us", "UTC"):
         raise TypeError("PostgreSQL delta source timestamp_m1 must be Datetime(us, UTC)")
     timestamp = frame.get_column("timestamp_m1")
@@ -62,7 +62,7 @@ def _validate_source_frame(frame: pl.DataFrame) -> None:
         raise ValueError("PostgreSQL delta source timestamp_m1 cannot be null")
     if bool(timestamp.is_duplicated().any()):
         raise ValueError("PostgreSQL delta source timestamp_m1 must be unique")
-    for column in GOLD_COLUMNS[1:]:
+    for column in POSTGRES_RAW_COLUMNS[1:]:
         if frame.schema[column] != pl.Float64:
             raise TypeError(f"PostgreSQL delta source feature {column} must be Float64")
 

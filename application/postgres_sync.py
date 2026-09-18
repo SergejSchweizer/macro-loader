@@ -12,7 +12,7 @@ from application.gold_catalog import (
     GoldCatalogRecord,
     GoldCompatibility,
 )
-from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
+from application.gold_frame import GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION, GOLD_SOURCE_SERIES
 
 POSTGRES_DATASET_ID = "macro_features_daily"
 POSTGRES_CONSUMER_SCHEMA = "macro_loader"
@@ -23,6 +23,10 @@ POSTGRES_ROW_HASH_TABLE = "gold_row_hashes"
 POSTGRES_TIMESTAMP_COLUMN = "timestamp_m1"
 POSTGRES_TIMESTAMP_SQL_TYPE = "TIMESTAMPTZ(6)"
 POSTGRES_SESSION_TIMEZONE = "UTC"
+POSTGRES_RAW_COLUMNS = (
+    "timestamp_m1",
+    *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
+)
 
 TransactionResult = TypeVar("TransactionResult")
 
@@ -42,8 +46,10 @@ class GoldRowPayload:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "timestamp_m1", _utc(self.timestamp_m1))
-        if len(self.values) != len(GOLD_COLUMNS) - 1:
-            raise ValueError("Gold row payload length does not match canonical feature columns")
+        if len(self.values) != len(POSTGRES_RAW_COLUMNS) - 1:
+            raise ValueError(
+                "PostgreSQL raw row payload length does not match source level columns"
+            )
 
 
 @dataclass(frozen=True, slots=True)

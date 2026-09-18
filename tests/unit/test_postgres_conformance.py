@@ -15,7 +15,12 @@ from application.postgres_conformance import (
 )
 from application.postgres_conformance_service import GoldPostgresConformanceVerifier
 from application.postgres_delta import source_rows_and_digests
-from application.postgres_sync import POSTGRES_DATASET_ID, GoldSyncState, GoldTargetSummary
+from application.postgres_sync import (
+    POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
+    GoldSyncState,
+    GoldTargetSummary,
+)
 
 
 def test_report_is_deterministic_and_secret_safe() -> None:
@@ -69,7 +74,7 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
     frame = pl.DataFrame(
         {"timestamp_m1": [timestamp], **{column: [1.0] for column in GOLD_COLUMNS[1:]}}
     ).with_columns(pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")))
-    _, digests = source_rows_and_digests(frame)
+    _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     record = GoldCatalogRecord(
         dataset_id=POSTGRES_DATASET_ID,
         build_id="20260820T000000Z",
@@ -170,7 +175,7 @@ def test_agreement_requires_identical_source_consumer_index_summary_and_state() 
     frame = pl.DataFrame(
         {"timestamp_m1": [timestamp], **{column: [1.0] for column in GOLD_COLUMNS[1:]}}
     ).with_columns(pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")))
-    _, digests = source_rows_and_digests(frame)
+    _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     record = GoldCatalogRecord(
         dataset_id=POSTGRES_DATASET_ID,
         build_id="20260820T000000Z",

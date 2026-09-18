@@ -17,6 +17,7 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SESSION_TIMEZONE,
     POSTGRES_SYNC_SCHEMA,
@@ -212,7 +213,7 @@ def _quote(identifier: str) -> str:
 _CONSUMER = f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(POSTGRES_CONSUMER_TABLE)}"
 _SYNC_STATE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_SYNC_STATE_TABLE)}"
 _ROW_HASHES = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_ROW_HASH_TABLE)}"
-_FEATURE_COLUMNS = GOLD_COLUMNS[1:]
+_FEATURE_COLUMNS = POSTGRES_RAW_COLUMNS[1:]
 _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
 _POSTGRES_OWNER_ROLE = "macro-loader-owner"
@@ -423,6 +424,16 @@ _CONSUMER_LAYOUT_MIGRATION = (
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} TO {_quote(POSTGRES_SYNC_USER)}",
     f"REVOKE INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} FROM {_quote(POSTGRES_USER)}",
 )
+_RAW_ONLY_LAYOUT_MIGRATION = (
+    f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW} CASCADE",
+    f"DROP TABLE IF EXISTS {_CONSUMER}",
+    _CONSUMER_DDL,
+    f"DELETE FROM {_SYNC_STATE}",
+    f"DELETE FROM {_ROW_HASHES}",
+    f"GRANT SELECT ON TABLE {_CONSUMER} TO {_quote(POSTGRES_USER)}",
+    f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} TO {_quote(POSTGRES_SYNC_USER)}",
+    f"REVOKE INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} FROM {_quote(POSTGRES_USER)}",
+)
 _CONSUMER_RENAME_MIGRATION = f"""DO $$
 BEGIN
     IF to_regclass('macro_loader.macro_features_daily') IS NOT NULL THEN
@@ -523,6 +534,7 @@ _MIGRATIONS = (
     _CONSUMER_LAYOUT_MIGRATION,
     (_CONSUMER_RENAME_MIGRATION,),
     _FEATURES_VIEW_MIGRATION,
+    _RAW_ONLY_LAYOUT_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -546,8 +558,8 @@ GROUP BY namespaces.nspname, classes.relname, constraints.contype
 ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 
 _INSERT_ROW_SQL = (
-    f"INSERT INTO {_CONSUMER} ({', '.join(_quote(column) for column in GOLD_COLUMNS)}) "
-    f"VALUES ({', '.join('%s' for _ in GOLD_COLUMNS)})"
+    f"INSERT INTO {_CONSUMER} ({', '.join(_quote(column) for column in POSTGRES_RAW_COLUMNS)}) "
+    f"VALUES ({', '.join('%s' for _ in POSTGRES_RAW_COLUMNS)})"
 )
 _UPDATE_ROW_SQL = (
     f"UPDATE {_CONSUMER} SET "
@@ -561,7 +573,7 @@ ON CONFLICT (dataset_id, timestamp_m1)
 DO UPDATE SET row_sha256 = EXCLUDED.row_sha256"""
 _DELETE_DIGEST_SQL = f"DELETE FROM {_ROW_HASHES} WHERE dataset_id = %s AND timestamp_m1 = %s"
 _CONSUMER_ROWS_SQL = (
-    f"SELECT {', '.join(_quote(column) for column in GOLD_COLUMNS)} "
+    f"SELECT {', '.join(_quote(column) for column in POSTGRES_RAW_COLUMNS)} "
     f"FROM {_CONSUMER} ORDER BY {_quote('timestamp_m1')}"
 )
 _TARGET_SUMMARY_SQL = (
@@ -649,7 +661,7 @@ def _summary_from_row(row: tuple[object, ...]) -> GoldTargetSummary:
 
 
 def _payload_from_row(row: tuple[object, ...]) -> GoldRowPayload:
-    if len(row) != len(GOLD_COLUMNS):
+    if len(row) != len(POSTGRES_RAW_COLUMNS):
         raise ValueError("PostgreSQL Gold consumer row has unexpected width")
     timestamp = _as_datetime(row[0], "timestamp_m1")
     if timestamp is None:

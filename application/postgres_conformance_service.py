@@ -15,6 +15,7 @@ from application.postgres_conformance import (
 from application.postgres_delta import source_rows_and_digests
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     GoldRowDigest,
     GoldSyncRepository,
     GoldSyncState,
@@ -59,7 +60,7 @@ class GoldPostgresConformanceVerifier:
                 raise ValueError("current Gold record has no data path")
             self._source.validate_bundle(record)
             frame = self._source.read_path(record.data_path)
-            _, source_digests = source_rows_and_digests(frame)
+            _, source_digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
             source_sha256 = self._source.sha256_path(record.data_path)
             evidence = self._inspector.inspect()
             state, digest_index, consumer_digests, summary = self._repository.run_locked(
