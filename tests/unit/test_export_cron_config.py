@@ -19,7 +19,7 @@ def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str
   gold_mirror_root: /mirror
   postgres_host: 10.10.1.3
   postgres_port: "54321"
-  postgres_user: {user}
+    postgres_user: {user}
     postgres_database: macro_loader
 secrets:
   fred_api_key: secret key
