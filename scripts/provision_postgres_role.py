@@ -15,7 +15,7 @@ POSTGRES_SYNC_ROLE = "macro-loader-sync"
 POSTGRES_OWNER_ROLE = "macro-loader-owner"
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
-    ("macro_loader", "macro_features_daily"),
+    ("macro_loader", "macro_raw"),
     ("macro_loader_sync", "gold_sync_state"),
     ("macro_loader_sync", "gold_row_hashes"),
     ("macro_loader_sync", "schema_migrations"),

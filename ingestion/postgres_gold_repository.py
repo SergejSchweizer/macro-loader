@@ -216,6 +216,7 @@ _FEATURE_COLUMNS = GOLD_COLUMNS[1:]
 _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
 _POSTGRES_OWNER_ROLE = "macro-loader-owner"
+_LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
@@ -293,6 +294,16 @@ _CONSUMER_LAYOUT_MIGRATION = (
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} TO {_quote(POSTGRES_SYNC_USER)}",
     f"REVOKE INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} FROM {_quote(POSTGRES_USER)}",
 )
+_CONSUMER_RENAME_MIGRATION = f"""DO $$
+BEGIN
+    IF to_regclass('macro_loader.macro_features_daily') IS NOT NULL THEN
+        IF to_regclass('macro_loader.macro_raw') IS NOT NULL THEN
+            DROP TABLE {_CONSUMER};
+        END IF;
+        ALTER TABLE {_LEGACY_CONSUMER} RENAME TO {_quote(POSTGRES_CONSUMER_TABLE)};
+    END IF;
+END
+$$"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,6 +381,7 @@ _MIGRATIONS = (
     (_FED_POLICY_COLUMN_MIGRATION,),
     (_FED_POLICY_RENAME_MIGRATION,),
     _CONSUMER_LAYOUT_MIGRATION,
+    (_CONSUMER_RENAME_MIGRATION,),
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

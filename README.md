@@ -262,7 +262,7 @@ PostgreSQL is a serving/research replica, not the canonical data store. The only
 
 ```text
 canonical source: lake/gold/dataset=macro_features_daily/...
-consumer table:  macro_loader.macro_features_daily
+consumer table:  macro_loader.macro_raw
 sync state:      macro_loader_sync.gold_sync_state
 row digests:     macro_loader_sync.gold_row_hashes
 ```

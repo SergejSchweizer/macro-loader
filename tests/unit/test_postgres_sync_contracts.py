@@ -60,7 +60,7 @@ def test_only_one_gold_dataset_and_exact_postgres_identities() -> None:
     assert POSTGRES_DATASET_ID == "macro_features_daily"
     assert (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE) == (
         "macro_loader",
-        "macro_features_daily",
+        "macro_raw",
     )
     assert (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE, POSTGRES_ROW_HASH_TABLE) == (
         "macro_loader_sync",

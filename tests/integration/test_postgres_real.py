@@ -300,9 +300,9 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     (
         (
             "changed consumer row",
-            'UPDATE macro_loader.macro_features_daily SET "vix_level" = 999.0',
+            'UPDATE macro_loader.macro_raw SET "vix_level" = 999.0',
         ),
-        ("missing consumer row", "DELETE FROM macro_loader.macro_features_daily"),
+        ("missing consumer row", "DELETE FROM macro_loader.macro_raw"),
         (
             "changed digest",
             "UPDATE macro_loader_sync.gold_row_hashes SET row_sha256 = 'f' || repeat('f', 63)",
@@ -461,13 +461,13 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     "drift_sql",
     (
         "ALTER TABLE macro_loader_sync.gold_row_hashes DROP COLUMN row_sha256",
-        "ALTER TABLE macro_loader.macro_features_daily ADD COLUMN forbidden INTEGER",
+        "ALTER TABLE macro_loader.macro_raw ADD COLUMN forbidden INTEGER",
         "ALTER TABLE macro_loader_sync.gold_sync_state "
         "ALTER COLUMN schema_version TYPE TEXT USING schema_version::text",
-        "ALTER TABLE macro_loader.macro_features_daily "
+        "ALTER TABLE macro_loader.macro_raw "
         "ALTER COLUMN timestamp_m1 TYPE TIMESTAMPTZ(3)",
         "ALTER TABLE macro_loader_sync.gold_sync_state ALTER COLUMN source_build_id DROP NOT NULL",
-        "ALTER TABLE macro_loader.macro_features_daily DROP CONSTRAINT macro_features_daily_pkey",
+        "ALTER TABLE macro_loader.macro_raw DROP CONSTRAINT macro_raw_pkey",
     ),
     ids=("missing", "extra", "wrong-type", "wrong-precision", "wrong-nullability", "wrong-key"),
 )
@@ -516,9 +516,9 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
             ("CREATE", "CREATE TABLE macro_loader.forbidden (id INTEGER)"),
             (
                 "ALTER",
-                "ALTER TABLE macro_loader.macro_features_daily ADD COLUMN forbidden INTEGER",
+                "ALTER TABLE macro_loader.macro_raw ADD COLUMN forbidden INTEGER",
             ),
-            ("DROP", "DROP TABLE macro_loader.macro_features_daily"),
+            ("DROP", "DROP TABLE macro_loader.macro_raw"),
             ("unrelated SELECT", "SELECT * FROM unrelated.private_data"),
         ):
             try:
@@ -533,7 +533,7 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         grant_option = runtime_connection.execute(
             """SELECT has_table_privilege(
                 current_user,
-                'macro_loader.macro_features_daily',
+                'macro_loader.macro_raw',
                 'SELECT WITH GRANT OPTION'
             )"""
         ).fetchone()
@@ -550,7 +550,7 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         grant_result = admin_connection.execute(
             "SELECT has_table_privilege("
             "'runtime-grant-probe', "
-            "'macro_loader.macro_features_daily', "
+            "'macro_loader.macro_raw', "
             "'SELECT'"
             ")"
         )

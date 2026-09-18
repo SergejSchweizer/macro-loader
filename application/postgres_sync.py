@@ -16,7 +16,7 @@ from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHE
 
 POSTGRES_DATASET_ID = "macro_features_daily"
 POSTGRES_CONSUMER_SCHEMA = "macro_loader"
-POSTGRES_CONSUMER_TABLE = "macro_features_daily"
+POSTGRES_CONSUMER_TABLE = "macro_raw"
 POSTGRES_SYNC_SCHEMA = "macro_loader_sync"
 POSTGRES_SYNC_STATE_TABLE = "gold_sync_state"
 POSTGRES_ROW_HASH_TABLE = "gold_row_hashes"

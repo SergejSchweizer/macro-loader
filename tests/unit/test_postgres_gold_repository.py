@@ -336,7 +336,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert '"timestamp_m1" TIMESTAMPTZ(6) NOT NULL PRIMARY KEY' in ddl
     for column in GOLD_COLUMNS[1:]:
         assert f'"{column}" DOUBLE PRECISION NULL' in ddl
-    assert '"macro_loader"."macro_features_daily"' in ddl
+    assert '"macro_loader"."macro_raw"' in ddl
     assert '"macro_loader_sync"."gold_sync_state"' in ddl
     assert '"macro_loader_sync"."gold_row_hashes"' in ddl
     assert '"macro_loader_sync"."schema_migrations"' in ddl
@@ -344,7 +344,9 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert "TRUNCATE" not in ddl
-    assert 'DROP TABLE IF EXISTS "macro_loader"."macro_features_daily"' in ddl
+    assert 'DROP TABLE IF EXISTS "macro_loader"."macro_raw"' in ddl
+    assert "to_regclass('macro_loader.macro_features_daily')" in ddl
+    assert 'ALTER TABLE "macro_loader"."macro_features_daily" RENAME TO "macro_raw"' in ddl
     assert "CREATE SCHEMA" not in ddl
     assert ("commit", None, None) in connection.events
 
