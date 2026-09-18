@@ -447,8 +447,13 @@ $$"""
 _FEATURES_VIEW_DDL = f"""CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS
 SELECT
     {_quote("timestamp_m1")},
-    {",\n    ".join(_quote(column) for column in _FEATURES_VIEW_COLUMNS)}
-FROM {_CONSUMER}"""
+    {
+    ",\n    ".join(
+        f"NULL::DOUBLE PRECISION AS {_quote(column)}" for column in _FEATURES_VIEW_COLUMNS
+    )
+}
+FROM {_CONSUMER}
+WHERE FALSE"""
 _FEATURES_VIEW_MIGRATION = (
     _FEATURES_VIEW_DDL,
     f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
