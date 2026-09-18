@@ -62,6 +62,9 @@ def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGo
         connection.execute("DROP SCHEMA IF EXISTS macro_loader_sync CASCADE")
         connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
         connection.execute(
+            provision_sql("macro_loader_test", "runtime-secret", "macro_loader_test")
+        )
+        connection.execute(
             "DO $$ BEGIN "
             "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-owner') "
             'THEN CREATE ROLE "macro-loader-owner" NOLOGIN; END IF; END $$'
