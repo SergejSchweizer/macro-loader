@@ -399,22 +399,38 @@ _OWNERSHIP_MIGRATIONS = tuple(
     )
 )
 _MOMENTUM_COLUMNS = tuple(column for column in GOLD_COLUMNS if "_momentum_autocorr_" in column)
-_MOMENTUM_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
-    f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
-    for column in _MOMENTUM_COLUMNS
+_MOMENTUM_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+        for column in _MOMENTUM_COLUMNS
+    )
+    if _MOMENTUM_COLUMNS
+    else "SELECT 1"
 )
 _RETURN_COLUMNS = tuple(column for column in GOLD_COLUMNS if "_return_geom_" in column)
-_RETURN_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
-    f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL" for column in _RETURN_COLUMNS
+_RETURN_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+        for column in _RETURN_COLUMNS
+    )
+    if _RETURN_COLUMNS
+    else "SELECT 1"
 )
 _FED_POLICY_COLUMNS = tuple(
     column
     for column in GOLD_COLUMNS
     if column.startswith("fed_") or column == "fomc_business_days_to_next"
 )
-_FED_POLICY_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
-    f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
-    for column in _FED_POLICY_COLUMNS
+_FED_POLICY_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+        for column in _FED_POLICY_COLUMNS
+    )
+    if _FED_POLICY_COLUMNS
+    else "SELECT 1"
 )
 _FED_POLICY_RENAME_MIGRATION = (
     "ALTER TABLE "
