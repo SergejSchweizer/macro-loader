@@ -20,7 +20,7 @@ def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str
   postgres_host: 10.10.1.3
   postgres_port: "54321"
   postgres_user: {user}
-  postgres_database: quant_data
+    postgres_database: macro_loader
 secrets:
   fred_api_key: secret key
   postgres_password: {password!r}
@@ -48,7 +48,7 @@ def test_export_cron_config_quotes_required_runtime_and_postgres_values(tmp_path
     assert values["PGHOST"] == "10.10.1.3"
     assert values["PGPORT"] == "54321"
     assert values["PGUSER"] == "macro-loader"
-    assert values["PGDATABASE"] == "quant_data"
+    assert values["PGDATABASE"] == "macro_loader"
     assert values["PGPASSWORD"] == "repo secret"
     assert all("ADMIN" not in name for name in values)
     assert "admin secret" not in export(config)

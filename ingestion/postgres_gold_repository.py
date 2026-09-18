@@ -217,6 +217,52 @@ _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
 _POSTGRES_OWNER_ROLE = "macro-loader-owner"
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
+_FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
+_FEATURES_VIEW_COLUMNS = (
+    "vix_delta_1obs", "vix_delta_5obs", "vix_delta_20obs", "vix_zscore_60obs",
+    "vix3m_delta_1obs", "vix3m_delta_5obs", "vix3m_delta_20obs", "vix3m_zscore_60obs",
+    "vix6m_delta_1obs", "vix6m_delta_5obs", "vix6m_delta_20obs", "vix6m_zscore_60obs",
+    "vix1y_delta_1obs", "vix1y_delta_5obs", "vix1y_delta_20obs", "vix1y_zscore_60obs",
+    "vstoxx_delta_1obs", "vstoxx_delta_5obs", "vstoxx_delta_20obs", "vstoxx_zscore_60obs",
+    "move_delta_1obs", "move_delta_5obs", "move_delta_20obs", "move_zscore_60obs",
+    "vix_vix3m_ratio", "vix3m_minus_vix", "vix6m_minus_vix", "vix1y_minus_vix",
+    "ciss_delta_1obs", "ciss_delta_5obs", "ciss_delta_20obs",
+    "euro_hy_oas_delta_1obs", "euro_hy_oas_delta_5obs", "euro_hy_oas_delta_20obs",
+    "us_2y_delta_1obs", "us_2y_delta_20obs", "us_10y_delta_1obs", "us_10y_delta_20obs",
+    "usd_broad_delta_1obs", "usd_broad_delta_20obs", "us_10y_minus_us_2y",
+    "vix_momentum_autocorr_1_60obs", "vix_momentum_autocorr_5_60obs", "vix_momentum_autocorr_20_120obs",
+    "vix3m_momentum_autocorr_1_60obs", "vix3m_momentum_autocorr_5_60obs",
+    "vix6m_momentum_autocorr_1_60obs", "vix6m_momentum_autocorr_5_60obs", "vix6m_momentum_autocorr_20_120obs",
+    "vix1y_momentum_autocorr_1_60obs", "vix1y_momentum_autocorr_5_60obs", "vix1y_momentum_autocorr_20_120obs",
+    "vstoxx_momentum_autocorr_1_60obs", "vstoxx_momentum_autocorr_5_60obs", "vstoxx_momentum_autocorr_20_120obs",
+    "move_momentum_autocorr_1_60obs", "move_momentum_autocorr_5_60obs", "move_momentum_autocorr_20_120obs",
+    "ciss_momentum_autocorr_1_60obs", "ciss_momentum_autocorr_5_60obs", "ciss_momentum_autocorr_20_120obs",
+    "euro_hy_oas_momentum_autocorr_1_60obs", "euro_hy_oas_momentum_autocorr_5_60obs", "euro_hy_oas_momentum_autocorr_20_120obs",
+    "us_2y_momentum_autocorr_1_60obs", "us_2y_momentum_autocorr_5_60obs", "us_2y_momentum_autocorr_20_120obs",
+    "us_10y_momentum_autocorr_1_60obs", "us_10y_momentum_autocorr_5_60obs", "us_10y_momentum_autocorr_20_120obs",
+    "usd_broad_momentum_autocorr_1_60obs", "usd_broad_momentum_autocorr_5_60obs", "usd_broad_momentum_autocorr_20_120obs",
+    "vix_return_geom_10obs_pct", "vix_return_geom_25obs_pct", "vix_return_geom_60obs_pct",
+    "vix_return_geom_120obs_pct", "vix_return_geom_240obs_pct",
+    "vix3m_return_geom_10obs_pct", "vix3m_return_geom_25obs_pct", "vix3m_return_geom_60obs_pct",
+    "vix6m_return_geom_10obs_pct", "vix6m_return_geom_25obs_pct", "vix6m_return_geom_60obs_pct",
+    "vix6m_return_geom_120obs_pct", "vix6m_return_geom_240obs_pct",
+    "vix1y_return_geom_10obs_pct", "vix1y_return_geom_25obs_pct", "vix1y_return_geom_60obs_pct",
+    "vix1y_return_geom_120obs_pct", "vix1y_return_geom_240obs_pct",
+    "vstoxx_return_geom_10obs_pct", "vstoxx_return_geom_25obs_pct", "vstoxx_return_geom_60obs_pct",
+    "vstoxx_return_geom_120obs_pct", "vstoxx_return_geom_240obs_pct",
+    "move_return_geom_10obs_pct", "move_return_geom_25obs_pct", "move_return_geom_60obs_pct",
+    "move_return_geom_120obs_pct", "move_return_geom_240obs_pct",
+    "ciss_return_geom_10obs_pct", "ciss_return_geom_25obs_pct", "ciss_return_geom_60obs_pct",
+    "ciss_return_geom_120obs_pct", "ciss_return_geom_240obs_pct",
+    "euro_hy_oas_return_geom_10obs_pct", "euro_hy_oas_return_geom_25obs_pct", "euro_hy_oas_return_geom_60obs_pct",
+    "euro_hy_oas_return_geom_120obs_pct", "euro_hy_oas_return_geom_240obs_pct",
+    "us_2y_return_geom_10obs_pct", "us_2y_return_geom_25obs_pct", "us_2y_return_geom_60obs_pct",
+    "us_2y_return_geom_120obs_pct", "us_2y_return_geom_240obs_pct",
+    "us_10y_return_geom_10obs_pct", "us_10y_return_geom_25obs_pct", "us_10y_return_geom_60obs_pct",
+    "us_10y_return_geom_120obs_pct", "us_10y_return_geom_240obs_pct",
+    "usd_broad_return_geom_10obs_pct", "usd_broad_return_geom_25obs_pct", "usd_broad_return_geom_60obs_pct",
+    "usd_broad_return_geom_120obs_pct", "usd_broad_return_geom_240obs_pct",
+)
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
@@ -304,6 +350,17 @@ BEGIN
     END IF;
 END
 $$"""
+_FEATURES_VIEW_DDL = f"""CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS
+SELECT
+    {_quote("timestamp_m1")},
+    {",\n    ".join(_quote(column) for column in _FEATURES_VIEW_COLUMNS)}
+FROM {_CONSUMER}"""
+_FEATURES_VIEW_MIGRATION = (
+    _FEATURES_VIEW_DDL,
+    f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,6 +439,7 @@ _MIGRATIONS = (
     (_FED_POLICY_RENAME_MIGRATION,),
     _CONSUMER_LAYOUT_MIGRATION,
     (_CONSUMER_RENAME_MIGRATION,),
+    _FEATURES_VIEW_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

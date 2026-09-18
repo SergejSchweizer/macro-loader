@@ -464,8 +464,7 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
         "ALTER TABLE macro_loader.macro_raw ADD COLUMN forbidden INTEGER",
         "ALTER TABLE macro_loader_sync.gold_sync_state "
         "ALTER COLUMN schema_version TYPE TEXT USING schema_version::text",
-        "ALTER TABLE macro_loader.macro_raw "
-        "ALTER COLUMN timestamp_m1 TYPE TIMESTAMPTZ(3)",
+        "ALTER TABLE macro_loader.macro_raw ALTER COLUMN timestamp_m1 TYPE TIMESTAMPTZ(3)",
         "ALTER TABLE macro_loader_sync.gold_sync_state ALTER COLUMN source_build_id DROP NOT NULL",
         "ALTER TABLE macro_loader.macro_raw DROP CONSTRAINT macro_raw_pkey",
     ),
@@ -548,10 +547,6 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
 
     with psycopg.connect(postgres_dsn) as admin_connection:
         grant_result = admin_connection.execute(
-            "SELECT has_table_privilege("
-            "'runtime-grant-probe', "
-            "'macro_loader.macro_raw', "
-            "'SELECT'"
-            ")"
+            "SELECT has_table_privilege('runtime-grant-probe', 'macro_loader.macro_raw', 'SELECT')"
         )
         assert grant_result.fetchone() == (False,)

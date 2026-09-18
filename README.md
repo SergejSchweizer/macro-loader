@@ -390,9 +390,13 @@ FRED-backed source commands require `FRED_API_KEY`. Gold-capable commands (`gold
 PGHOST=10.10.1.3
 PGPORT=54321
 PGUSER=macro-loader
-PGDATABASE=<serving database>
+PGDATABASE=macro_loader
 PGPASSWORD=<repository-specific secret>
 ```
+
+All PostgreSQL macro data is stored in the dedicated `macro_loader` database. The
+`macro_loader` and `macro_loader_sync` schemas are created inside that database;
+the CI-only `macro_loader_test` database remains separate.
 
 Runtime sync first performs a read-only schema-contract preflight. Missing or incompatible PR-54 tables, columns, or keys fail before it acquires the row-mutation transaction. It never creates, alters, drops, grants, or migrates PostgreSQL objects.
 

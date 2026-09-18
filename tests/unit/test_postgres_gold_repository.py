@@ -35,12 +35,12 @@ def _ts(day: int) -> datetime:
 
 
 def _config(password: str = "repo-secret") -> PostgresSyncConfig:
-    return PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "quant_data", password)
+    return PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", password)
 
 
 def _admin_config(password: str = "admin-secret") -> PostgresAdminConfig:
     return PostgresAdminConfig(
-        POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "quant_data", password
+        POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "macro_loader", password
     )
 
 
@@ -228,22 +228,22 @@ def test_config_requires_exact_endpoint_role_and_hides_password() -> None:
             "PGHOST": "10.10.1.3",
             "PGPORT": "54321",
             "PGUSER": "macro-loader",
-            "PGDATABASE": "quant_data",
+            "PGDATABASE": "macro_loader",
             "PGPASSWORD": "repo-secret",
         }
     )
     assert (config.host, config.port, config.user) == ("10.10.1.3", 54321, "macro-loader")
     assert "repo-secret" not in repr(config)
     with pytest.raises(ValueError, match="host"):
-        PostgresSyncConfig("localhost", 54321, POSTGRES_USER, "quant_data", "x")
+        PostgresSyncConfig("localhost", 54321, POSTGRES_USER, "macro_loader", "x")
     with pytest.raises(ValueError, match="port"):
-        PostgresSyncConfig(POSTGRES_HOST, 5432, POSTGRES_USER, "quant_data", "x")
+        PostgresSyncConfig(POSTGRES_HOST, 5432, POSTGRES_USER, "macro_loader", "x")
     with pytest.raises(ValueError, match="user"):
-        PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, "postgres", "quant_data", "x")
+        PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, "postgres", "macro_loader", "x")
     with pytest.raises(ValueError, match="database"):
         PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "", "x")
     with pytest.raises(ValueError, match="password"):
-        PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "quant_data", "")
+        PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "")
     with pytest.raises(ValueError, match="PGPORT"):
         PostgresSyncConfig.from_mapping({"PGPORT": "invalid"})
 
@@ -254,31 +254,31 @@ def test_admin_config_uses_distinct_namespace_role_and_redacted_password() -> No
             "MARKET_MACRO_POSTGRES_ADMIN_HOST": "10.10.1.3",
             "MARKET_MACRO_POSTGRES_ADMIN_PORT": "54321",
             "MARKET_MACRO_POSTGRES_ADMIN_USER": "macro-loader-admin",
-            "MARKET_MACRO_POSTGRES_ADMIN_DATABASE": "quant_data",
+            "MARKET_MACRO_POSTGRES_ADMIN_DATABASE": "macro_loader",
             "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD": "admin-secret",
         }
     )
     assert config.user == "macro-loader-admin"
     assert "admin-secret" not in repr(config)
     with pytest.raises(ValueError, match="host"):
-        PostgresAdminConfig("localhost", POSTGRES_PORT, "macro-loader-admin", "quant_data", "x")
+        PostgresAdminConfig("localhost", POSTGRES_PORT, "macro-loader-admin", "macro_loader", "x")
     with pytest.raises(ValueError, match="port"):
-        PostgresAdminConfig(POSTGRES_HOST, 5432, "macro-loader-admin", "quant_data", "x")
+        PostgresAdminConfig(POSTGRES_HOST, 5432, "macro-loader-admin", "macro_loader", "x")
     with pytest.raises(ValueError, match="user"):
-        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "", "quant_data", "x")
+        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "", "macro_loader", "x")
     with pytest.raises(ValueError, match="database"):
         PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "", "x")
     with pytest.raises(ValueError, match="password"):
-        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "quant_data", "")
+        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, "macro-loader-admin", "macro_loader", "")
     with pytest.raises(ValueError, match="differ from runtime"):
-        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "quant_data", "x")
+        PostgresAdminConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "x")
     with pytest.raises(ValueError, match="password must differ"):
         PostgresAdminConfig.from_mapping(
             {
                 "MARKET_MACRO_POSTGRES_ADMIN_HOST": "10.10.1.3",
                 "MARKET_MACRO_POSTGRES_ADMIN_PORT": "54321",
                 "MARKET_MACRO_POSTGRES_ADMIN_USER": "macro-loader-admin",
-                "MARKET_MACRO_POSTGRES_ADMIN_DATABASE": "quant_data",
+                "MARKET_MACRO_POSTGRES_ADMIN_DATABASE": "macro_loader",
                 "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD": "shared-secret",
                 "PGPASSWORD": "shared-secret",
             }
@@ -312,7 +312,7 @@ def test_default_connection_passes_connect_timeout_and_application_name(
     policy = PostgresTimeoutPolicy(connect_timeout_seconds=9)
     module._default_connection(
         PostgresSyncConfig(
-            POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "quant_data", "secret", policy
+            POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "secret", policy
         )
     )
     assert captured["connect_timeout"] == 9
@@ -349,6 +349,21 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert 'ALTER TABLE "macro_loader"."macro_features_daily" RENAME TO "macro_raw"' in ddl
     assert "CREATE SCHEMA" not in ddl
     assert ("commit", None, None) in connection.events
+
+
+def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:
+    ddl = module._FEATURES_VIEW_DDL
+
+    assert "CREATE MATERIALIZED VIEW IF NOT EXISTS \"macro_loader\".\"macro_features\"" in ddl
+    assert 'FROM "macro_loader"."macro_raw"' in ddl
+    assert len(module._FEATURES_VIEW_COLUMNS) == 126
+    assert all(column in GOLD_COLUMNS for column in module._FEATURES_VIEW_COLUMNS)
+    assert all(not column.endswith("_level") for column in module._FEATURES_VIEW_COLUMNS)
+    assert all(not column.startswith(("fed_", "fomc_")) for column in module._FEATURES_VIEW_COLUMNS)
+    assert '"vix_delta_1obs"' in ddl
+    assert '"us_10y_return_geom_240obs_pct"' in ddl
+    assert '"vix9d_delta_1obs"' not in ddl
+    assert '"estr_return_geom_10obs_pct"' not in ddl
 
 
 def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:
