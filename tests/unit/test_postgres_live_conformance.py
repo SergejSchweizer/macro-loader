@@ -123,7 +123,7 @@ class FakeConnection:
 
 
 def _config() -> PostgresSyncConfig:
-    return PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "quant_data", "secret")
+    return PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "secret")
 
 
 def test_live_inspector_independently_checks_schema_roles_session_and_temporal_probes() -> None:

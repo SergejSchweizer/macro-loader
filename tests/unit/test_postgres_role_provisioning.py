@@ -19,7 +19,7 @@ def _env() -> dict[str, str]:
     return {
         "MARKET_MACRO_POSTGRES_HOST": "10.10.1.3",
         "MARKET_MACRO_POSTGRES_PORT": "54321",
-        "MARKET_MACRO_POSTGRES_DATABASE": "quant_data",
+        "MARKET_MACRO_POSTGRES_DATABASE": "macro_loader",
         "MARKET_MACRO_POSTGRES_ADMIN_USER": "postgres",
         "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD": "admin-secret",
         "MARKET_MACRO_POSTGRES_PASSWORD": "repo-secret",
@@ -36,7 +36,7 @@ def test_exact_endpoint_and_repository_role() -> None:
 
 
 def test_sql_is_least_privilege_and_schema_scoped() -> None:
-    sql = provision_sql("quant_data", "repo-secret", "postgres-admin")
+    sql = provision_sql("macro_loader", "repo-secret", "postgres-admin")
     assert 'CREATE ROLE "macro-loader"' in sql
     assert f'CREATE ROLE "{POSTGRES_OWNER_ROLE}" NOLOGIN' in sql
     for token in (
@@ -70,7 +70,7 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
 
 
 def test_sql_is_idempotent_and_fails_on_incompatible_existing_state() -> None:
-    sql = provision_sql("quant_data", "repo-secret", "postgres-admin")
+    sql = provision_sql("macro_loader", "repo-secret", "postgres-admin")
     assert "IF NOT EXISTS (SELECT 1 FROM pg_roles" in sql
     assert "CREATE SCHEMA IF NOT EXISTS" in sql
     assert "existing macro-loader role has incompatible privileges" in sql

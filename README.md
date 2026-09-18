@@ -179,6 +179,8 @@ Feature semantics are fixed and causal:
 - each of the 13 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level also includes rolling geometric-mean simple returns over 10, 25, 60, 120, and 240 observations, expressed as percentages;
+- the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
+- FedWatch snapshots use official CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/`, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
 - cross-series ratios/spreads require the same `timestamp_m1`;
@@ -187,8 +189,8 @@ Feature semantics are fixed and causal:
 Initial semantic versions:
 
 ```text
-schema_version  = 4
-feature_version = 3
+schema_version  = 6
+feature_version = 5
 ```
 
 Schema version changes for column name/order/type changes. Feature version changes for formula/parameter changes that preserve schema.
@@ -260,7 +262,7 @@ PostgreSQL is a serving/research replica, not the canonical data store. The only
 
 ```text
 canonical source: lake/gold/dataset=macro_features_daily/...
-consumer table:  macro_loader.macro_features_daily
+consumer table:  macro_loader.macro_raw
 sync state:      macro_loader_sync.gold_sync_state
 row digests:     macro_loader_sync.gold_row_hashes
 ```
@@ -388,9 +390,13 @@ FRED-backed source commands require `FRED_API_KEY`. Gold-capable commands (`gold
 PGHOST=10.10.1.3
 PGPORT=54321
 PGUSER=macro-loader
-PGDATABASE=<serving database>
+PGDATABASE=macro_loader
 PGPASSWORD=<repository-specific secret>
 ```
+
+All PostgreSQL macro data is stored in the dedicated `macro_loader` database. The
+`macro_loader` and `macro_loader_sync` schemas are created inside that database;
+the CI-only `macro_loader_test` database remains separate.
 
 Runtime sync first performs a read-only schema-contract preflight. Missing or incompatible PR-54 tables, columns, or keys fail before it acquires the row-mutation transaction. It never creates, alters, drops, grants, or migrates PostgreSQL objects.
 

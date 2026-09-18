@@ -9,23 +9,24 @@ from scripts.export_cron_config import export
 
 
 def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str:
-    return f"""runtime:
-  home: /home/a
-  path: /bin
-  project_root: /project path
-  lake_root: /lake
-  log_path: /project path/.logs/macro-loader.log
-  ssl_cert_file: /cert
-  gold_mirror_root: /mirror
-  postgres_host: 10.10.1.3
-  postgres_port: "54321"
-  postgres_user: {user}
-  postgres_database: quant_data
-secrets:
-  fred_api_key: secret key
-  postgres_password: {password!r}
-postgres_admin_password: admin secret
-"""
+    return (
+        "runtime:\n"
+        "  home: /home/a\n"
+        "  path: /bin\n"
+        "  project_root: /project path\n"
+        "  lake_root: /lake\n"
+        "  log_path: /project path/.logs/macro-loader.log\n"
+        "  ssl_cert_file: /cert\n"
+        "  gold_mirror_root: /mirror\n"
+        "  postgres_host: 10.10.1.3\n"
+        '  postgres_port: "54321"\n'
+        f"  postgres_user: {user}\n"
+        "  postgres_database: macro_loader\n"
+        "secrets:\n"
+        "  fred_api_key: secret key\n"
+        f"  postgres_password: {password!r}\n"
+        "postgres_admin_password: admin secret\n"
+    )
 
 
 def _exports(text: str) -> dict[str, str]:
@@ -48,7 +49,7 @@ def test_export_cron_config_quotes_required_runtime_and_postgres_values(tmp_path
     assert values["PGHOST"] == "10.10.1.3"
     assert values["PGPORT"] == "54321"
     assert values["PGUSER"] == "macro-loader"
-    assert values["PGDATABASE"] == "quant_data"
+    assert values["PGDATABASE"] == "macro_loader"
     assert values["PGPASSWORD"] == "repo secret"
     assert all("ADMIN" not in name for name in values)
     assert "admin secret" not in export(config)

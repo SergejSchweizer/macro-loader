@@ -53,7 +53,13 @@ class EcbProvider:
         else:
             params["endPeriod"] = request.logical_end.isoformat()
         context = RequestContext(self.provider, series.series_id, series.source_id)
-        response = self._transport.send(HttpRequest("GET", url, params=params), context=context)
+        try:
+            response = self._transport.send(HttpRequest("GET", url, params=params), context=context)
+        except ProviderHttpError:
+            # ECB anti-bot/rate-limit failures are source unavailability for
+            # this update. Preserve the canonical row with NULL-derived
+            # features instead of aborting unrelated providers and Gold sync.
+            return self._empty_frame()
         if response.status_code != 200:
             if self._is_no_result(response.status_code, response.content):
                 return self._empty_frame()
@@ -78,10 +84,20 @@ class EcbProvider:
 
     @staticmethod
     def _is_no_result(status_code: int, content: bytes) -> bool:
-        if status_code not in {404, 406}:
+        if status_code not in {400, 403, 404, 406, 429}:
             return False
         text = content.decode(errors="ignore").lower()
-        return "no record" in text or "no result" in text or "no data" in text
+        return (
+            "no record" in text
+            or "no result" in text
+            or "no data" in text
+            # The ECB portal intermittently returns an HTML anti-bot page
+            # with HTTP 400. Treat it as unavailable data (NULL), rather
+            # than aborting the complete daily batch.
+            or "blocked due to security concerns" in text
+            or "security concerns" in text
+            or "access has been blocked" in text
+        )
 
     def _validate_contract(self, series: SeriesContract) -> None:
         if series.provider is not self.provider or series.series_id not in _ECB_SERIES:

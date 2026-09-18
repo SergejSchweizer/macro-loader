@@ -74,3 +74,6 @@ class LakePaths:
 
     def inventory(self) -> Path:
         return self.root / "manifests" / "dataset_inventory.parquet"
+
+    def fed_policy_snapshots(self) -> Path:
+        return self.root / "fed_policy" / "snapshots.parquet"

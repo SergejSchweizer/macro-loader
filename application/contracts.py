@@ -16,6 +16,7 @@ class Provider(StrEnum):
     YAHOO = "yahoo"
     ECB = "ecb"
     FRED = "fred"
+    FEDWATCH = "fedwatch"
 
 
 class NativeShape(StrEnum):

@@ -35,7 +35,7 @@ def _now(day: int = 1) -> datetime:
 
 
 def _record(
-    *, schema: int = GOLD_SCHEMA_VERSION, feature: int = 3, current: bool = True
+    *, schema: int = GOLD_SCHEMA_VERSION, feature: int = 5, current: bool = True
 ) -> GoldCatalogRecord:
     return GoldCatalogRecord(
         dataset_id="macro_features_daily",
@@ -60,7 +60,7 @@ def test_only_one_gold_dataset_and_exact_postgres_identities() -> None:
     assert POSTGRES_DATASET_ID == "macro_features_daily"
     assert (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE) == (
         "macro_loader",
-        "macro_features_daily",
+        "macro_raw",
     )
     assert (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE, POSTGRES_ROW_HASH_TABLE) == (
         "macro_loader_sync",
@@ -101,7 +101,7 @@ def test_contract_value_objects_and_counts() -> None:
         source_build_id="20260822T100000Z",
         data_sha256="b" * 64,
         schema_version=GOLD_SCHEMA_VERSION,
-        feature_version=3,
+        feature_version=5,
         row_count=1,
         min_timestamp=_now(1),
         max_timestamp=_now(1),
@@ -122,9 +122,9 @@ def test_delta_sets_must_be_disjoint() -> None:
 def test_current_complete_compatible_catalog_record_is_required() -> None:
     assert select_current_sync_record([_record()]).build_id == "20260822T100000Z"
     with pytest.raises(LookupError):
-        select_current_sync_record([_record(schema=5)])
+        select_current_sync_record([_record(schema=7)])
     with pytest.raises(LookupError):
-        select_current_sync_record([_record(feature=4)])
+        select_current_sync_record([_record(feature=6)])
     with pytest.raises(LookupError):
         select_current_sync_record([_record(current=False)])
 

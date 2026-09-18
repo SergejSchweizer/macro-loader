@@ -9,6 +9,7 @@ from datetime import date
 
 import polars as pl
 
+from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS
 from application.macro_features import MACRO_SERIES
 from application.momentum_features import momentum_feature_columns
 from application.registry import SERIES_REGISTRY
@@ -16,8 +17,8 @@ from application.return_features import return_feature_columns
 from application.silver import SILVER_SCHEMA
 from application.volatility_features import VOLATILITY_SERIES
 
-GOLD_SCHEMA_VERSION = 4
-GOLD_FEATURE_VERSION = 3
+GOLD_SCHEMA_VERSION = 6
+GOLD_FEATURE_VERSION = 5
 GOLD_SOURCE_SERIES = tuple(SERIES_REGISTRY)
 
 _VOLATILITY_BASE_COLUMNS = tuple(
@@ -77,6 +78,7 @@ GOLD_COLUMNS = (
     *_MACRO_BASE_COLUMNS,
     *momentum_feature_columns((*VOLATILITY_SERIES, *MACRO_SERIES)),
     *return_feature_columns((*VOLATILITY_SERIES, *MACRO_SERIES)),
+    *FED_POLICY_FEATURE_COLUMNS,
 )
 
 
@@ -89,9 +91,9 @@ class GoldSemanticVersions:
 
     def __post_init__(self) -> None:
         if self.schema_version != GOLD_SCHEMA_VERSION:
-            raise ValueError("schema_version is source-controlled and fixed at 4")
+            raise ValueError("schema_version is source-controlled and fixed at 6")
         if self.feature_version != GOLD_FEATURE_VERSION:
-            raise ValueError("feature_version is source-controlled and fixed at 3")
+            raise ValueError("feature_version is source-controlled and fixed at 5")
 
 
 GOLD_VERSIONS = GoldSemanticVersions()
@@ -179,6 +181,7 @@ def assemble_gold_frame(
     macro_features: pl.DataFrame,
     silver_by_series: Mapping[str, pl.DataFrame],
     *,
+    fed_policy_features: pl.DataFrame | None = None,
     versions: GoldSemanticVersions = GOLD_VERSIONS,
 ) -> GoldFrameBuild:
     """Outer-join both feature families into the exact canonical Gold frame."""
@@ -189,6 +192,20 @@ def assemble_gold_frame(
     joined = volatility.join(macro, on="timestamp_m1", how="full", coalesce=True).sort(
         "timestamp_m1"
     )
+    if fed_policy_features is None:
+        fed_policy_features = joined.select("timestamp_m1").with_columns(
+            [pl.lit(None, dtype=pl.Float64).alias(column) for column in FED_POLICY_FEATURE_COLUMNS]
+        )
+    else:
+        expected_policy = ["timestamp_m1", *FED_POLICY_FEATURE_COLUMNS]
+        if fed_policy_features.columns != expected_policy:
+            raise ValueError("fed policy feature schema/order mismatch")
+        if fed_policy_features.schema["timestamp_m1"] != pl.Datetime("us", "UTC"):
+            raise TypeError("fed policy timestamp_m1 must be UTC microsecond datetime")
+        for column in FED_POLICY_FEATURE_COLUMNS:
+            if fed_policy_features.schema[column] != pl.Float64:
+                raise TypeError(f"fed policy feature {column} must be Float64")
+    joined = joined.join(fed_policy_features, on="timestamp_m1", how="left")
     joined = joined.select(list(GOLD_COLUMNS))
     numeric = list(GOLD_COLUMNS[1:])
     joined = joined.with_columns([pl.col(column).fill_nan(None) for column in numeric])

@@ -186,6 +186,20 @@ class GoldPostgresDeltaSync:
         ):
             return
         if (
+            prior.schema_version == 4
+            and desired.schema_version == 5
+            and prior.feature_version == 3
+            and desired.feature_version == 4
+        ):
+            return
+        if (
+            prior.schema_version == 5
+            and desired.schema_version == 6
+            and prior.feature_version == 4
+            and desired.feature_version == 5
+        ):
+            return
+        if (
             prior.schema_version != desired.schema_version
             or prior.feature_version != desired.feature_version
         ):
@@ -218,6 +232,18 @@ class GoldPostgresDeltaSync:
                 and prior.feature_version == 2
                 and desired.schema_version == 4
                 and desired.feature_version == 3
+            )
+            or (
+                prior.schema_version == 4
+                and prior.feature_version == 3
+                and desired.schema_version == 5
+                and desired.feature_version == 4
+            )
+            or (
+                prior.schema_version == 5
+                and prior.feature_version == 4
+                and desired.schema_version == 6
+                and desired.feature_version == 5
             )
         )
 
