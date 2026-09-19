@@ -140,11 +140,11 @@ Acceptance:
 ## PR-84: Refresh Macro Features Exactly Once Per Successful Raw Sync
 
 PR name: `macro-feature-refresh-uow`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #85
 Git branch: `pr-84/macro-feature-refresh-uow`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: PostgreSQL synchronization lifecycle; one agent only
 Depends on: PR-82, PR-83
 Commit: `refactor(pr-84): refresh macro features in sync transaction`

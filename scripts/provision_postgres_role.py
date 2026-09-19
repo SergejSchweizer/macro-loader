@@ -121,6 +121,11 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
             ),
         ]
     )
+    view_grant = (
+        "IF to_regclass('macro_loader.macro_features') IS NOT NULL THEN\n"
+        f'    GRANT SELECT ON TABLE "macro_loader"."macro_features" TO {role_i}, {sync_role_i};\n'
+        "END IF;"
+    )
     default_privileges = "\n".join(
         f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner_i} IN SCHEMA {_identifier(schema)} "
         f"GRANT SELECT ON TABLES TO {role_i};\n"
@@ -176,6 +181,7 @@ REVOKE GRANT OPTION FOR SELECT ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM 
 DO $grants$
 BEGIN
 {table_grants}
+{view_grant}
 END
 $grants$;
 REVOKE INSERT, UPDATE, DELETE ON TABLE "macro_loader_sync"."schema_migrations"

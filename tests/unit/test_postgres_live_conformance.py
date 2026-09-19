@@ -6,7 +6,12 @@ from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
 from ingestion.postgres_conformance_verifier import PostgresLiveDatabaseConformanceInspector
 from ingestion.postgres_gold_repository import (
+    _FEATURES_VIEW_COLUMNS_EXPECTED,
+    _FEATURES_VIEW_DEFINITION,
+    _POSTGRES_OWNER_ROLE,
     _SCHEMA_SPECIFICATION,
+    MACRO_FEATURE_VIEW_FINGERPRINT,
+    MACRO_FEATURE_VIEW_VERSION,
     POSTGRES_HOST,
     POSTGRES_PORT,
     POSTGRES_USER,
@@ -31,7 +36,7 @@ class FakeCursor:
         self.queries.append(query)
         if "FROM information_schema.tables" in query:
             self._many = sorted((table.schema, table.name) for table in _SCHEMA_SPECIFICATION)
-        elif "FROM information_schema.columns" in query:
+        elif "FROM information_schema.columns" in query and "table_name = %s" not in query:
             self._many = [
                 (
                     table.schema,
@@ -64,6 +69,24 @@ class FakeCursor:
                 (schema, POSTGRES_OWNER_ROLE)
                 for schema in sorted((POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA))
             ]
+        elif "obj_description(classes.oid" in query:
+            self._one = (
+                "m",
+                _POSTGRES_OWNER_ROLE,
+                f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+                f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+                _FEATURES_VIEW_DEFINITION,
+            )
+        elif "FROM pg_attribute AS attributes" in query:
+            self._many = [
+                (
+                    ordinal,
+                    name,
+                    "timestamp(6) with time zone" if ordinal == 1 else "double precision",
+                    False,
+                )
+                for ordinal, name in enumerate(_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
+            ]
         elif "FROM pg_class AS classes" in query:
             self._many = [
                 (table.schema, table.name, POSTGRES_OWNER_ROLE)
@@ -75,6 +98,9 @@ class FakeCursor:
             self._one = (True, False)
         elif "has_table_privilege" in query:
             assert params is not None
+            if "'SELECT')" in query and "'INSERT')" not in query:
+                self._one = (params[0] != "public",)
+                return self
             has_dml = params[0] == POSTGRES_SYNC_ROLE and "schema_migrations" not in str(params[1])
             self._one = (True, has_dml)
             self._one = (self._one[0], self._one[1], self._one[1], self._one[1])
