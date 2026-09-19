@@ -219,11 +219,11 @@ Acceptance:
 ## PR-87: Remove Duplicate Python Feature Computation Legacy
 
 PR name: `remove-duplicate-python-feature-runtime`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #88
 Git branch: `pr-87/remove-duplicate-python-feature-runtime`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Feature cleanup; one agent only
 Depends on: PR-86
 Commit: `refactor(pr-87): remove duplicate python feature runtime`
@@ -244,11 +244,11 @@ Acceptance:
 ## PR-88: Run Complete Real-PostgreSQL Feature-Library QA
 
 PR name: `macro-feature-real-postgres-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #89
 Git branch: `pr-88/macro-feature-real-postgres-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: Integration QA; one agent only
 Depends on: PR-87
 Commit: `test(pr-88): validate macro feature library on postgres`
