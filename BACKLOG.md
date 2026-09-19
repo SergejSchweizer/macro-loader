@@ -298,11 +298,11 @@ Acceptance:
 ## PR-90: Execute Sunday Cron Chain Feature-Library Acceptance Run
 
 PR name: `macro-feature-cron-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #91
 Git branch: `pr-90/macro-feature-cron-acceptance`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Operational cron QA; one agent only
 Depends on: PR-89
 Commit: `test(pr-90): execute macro feature cron acceptance run`

@@ -2,6 +2,11 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
+Current delivery status (2026-09-19): backlog PR-80 through PR-90 are merged to
+`origin/main` as GitHub PRs #81 through #91. The guarded acceptance runners document
+production-like verification but must only be executed with explicit deployment
+authorization.
+
 ## Source of truth
 
 Before changing code, read in this order:

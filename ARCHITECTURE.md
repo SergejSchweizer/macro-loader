@@ -6,11 +6,12 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-09-19, `main` and `origin/main` are aligned and the production Sunday
-pipeline completed successfully through PostgreSQL synchronization. The serving replica
-contains 16,775 rows. Production FedWatch acquisition is restricted to
-`https://www.cmegroup.cn/fed-watch/`; all available meeting exports are downloaded and
-missing ECB responses remain NULL-derived values without preventing Gold publication.
+As of 2026-09-19, `main` and `origin/main` are aligned through the merged backlog
+sequence PR-80–PR-90 (GitHub PRs #81–#91), with required CI gates green. Production-like
+full-history and Sunday-cron acceptance are explicit, guarded commands and require the
+authorized deployment environment; this development workspace does not claim a live
+production run. FedWatch acquisition is restricted to
+`https://www.cmegroup.cn/fed-watch/`, and unavailable responses remain NULL-derived.
 
 ## System Purpose
 
