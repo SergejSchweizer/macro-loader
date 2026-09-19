@@ -38,11 +38,11 @@ runtime implementations can be retired safely.
 ## PR-80: Freeze Materialized Feature-Library Ownership And Delivery Contract
 
 PR name: `feature-library-backlog-program`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #81
 Git branch: `pr-80/feature-library-backlog-program`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Architecture/backlog contract; one agent only
 Depends on: none
 Commit: `docs(pr-80): define materialized feature library delivery program`
@@ -63,11 +63,11 @@ Acceptance:
 ## PR-81: Define Executable Macro Feature Catalog And View Version
 
 PR name: `macro-feature-catalog-contract`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
 PR: TBD
 Git branch: `pr-81/macro-feature-catalog-contract`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: application/macro_feature_catalog.py, tests/unit/test_macro_feature_catalog.py`
 Agent lane: Feature contract; one agent only
 Depends on: PR-80
 Commit: `feat(pr-81): define macro feature catalog contract`
