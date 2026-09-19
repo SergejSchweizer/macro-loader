@@ -10,6 +10,14 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
+Operational status (2026-09-19): `main` is synchronized with `origin/main`. The Sunday
+runner completed successfully end-to-end through PostgreSQL synchronization. The latest
+verified serving copy contains 16,775 rows; the four FedWatch columns contain 20, 20, 20,
+and 15 non-null values respectively. Production FedWatch acquisition uses only the Chinese
+CME page (`https://www.cmegroup.cn/fed-watch/`) and downloads every available meeting
+export. Unavailable ECB responses remain missing observations rather than aborting the batch.
+PostgreSQL conformance verification and offline provider tests pass.
+
 Before implementing a backlog PR, coding agents must read `AGENTS.md`, `BACKLOG.md`, and `ARCHITECTURE.md`.
 
 ## Architecture
@@ -180,7 +188,7 @@ Feature semantics are fixed and causal:
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level also includes rolling geometric-mean simple returns over 10, 25, 60, 120, and 240 observations, expressed as percentages;
 - the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
-- FedWatch snapshots use official CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/`, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
+- FedWatch snapshots use only CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/` in production, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
 - cross-series ratios/spreads require the same `timestamp_m1`;
