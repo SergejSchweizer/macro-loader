@@ -88,11 +88,11 @@ Acceptance:
 ## PR-82: Make Macro Features A Versioned PostgreSQL Materialized View
 
 PR name: `versioned-macro-features-view`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
-PR: TBD
+PR: #83
 Git branch: `pr-82/versioned-macro-features-view`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: PostgreSQL feature materialization; one agent only
 Depends on: PR-81
 Commit: `feat(pr-82): materialize canonical macro feature library`
@@ -115,11 +115,11 @@ Acceptance:
 ## PR-83: Add Regime-Oriented VIX Curve And Dollar Change Features
 
 PR name: `regime-oriented-derived-features`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
 PR: TBD
 Git branch: `pr-83/regime-oriented-derived-features`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: BACKLOG.md`
 Agent lane: Feature formulas; one agent only
 Depends on: PR-82
 Commit: `feat(pr-83): add regime oriented derived features`

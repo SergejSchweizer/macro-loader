@@ -69,10 +69,17 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
         (
             MacroFeatureSpec("vix9d_vix_ratio", "term_structure", None, "vix9d/vix"),
             MacroFeatureSpec("vix_vix3m_ratio", "term_structure", None, "vix/vix3m"),
+            MacroFeatureSpec("vix9d_vix3m_log_ratio", "term_structure", None, "ln(vix9d/vix3m)"),
             MacroFeatureSpec("vix3m_minus_vix", "term_structure", None, "vix3m-vix"),
             MacroFeatureSpec("vix6m_minus_vix", "term_structure", None, "vix6m-vix"),
             MacroFeatureSpec("vix1y_minus_vix", "term_structure", None, "vix1y-vix"),
             MacroFeatureSpec("us_10y_minus_us_2y", "cross_series", None, "us_10y-us_2y"),
+            MacroFeatureSpec(
+                "usd_broad_log_return_20obs",
+                "cross_series",
+                "usd_broad",
+                "ln(usd_broad(t)/usd_broad(t-20 valid observations))",
+            ),
         )
     )
     for series in RAW_SERIES:
