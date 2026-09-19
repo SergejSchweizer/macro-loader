@@ -17,6 +17,7 @@ ALLOWED_GIT = {
 }
 ALLOWED_TYPES = "feat|fix|docs|test|refactor|perf|build|ci|chore"
 HEADER_RE = re.compile(r"^## (PR-\d{2}): .+$", re.MULTILINE)
+LEVEL2_RE = re.compile(r"^## .+$", re.MULTILINE)
 BRANCH_RE = re.compile(r"^(pr-\d{2})/[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2}})\): [a-z0-9].+$")
 ACTIVE_FIRST = 80
