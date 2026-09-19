@@ -40,7 +40,7 @@ runtime implementations can be retired safely.
 PR name: `feature-library-backlog-program`
 Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #81
 Git branch: `pr-80/feature-library-backlog-program`
 Git status: `active-clean`
 Agent lane: Architecture/backlog contract; one agent only
