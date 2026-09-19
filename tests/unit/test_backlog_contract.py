@@ -17,9 +17,13 @@ ALLOWED_GIT = {
 }
 ALLOWED_TYPES = "feat|fix|docs|test|refactor|perf|build|ci|chore"
 HEADER_RE = re.compile(r"^## (PR-\d{2}): .+$", re.MULTILINE)
+LEVEL2_RE = re.compile(r"^## .+$", re.MULTILINE)
 BRANCH_RE = re.compile(r"^(pr-\d{2})/[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2}})\): [a-z0-9].+$")
+ACTIVE_FIRST = 80
+ACTIVE_LAST = 90
 REQUIRED_FIELDS = (
+    "PR name",
     "Status",
     "Updated",
     "PR",
@@ -40,9 +44,13 @@ class BacklogPr:
 
 def _sections(text: str) -> list[BacklogPr]:
     matches = list(HEADER_RE.finditer(text))
+    level2 = list(LEVEL2_RE.finditer(text))
     sections: list[BacklogPr] = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    for match in matches:
+        end = next(
+            (heading.start() for heading in level2 if heading.start() > match.start()),
+            len(text),
+        )
         sections.append(BacklogPr(match.group(1), text[match.end() : end]))
     return sections
 
@@ -59,16 +67,29 @@ def _unquote(value: str) -> str:
     return value
 
 
+def _requirement_ids(section: BacklogPr, prefix: str) -> list[int]:
+    return [
+        int(value)
+        for value in re.findall(
+            rf"^- {prefix}(\d+)(?: \(verifies R\d+\))?:",
+            section.body,
+            re.MULTILINE,
+        )
+    ]
+
+
 def _validate(text: str) -> list[BacklogPr]:
     sections = _sections(text)
-    assert sections, "backlog must contain at least one PR section"
-    expected = [f"PR-{index:02d}" for index in range(1, len(sections) + 1)]
+    expected = [f"PR-{index:02d}" for index in range(ACTIVE_FIRST, ACTIVE_LAST + 1)]
     assert [section.pr_id for section in sections] == expected
+    assert text.rfind("## Closed Delivery Summary") > text.rfind(f"## PR-{ACTIVE_LAST:02d}:")
 
     for section in sections:
         values = {name: _field(section, name) for name in REQUIRED_FIELDS}
         pr_lower = section.pr_id.lower()
+        pr_name = _unquote(values["PR name"])
 
+        assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", pr_name)
         assert values["Status"] in ALLOWED_DELIVERY
 
         git_status = _unquote(values["Git status"])
@@ -78,6 +99,7 @@ def _validate(text: str) -> list[BacklogPr]:
         branch_match = BRANCH_RE.fullmatch(branch)
         assert branch_match is not None, f"{section.pr_id}: invalid Git branch"
         assert branch_match.group(1) == pr_lower
+        assert branch.removeprefix(f"{pr_lower}/") == pr_name
 
         commit = _unquote(values["Commit"])
         commit_match = COMMIT_RE.fullmatch(commit)
@@ -86,6 +108,12 @@ def _validate(text: str) -> list[BacklogPr]:
 
         patterns = values["Design patterns"].strip()
         assert patterns, f"{section.pr_id}: Design patterns must be non-empty"
+
+        requirements = _requirement_ids(section, "R")
+        acceptance = _requirement_ids(section, "A")
+        assert requirements
+        assert requirements == list(range(1, len(requirements) + 1))
+        assert acceptance == requirements
 
         status = values["Status"]
         if status == "Merged":
@@ -105,59 +133,74 @@ def _validate(text: str) -> list[BacklogPr]:
     return sections
 
 
-def test_backlog_has_contiguous_pr_metadata_contract() -> None:
+def test_backlog_contains_only_current_detailed_program() -> None:
     sections = _validate(BACKLOG.read_text(encoding="utf-8"))
-    assert sections[0].pr_id == "PR-01"
+    assert sections[0].pr_id == f"PR-{ACTIVE_FIRST:02d}"
+    assert sections[-1].pr_id == f"PR-{ACTIVE_LAST:02d}"
 
 
-def _minimal_section() -> str:
-    return """# Backlog
+def _minimal_section(pr_number: int) -> str:
+    pr_id = f"PR-{pr_number:02d}"
+    scope = f"pr-{pr_number:02d}"
+    return f"""## {pr_id}: Example
 
-## PR-01: Example
-
+PR name: `example`
 Status: Planned
-Updated: 2026-08-19
-PR: none
-Git branch: `pr-01/example`
+Updated: 2026-09-19
+PR: TBD
+Git branch: `{scope}/example`
 Git status: `not-started (branch absent)`
 Agent lane: Agent A
 Depends on: none
-Commit: `feat(pr-01): add example`
+Commit: `feat({scope}): add example`
 Design patterns: Architectural baseline only.
+
+Description:
+- R1: Example requirement.
+
+Acceptance:
+- A1 (verifies R1): Example acceptance.
 """
 
 
-def test_validator_rejects_gap_in_pr_sequence() -> None:
-    text = _minimal_section() + _minimal_section().replace("PR-01", "PR-03").replace(
-        "pr-01", "pr-03"
-    )
-    with pytest.raises(AssertionError):
-        _validate(text)
+def test_validator_rejects_requirement_acceptance_mismatch() -> None:
+    section = _sections(
+        _minimal_section(80).replace(
+            "- A1 (verifies R1): Example acceptance.",
+            "- A2 (verifies R1): Example acceptance.",
+        )
+    )[0]
+    assert _requirement_ids(section, "R") != _requirement_ids(section, "A")
 
 
 def test_validator_rejects_missing_git_branch() -> None:
-    text = _minimal_section().replace("Git branch: `pr-01/example`\n", "")
+    section = _sections(_minimal_section(80).replace("Git branch: `pr-80/example`\n", ""))[0]
     with pytest.raises(AssertionError, match="Git branch"):
-        _field(_sections(text)[0], "Git branch")
+        _field(section, "Git branch")
 
 
 def test_validator_rejects_commit_pr_mismatch() -> None:
-    section = _sections(_minimal_section())[0]
-    commit = _unquote(_field(section, "Commit")).replace("pr-01", "pr-02")
+    section = _sections(_minimal_section(80))[0]
+    commit = _unquote(_field(section, "Commit")).replace("pr-80", "pr-81")
     match = COMMIT_RE.fullmatch(commit)
     assert match is not None
     assert match.group(2) != section.pr_id.lower()
 
 
 def test_validator_rejects_missing_design_patterns() -> None:
-    text = _minimal_section().replace("Design patterns: Architectural baseline only.\n", "")
+    section = _sections(
+        _minimal_section(80).replace(
+            "Design patterns: Architectural baseline only.\n",
+            "",
+        )
+    )[0]
     with pytest.raises(AssertionError, match="Design patterns"):
-        _field(_sections(text)[0], "Design patterns")
+        _field(section, "Design patterns")
 
 
 def test_validator_rejects_unknown_git_status() -> None:
     section = _sections(
-        _minimal_section().replace(
+        _minimal_section(80).replace(
             "Git status: `not-started (branch absent)`",
             "Git status: `almost-green`",
         )
