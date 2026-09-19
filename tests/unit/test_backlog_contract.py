@@ -19,6 +19,8 @@ ALLOWED_TYPES = "feat|fix|docs|test|refactor|perf|build|ci|chore"
 HEADER_RE = re.compile(r"^## (PR-\d{2}): .+$", re.MULTILINE)
 BRANCH_RE = re.compile(r"^(pr-\d{2})/[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2}})\): [a-z0-9].+$")
+ACTIVE_FIRST = 80
+HISTORICAL_LAST = 66
 REQUIRED_FIELDS = (
     "Status",
     "Updated",
@@ -59,16 +61,22 @@ def _unquote(value: str) -> str:
     return value
 
 
-def _validate(text: str) -> list[BacklogPr]:
-    sections = _sections(text)
-    assert sections, "backlog must contain at least one PR section"
+def _validate_active_sequence(sections: list[BacklogPr]) -> None:
     active = [section for section in sections if int(section.pr_id[3:]) >= ACTIVE_FIRST]
-    historical = [section for section in sections if int(section.pr_id[3:]) <= HISTORICAL_LAST]
-    assert sections == [*active, *historical]
     assert [section.pr_id for section in active] == [
         f"PR-{index:02d}"
         for index in range(ACTIVE_FIRST, ACTIVE_FIRST + len(active))
     ]
+
+
+def _validate(text: str) -> list[BacklogPr]:
+    sections = _sections(text)
+    assert sections, "backlog must contain at least one PR section"
+
+    active = [section for section in sections if int(section.pr_id[3:]) >= ACTIVE_FIRST]
+    historical = [section for section in sections if int(section.pr_id[3:]) <= HISTORICAL_LAST]
+    assert sections == [*active, *historical]
+    _validate_active_sequence(sections)
     assert [section.pr_id for section in historical] == [
         f"PR-{index:02d}" for index in range(1, HISTORICAL_LAST + 1)
     ]
@@ -76,6 +84,7 @@ def _validate(text: str) -> list[BacklogPr]:
         not (HISTORICAL_LAST < int(section.pr_id[3:]) < ACTIVE_FIRST)
         for section in sections
     )
+    assert text.rfind("## Closed Delivery Summary") > text.rfind("## PR-66:")
 
     for section in sections:
         values = {name: _field(section, name) for name in REQUIRED_FIELDS}
@@ -102,16 +111,17 @@ def _validate(text: str) -> list[BacklogPr]:
         if int(section.pr_id[3:]) >= ACTIVE_FIRST:
             requirements = [
                 int(value)
-                for value in re.findall(r"^- R(\\d+):", section.body, re.MULTILINE)
+                for value in re.findall(r"^- R(\d+):", section.body, re.MULTILINE)
             ]
             acceptance = [
                 int(value)
                 for value in re.findall(
-                    r"^- A(\\d+) \\(verifies R\\d+\\):",
+                    r"^- A(\d+) \(verifies R\d+\):",
                     section.body,
                     re.MULTILINE,
                 )
             ]
+            assert requirements
             assert requirements == list(range(1, len(requirements) + 1))
             assert acceptance == requirements
 
@@ -139,54 +149,63 @@ def test_backlog_has_active_program_first_and_historical_metadata_contract() -> 
     assert sections[-1].pr_id == f"PR-{HISTORICAL_LAST:02d}"
 
 
-def _minimal_section() -> str:
-    return """# Backlog
-
-## PR-01: Example
+def _minimal_active_section(pr_number: int) -> str:
+    pr_id = f"PR-{pr_number:02d}"
+    scope = f"pr-{pr_number:02d}"
+    return f"""## {pr_id}: Example
 
 Status: Planned
-Updated: 2026-08-19
-PR: none
-Git branch: `pr-01/example`
+Updated: 2026-09-19
+PR: TBD
+Git branch: `{scope}/example`
 Git status: `not-started (branch absent)`
 Agent lane: Agent A
 Depends on: none
-Commit: `feat(pr-01): add example`
+Commit: `feat({scope}): add example`
 Design patterns: Architectural baseline only.
+
+Description:
+- R1: Example requirement.
+
+Acceptance:
+- A1 (verifies R1): Example acceptance.
 """
 
 
-def test_validator_rejects_gap_in_pr_sequence() -> None:
-    text = _minimal_section() + _minimal_section().replace("PR-01", "PR-03").replace(
-        "pr-01", "pr-03"
-    )
+def test_validator_rejects_gap_in_active_pr_sequence() -> None:
+    sections = _sections(_minimal_active_section(80) + _minimal_active_section(82))
     with pytest.raises(AssertionError):
-        _validate(text)
+        _validate_active_sequence(sections)
 
 
 def test_validator_rejects_missing_git_branch() -> None:
-    text = _minimal_section().replace("Git branch: `pr-01/example`\n", "")
+    section = _sections(_minimal_active_section(80).replace("Git branch: `pr-80/example`\n", ""))[0]
     with pytest.raises(AssertionError, match="Git branch"):
-        _field(_sections(text)[0], "Git branch")
+        _field(section, "Git branch")
 
 
 def test_validator_rejects_commit_pr_mismatch() -> None:
-    section = _sections(_minimal_section())[0]
-    commit = _unquote(_field(section, "Commit")).replace("pr-01", "pr-02")
+    section = _sections(_minimal_active_section(80))[0]
+    commit = _unquote(_field(section, "Commit")).replace("pr-80", "pr-81")
     match = COMMIT_RE.fullmatch(commit)
     assert match is not None
     assert match.group(2) != section.pr_id.lower()
 
 
 def test_validator_rejects_missing_design_patterns() -> None:
-    text = _minimal_section().replace("Design patterns: Architectural baseline only.\n", "")
+    section = _sections(
+        _minimal_active_section(80).replace(
+            "Design patterns: Architectural baseline only.\n",
+            "",
+        )
+    )[0]
     with pytest.raises(AssertionError, match="Design patterns"):
-        _field(_sections(text)[0], "Design patterns")
+        _field(section, "Design patterns")
 
 
 def test_validator_rejects_unknown_git_status() -> None:
     section = _sections(
-        _minimal_section().replace(
+        _minimal_active_section(80).replace(
             "Git status: `not-started (branch absent)`",
             "Git status: `almost-green`",
         )
