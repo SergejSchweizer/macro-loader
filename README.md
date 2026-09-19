@@ -453,6 +453,26 @@ Operational semantics are explicit:
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
 
+### Feature-library acceptance runs
+
+Use the acceptance runners only on an explicitly authorized host with the normal
+runtime configuration already exported. They are dry-run by default:
+
+```bash
+uv run python scripts/macro_feature_acceptance.py --lake-root /srv/market-regime/lake
+uv run python scripts/macro_feature_acceptance.py \
+  --lake-root /srv/market-regime/lake --execute
+uv run python scripts/macro_feature_cron_acceptance.py --project-root /home/dev_market/macro-loader
+uv run python scripts/macro_feature_cron_acceptance.py \
+  --project-root /home/dev_market/macro-loader --execute
+```
+
+The first runner plans maximum-history reconciliation for every registered series,
+then Silver/Gold publication, PostgreSQL migration/sync/verification, and an
+unchanged replay. The second executes the installed Sunday wrapper twice. Both write
+only a sanitized JSON report under `artifacts/acceptance/`; no credentials or raw
+provider payloads are recorded. A report is `PASS` only when every stage exits zero.
+
 ## Quality Gates
 
 Required push and merge checks:

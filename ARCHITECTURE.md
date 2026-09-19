@@ -743,3 +743,9 @@ Required classes include:
 `crypto-history-loader` remains the design reference for deterministic medallion ownership, Polars/Parquet persistence, restart safety, `timestamp_m1`, Gold JSON manifests, and feature-profile plots.
 
 `macro-loader` intentionally uses daily source semantics, monthly Bronze/Silver partitions, strict delta-only normal execution, optional explicit source reconciliation, and a catalog-driven immutable Gold publication model.
+
+Feature numerics are single-sourced in the versioned PostgreSQL `macro_features`
+materialized view. Python retains only source-series policy metadata and canonical
+column naming. The authorized full-history and Sunday-wrapper acceptance runners
+execute the documented commands in order and emit sanitized reports under
+`artifacts/acceptance/`; neither runner is part of the normal cron path.
