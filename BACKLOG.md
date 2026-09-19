@@ -4,7 +4,19 @@ This backlog is the implementation source of truth for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-09-19
+
+## Current repository and production status
+
+`main` is aligned with `origin/main` as of 2026-09-19. PR-40 through PR-61 and the
+subsequent feature and PostgreSQL hardening PRs are merged into `main`; entries below
+remain the historical delivery record. The Sunday runner has completed successfully
+through Gold publication and PostgreSQL synchronization. The verified serving table has
+16,775 rows, with 20, 20, 20, and 15 non-null values in the four FedWatch columns.
+Production FedWatch acquisition is restricted to the Chinese CME page
+(`https://www.cmegroup.cn/fed-watch/`) and downloads every available meeting export.
+Unavailable ECB responses remain NULL rather than failing the complete batch. Current
+Gold versions are `schema_version = 6` and `feature_version = 5`.
 
 ## Delivery Policy
 
@@ -218,8 +230,8 @@ Each canonical source series also exposes rolling geometric-mean simple returns 
 ### Gold semantic versions
 
 ```text
-schema_version  = 4
-feature_version = 3
+schema_version  = 6
+feature_version = 5
 ```
 
 Schema version changes for column name/order/type changes; feature version changes for formula/parameter semantics without schema change. Runtime never auto-increments.
@@ -2185,11 +2197,11 @@ Acceptance:
 ## PR-61: Authoritative Source Reconcile, Gold Rebuild, And PostgreSQL Rewrite
 
 PR name: `authoritative-production-reconstruction`
-Status: In Progress
-Updated: 2026-08-24
-PR: TBD
+Status: Merged
+Updated: 2026-09-19
+PR: #67
 Git branch: `pr-61/authoritative-production-reconstruction`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Production cutover; one agent only
 Depends on: PR-41, PR-42, PR-43, PR-44, PR-45, PR-46, PR-47, PR-48, PR-49, PR-50, PR-51, PR-52, PR-53, PR-54, PR-55, PR-56, PR-57, PR-58, PR-59, PR-60
 Commit: `chore(pr-61): reconstruct production serving state`
@@ -2321,14 +2333,14 @@ The repository's earlier MVP and PR-31..PR-39 completion statements describe his
 ## PR-66: Add Official Fed Policy Expectations And FOMC Clock Features
 
 PR name: `fed-policy-expectations-features`
-Status: In Progress
-Updated: 2026-09-15
-PR: TBD
+Status: Merged
+Updated: 2026-09-19
+PR: #76
 Git branch: `pr-66/fed-policy-expectations-features`
-Git status: active-clean
+Git status: merged
 Agent lane: Gold/policy expectations; one agent only
 Depends on: PR-70
-Commit: `feat(pr-66): add official Fed policy expectations features`
+Commit: `feat(pr-66): add Fed policy expectations and macro serving views`
 Design patterns: Adapter, Repository, Strategy/Policy Object, Versioned Migration.
 
 Description:

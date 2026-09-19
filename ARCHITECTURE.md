@@ -4,6 +4,14 @@ This document is the durable engineering contract for `macro-loader`.
 
 `BACKLOG.md` defines delivery order and acceptance criteria. `README.md` is the operator/consumer contract. `AGENTS.md` defines coding-agent behavior. None may intentionally contradict this document.
 
+## Current operational status
+
+As of 2026-09-19, `main` and `origin/main` are aligned and the production Sunday
+pipeline completed successfully through PostgreSQL synchronization. The serving replica
+contains 16,775 rows. Production FedWatch acquisition is restricted to
+`https://www.cmegroup.cn/fed-watch/`; all available meeting exports are downloaded and
+missing ECB responses remain NULL-derived values without preventing Gold publication.
+
 ## System Purpose
 
 `macro-loader` is a reusable daily market-state data product. It acquires open/public market and macro series, preserves historical observations, performs bounded incremental source updates during normal operation, normalizes data into a canonical daily representation, derives causal reusable features, and publishes immutable Gold snapshots.
@@ -442,7 +450,8 @@ The fixed causal pairs are `(h, W) = (1, 60), (5, 60), (20, 120)`. Undefined val
 Cross-series ratios/spreads require same `timestamp_m1` values.
 
 The Fed policy family is computed from normalized end-of-day CME FedWatch
-probability exports and the official Federal Reserve FOMC calendar. For
+probability exports obtained in production only from the Chinese CME page
+(`https://www.cmegroup.cn/fed-watch/`). For
 observation date `t`, the next meeting is the first scheduled decision date
 strictly after `t`; `fed_m3_expected_move_bp` is the expected cumulative move
 through the third future meeting, relative to the current target midpoint.
