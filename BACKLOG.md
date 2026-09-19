@@ -167,11 +167,11 @@ Acceptance:
 ## PR-85: Enforce Macro Feature View Schema And Migration Conformance
 
 PR name: `macro-feature-view-conformance`
-Status: Planned
+Status: Merged
 Updated: 2026-09-19
-PR: TBD
+PR: #86
 Git branch: `pr-85/macro-feature-view-conformance`
-Git status: `not-started (branch absent)`
+Git status: `merged`
 Agent lane: PostgreSQL conformance; one agent only
 Depends on: PR-84
 Commit: `feat(pr-85): verify macro feature view conformance`
@@ -192,11 +192,11 @@ Acceptance:
 ## PR-86: Prove Python-To-PostgreSQL Feature Formula Parity
 
 PR name: `macro-feature-formula-parity-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #87
 Git branch: `pr-86/macro-feature-formula-parity-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: Feature QA; one agent only
 Depends on: PR-85
 Commit: `test(pr-86): prove macro feature formula parity`
