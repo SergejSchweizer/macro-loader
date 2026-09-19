@@ -51,5 +51,6 @@ def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert "CREATE MATERIALIZED VIEW" in _FEATURES_VIEW_DDL
     assert '"vix_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
-    assert f"version={MACRO_FEATURE_VIEW_VERSION}" in " ".join(_MIGRATIONS[-1])
-    assert MACRO_FEATURE_VIEW_FINGERPRINT in " ".join(_MIGRATIONS[-1])
+    migration_sql = " ".join(statement for migration in _MIGRATIONS[-2:] for statement in migration)
+    assert f"version={MACRO_FEATURE_VIEW_VERSION}" in migration_sql
+    assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql

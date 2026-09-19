@@ -115,11 +115,11 @@ Acceptance:
 ## PR-83: Add Regime-Oriented VIX Curve And Dollar Change Features
 
 PR name: `regime-oriented-derived-features`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
-PR: TBD
+PR: #84
 Git branch: `pr-83/regime-oriented-derived-features`
-Git status: `active-dirty: BACKLOG.md`
+Git status: `merged`
 Agent lane: Feature formulas; one agent only
 Depends on: PR-82
 Commit: `feat(pr-83): add regime oriented derived features`
@@ -140,11 +140,11 @@ Acceptance:
 ## PR-84: Refresh Macro Features Exactly Once Per Successful Raw Sync
 
 PR name: `macro-feature-refresh-uow`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #85
 Git branch: `pr-84/macro-feature-refresh-uow`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: PostgreSQL synchronization lifecycle; one agent only
 Depends on: PR-82, PR-83
 Commit: `refactor(pr-84): refresh macro features in sync transaction`

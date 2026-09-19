@@ -74,12 +74,14 @@ def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGo
         )
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
+        connection.execute("ALTER ROLE \"macro-loader-sync\" PASSWORD 'runtime-secret'")
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
     monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
-    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
+    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
+    monkeypatch.setattr(postgres_module, "POSTGRES_SYNC_USER", "macro-loader-sync")
     return PostgresGoldSyncRepository(
         PostgresSyncConfig(
-            "localhost", 5432, "macro_loader_test", "macro_loader_test", "macro_loader_test"
+            "localhost", 5432, "macro-loader-sync", "macro_loader_test", "runtime-secret"
         )
     )
 
