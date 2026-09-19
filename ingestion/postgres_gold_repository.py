@@ -616,6 +616,33 @@ _FEATURES_VIEW_REBUILD_MIGRATION = (
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
 )
+_FEATURES_VIEW_REFRESH_FUNCTION = """CREATE OR REPLACE FUNCTION
+macro_loader.refresh_macro_features_explicit()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, macro_loader
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW macro_loader.macro_features;
+END
+$$"""
+_FEATURES_VIEW_REFRESH_MIGRATION = (
+    'DROP TRIGGER IF EXISTS refresh_macro_features_after_raw_change ON "macro_loader"."macro_raw"',
+    "DROP FUNCTION IF EXISTS macro_loader.refresh_macro_features()",
+    _FEATURES_VIEW_REFRESH_FUNCTION,
+    "ALTER FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
+    f"GRANT USAGE ON SCHEMA {_quote(POSTGRES_CONSUMER_SCHEMA)}, "
+    f"{_quote(POSTGRES_SYNC_SCHEMA)} TO {_quote(POSTGRES_SYNC_USER)}, "
+    f"{_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_SYNC_STATE}, {_ROW_HASHES} "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+    f"GRANT SELECT ON TABLE {_MIGRATION_LEDGER} TO {_quote(POSTGRES_SYNC_USER)}",
+    "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -697,6 +724,7 @@ _MIGRATIONS = (
     _FEATURES_VIEW_MIGRATION,
     _RAW_ONLY_LAYOUT_MIGRATION,
     _FEATURES_VIEW_REBUILD_MIGRATION,
+    _FEATURES_VIEW_REFRESH_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -943,6 +971,8 @@ class _PostgresGoldSyncTransaction:
             )
         for timestamp in plan.deletes:
             self._cursor.execute(_DELETE_DIGEST_SQL, (dataset_id, timestamp))
+        if plan.inserts or plan.updates or plan.deletes:
+            self._cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         expected = GoldTargetSummary(state.row_count, state.min_timestamp, state.max_timestamp)
         if self.summary(dataset_id) != expected:
             raise ValueError("PostgreSQL Gold post-write summary does not match source")
