@@ -244,11 +244,11 @@ Acceptance:
 ## PR-88: Run Complete Real-PostgreSQL Feature-Library QA
 
 PR name: `macro-feature-real-postgres-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #89
 Git branch: `pr-88/macro-feature-real-postgres-qa`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Integration QA; one agent only
 Depends on: PR-87
 Commit: `test(pr-88): validate macro feature library on postgres`
@@ -271,11 +271,11 @@ Acceptance:
 ## PR-89: Execute Full Historical Pipeline Acceptance Run
 
 PR name: `macro-feature-full-run-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #90
 Git branch: `pr-89/macro-feature-full-run-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: Production-like acceptance QA; one agent only
 Depends on: PR-88
 Commit: `test(pr-89): execute full macro feature acceptance run`
