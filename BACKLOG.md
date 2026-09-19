@@ -271,11 +271,11 @@ Acceptance:
 ## PR-89: Execute Full Historical Pipeline Acceptance Run
 
 PR name: `macro-feature-full-run-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #90
 Git branch: `pr-89/macro-feature-full-run-acceptance`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Production-like acceptance QA; one agent only
 Depends on: PR-88
 Commit: `test(pr-89): execute full macro feature acceptance run`
@@ -298,11 +298,11 @@ Acceptance:
 ## PR-90: Execute Sunday Cron Chain Feature-Library Acceptance Run
 
 PR name: `macro-feature-cron-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #91
 Git branch: `pr-90/macro-feature-cron-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: Operational cron QA; one agent only
 Depends on: PR-89
 Commit: `test(pr-90): execute macro feature cron acceptance run`
