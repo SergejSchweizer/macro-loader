@@ -192,11 +192,11 @@ Acceptance:
 ## PR-86: Prove Python-To-PostgreSQL Feature Formula Parity
 
 PR name: `macro-feature-formula-parity-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
 PR: #87
 Git branch: `pr-86/macro-feature-formula-parity-qa`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Feature QA; one agent only
 Depends on: PR-85
 Commit: `test(pr-86): prove macro feature formula parity`
@@ -219,11 +219,11 @@ Acceptance:
 ## PR-87: Remove Duplicate Python Feature Computation Legacy
 
 PR name: `remove-duplicate-python-feature-runtime`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
-PR: TBD
+PR: #88
 Git branch: `pr-87/remove-duplicate-python-feature-runtime`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: Feature cleanup; one agent only
 Depends on: PR-86
 Commit: `refactor(pr-87): remove duplicate python feature runtime`
