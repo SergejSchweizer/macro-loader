@@ -550,6 +550,11 @@ def _macro_features_view_query() -> str:
                 f"THEN (exp(avg(log_return) OVER window_{window}) - 1.0) * 100.0 "
                 f"END AS {_quote(f'{series}_return_geom_{window}obs_pct')}"
             )
+        if series == "usd_broad":
+            expressions.append(
+                'CASE WHEN level > 0 AND "lag_20" > 0 '
+                'THEN ln(level / "lag_20") END AS "usd_broad_log_return_20obs"'
+            )
         source_ctes.append(
             f"{features} AS (SELECT timestamp_m1, {', '.join(expressions)} FROM {changes} "
             "WINDOW window_10 AS (ORDER BY timestamp_m1 ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), "
@@ -565,6 +570,7 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_zscore_")
                 or column.startswith(f"{series}_momentum_")
                 or column.startswith(f"{series}_return_")
+                or (series == "usd_broad" and column == "usd_broad_log_return_20obs")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
@@ -573,6 +579,9 @@ def _macro_features_view_query() -> str:
         'END AS "vix9d_vix_ratio", '
         'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" '
         'END AS "vix_vix3m_ratio", '
+        'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+        'THEN ln(raw."vix9d_level" / raw."vix3m_level") '
+        'END AS "vix9d_vix3m_log_ratio", '
         'raw."vix3m_level" - raw."vix_level" AS "vix3m_minus_vix", '
         'raw."vix6m_level" - raw."vix_level" AS "vix6m_minus_vix", '
         'raw."vix1y_level" - raw."vix_level" AS "vix1y_minus_vix", '

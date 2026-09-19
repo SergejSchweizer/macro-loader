@@ -356,13 +356,15 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
-    assert len(module._FEATURES_VIEW_COLUMNS) == 165
+    assert len(module._FEATURES_VIEW_COLUMNS) == 167
     assert all(column.endswith("_level") for column in module._FEATURES_VIEW_COLUMNS[:13])
     assert all(not column.startswith(("fed_", "fomc_")) for column in module._FEATURES_VIEW_COLUMNS)
     assert 'AS "vix_delta_1obs"' in ddl
     assert 'AS "vix9d_delta_1obs"' in ddl
     assert 'AS "vix9d_vix_ratio"' in ddl
+    assert 'AS "vix9d_vix3m_log_ratio"' in ddl
     assert 'AS "us_10y_return_geom_240obs_pct"' in ddl
+    assert 'AS "usd_broad_log_return_20obs"' in ddl
     assert "WHERE FALSE" not in ddl
     assert '"estr_return_geom_10obs_pct"' in ddl
 

@@ -35,7 +35,9 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
             assert f"{series}_return_geom_{window}obs_pct" in names
     assert "vix9d_vix_ratio" in names
     assert "vix_vix3m_ratio" in names
+    assert "vix9d_vix3m_log_ratio" in names
     assert "us_10y_minus_us_2y" in names
+    assert "usd_broad_log_return_20obs" in names
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
