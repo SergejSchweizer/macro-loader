@@ -43,9 +43,13 @@ class BacklogPr:
 
 def _sections(text: str) -> list[BacklogPr]:
     matches = list(HEADER_RE.finditer(text))
+    level2 = list(LEVEL2_RE.finditer(text))
     sections: list[BacklogPr] = []
-    for index, match in enumerate(matches):
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+    for match in matches:
+        end = next(
+            (heading.start() for heading in level2 if heading.start() > match.start()),
+            len(text),
+        )
         sections.append(BacklogPr(match.group(1), text[match.end() : end]))
     return sections
 
