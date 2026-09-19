@@ -12,6 +12,14 @@ from typing import NoReturn, Protocol, TypeVar, cast
 import psycopg
 
 from application.gold_frame import GOLD_COLUMNS
+from application.macro_feature_catalog import (
+    FEATURE_COLUMNS,
+    MACRO_FEATURE_VIEW_FINGERPRINT,
+    MACRO_FEATURE_VIEW_VERSION,
+    RAW_SERIES,
+)
+from application.macro_features import MACRO_POLICY, macro_delta_lags
+from application.momentum_features import MOMENTUM_POLICY
 from application.postgres_delta import gold_row_sha256
 from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
@@ -29,6 +37,8 @@ from application.postgres_sync import (
     GoldSyncTransaction,
     GoldTargetSummary,
 )
+from application.return_features import RETURN_WINDOWS
+from application.volatility_features import VOLATILITY_SERIES
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
@@ -219,7 +229,7 @@ _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_T
 _POSTGRES_OWNER_ROLE = "macro-loader-owner"
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
-_FEATURES_VIEW_COLUMNS = (
+_FEATURES_VIEW_COLUMNS: tuple[str, ...] = (
     "vix_delta_1obs",
     "vix_delta_5obs",
     "vix_delta_20obs",
@@ -361,6 +371,12 @@ _FEATURES_VIEW_COLUMNS = (
     "usd_broad_return_geom_240obs_pct",
 )
 
+# PR-81 replaces the historical hand-maintained list above with the explicit
+# source-controlled catalog.  Keeping the old literal in this module eases
+# upgrade compatibility for consumers that import it, but migrations and
+# conformance use the catalog-derived contract from this point onward.
+_FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
+
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
     {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _FEATURE_COLUMNS)}
@@ -473,18 +489,120 @@ BEGIN
     END IF;
 END
 $$"""
-_FEATURES_VIEW_DDL = f"""CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS
-SELECT
-    {_quote("timestamp_m1")},
-    {
-    ",\n    ".join(
-        f"NULL::DOUBLE PRECISION AS {_quote(column)}" for column in _FEATURES_VIEW_COLUMNS
+
+
+def _macro_features_view_query() -> str:
+    """Build the closed-world SQL definition from the executable catalog."""
+    source_ctes: list[str] = []
+    joins: list[str] = []
+    feature_select: list[str] = []
+    macro_lags = macro_delta_lags(MACRO_POLICY)
+    for series in RAW_SERIES:
+        level = _quote(f"{series}_level")
+        source = _quote(f"{series}_source")
+        changes = _quote(f"{series}_changes")
+        features = _quote(f"{series}_features")
+        lags = macro_lags.get(series, (1, 5, 20))
+        lag_sql = ", ".join(
+            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in (1, 5, 20)
+        )
+        delta_sql = ", ".join(
+            f"level - {_quote(f'lag_{lag}')} AS {_quote(f'delta_{lag}')}" for lag in (1, 5, 20)
+        )
+        change_lags = ", ".join(
+            f"lag(level - {_quote('lag_1')}, {lag}) OVER (ORDER BY timestamp_m1) "
+            f"AS {_quote(f'change_lag_{lag}')}"
+            for lag in (1, 5, 20)
+        )
+        source_ctes.append(
+            f"{source} AS (SELECT timestamp_m1, {level} AS level, {lag_sql} "
+            f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
+            "WINDOW ordered AS (ORDER BY timestamp_m1))"
+        )
+        source_ctes.append(
+            f"{changes} AS (SELECT *, {delta_sql}, level - {_quote('lag_1')} AS change, "
+            f"{change_lags}, CASE WHEN level > 0 AND {_quote('lag_1')} > 0 "
+            f"THEN ln(level / {_quote('lag_1')}) END AS log_return FROM {source})"
+        )
+        expressions: list[str] = []
+        for lag in lags:
+            expressions.append(
+                f"{_quote('delta_' + str(lag))} AS {_quote(f'{series}_delta_{lag}obs')}"
+            )
+        if series in VOLATILITY_SERIES:
+            expressions.append(
+                f"CASE WHEN count(level) OVER window_60 = 60 "
+                f"AND stddev_pop(level) OVER window_60 <> 0 "
+                f"THEN (level - avg(level) OVER window_60) / stddev_pop(level) OVER window_60 "
+                f"END AS {_quote(f'{series}_zscore_60obs')}"
+            )
+        for lag, window in MOMENTUM_POLICY.lag_windows:
+            expressions.append(
+                f"CASE WHEN count(change) OVER window_{window} = {window} "
+                f"AND count({_quote(f'change_lag_{lag}')}) OVER window_{window} = {window} "
+                f"THEN greatest(corr(change, {_quote(f'change_lag_{lag}')}) "
+                f"OVER window_{window}, 0.0) END AS "
+                f"{_quote(f'{series}_momentum_autocorr_{lag}_{window}obs')}"
+            )
+        for window in RETURN_WINDOWS:
+            expressions.append(
+                f"CASE WHEN count(log_return) OVER window_{window} = {window} "
+                f"THEN (exp(avg(log_return) OVER window_{window}) - 1.0) * 100.0 "
+                f"END AS {_quote(f'{series}_return_geom_{window}obs_pct')}"
+            )
+        source_ctes.append(
+            f"{features} AS (SELECT timestamp_m1, {', '.join(expressions)} FROM {changes} "
+            "WINDOW window_10 AS (ORDER BY timestamp_m1 ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), "
+            "window_25 AS (ORDER BY timestamp_m1 ROWS BETWEEN 24 PRECEDING AND CURRENT ROW), "
+            "window_60 AS (ORDER BY timestamp_m1 ROWS BETWEEN 59 PRECEDING AND CURRENT ROW), "
+            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW), "
+            "window_240 AS (ORDER BY timestamp_m1 ROWS BETWEEN 239 PRECEDING AND CURRENT ROW))"
+        )
+        joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
+        for column in _FEATURES_VIEW_COLUMNS:
+            if (
+                column.startswith(f"{series}_delta_")
+                or column.startswith(f"{series}_zscore_")
+                or column.startswith(f"{series}_momentum_")
+                or column.startswith(f"{series}_return_")
+            ):
+                feature_select.append(f"{features}.{_quote(column)}")
+
+    cross_select = (
+        'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" '
+        'END AS "vix9d_vix_ratio", '
+        'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" '
+        'END AS "vix_vix3m_ratio", '
+        'raw."vix3m_level" - raw."vix_level" AS "vix3m_minus_vix", '
+        'raw."vix6m_level" - raw."vix_level" AS "vix6m_minus_vix", '
+        'raw."vix1y_level" - raw."vix_level" AS "vix1y_minus_vix", '
+        'raw."us_10y_level" - raw."us_2y_level" AS "us_10y_minus_us_2y"'
     )
-}
-FROM {_CONSUMER}
-WHERE FALSE"""
+    raw_select = ", ".join(f"raw.{_quote(f'{series}_level')}" for series in RAW_SERIES)
+    return (
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH {', '.join(source_ctes)} "
+        f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(feature_select)}, {cross_select} '
+        f"FROM {_CONSUMER} raw {' '.join(joins)} "
+        "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"
+    )
+
+
+_FEATURES_VIEW_DDL = _macro_features_view_query()
 _FEATURES_VIEW_MIGRATION = (
     _FEATURES_VIEW_DDL,
+    f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
+    f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+    f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
+    f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
+)
+_FEATURES_VIEW_REBUILD_MIGRATION = (
+    f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW}",
+    _FEATURES_VIEW_DDL,
+    f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
+    f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+    f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
     f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
@@ -569,6 +687,7 @@ _MIGRATIONS = (
     (_CONSUMER_RENAME_MIGRATION,),
     _FEATURES_VIEW_MIGRATION,
     _RAW_ONLY_LAYOUT_MIGRATION,
+    _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
