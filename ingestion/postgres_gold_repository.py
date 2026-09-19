@@ -574,23 +574,39 @@ def _macro_features_view_query() -> str:
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
-    cross_select = (
-        'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" '
-        'END AS "vix9d_vix_ratio", '
-        'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" '
-        'END AS "vix_vix3m_ratio", '
-        'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
-        'THEN ln(raw."vix9d_level" / raw."vix3m_level") '
-        'END AS "vix9d_vix3m_log_ratio", '
-        'raw."vix3m_level" - raw."vix_level" AS "vix3m_minus_vix", '
-        'raw."vix6m_level" - raw."vix_level" AS "vix6m_minus_vix", '
-        'raw."vix1y_level" - raw."vix_level" AS "vix1y_minus_vix", '
-        'raw."us_10y_level" - raw."us_2y_level" AS "us_10y_minus_us_2y"'
-    )
+    cross_expressions = {
+        "vix9d_vix_ratio": (
+            'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" '
+            'END AS "vix9d_vix_ratio"'
+        ),
+        "vix_vix3m_ratio": (
+            'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" '
+            'END AS "vix_vix3m_ratio"'
+        ),
+        "vix9d_vix3m_log_ratio": (
+            'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+            'THEN ln(raw."vix9d_level" / raw."vix3m_level") '
+            'END AS "vix9d_vix3m_log_ratio"'
+        ),
+        "vix3m_minus_vix": 'raw."vix3m_level" - raw."vix_level" AS "vix3m_minus_vix"',
+        "vix6m_minus_vix": 'raw."vix6m_level" - raw."vix_level" AS "vix6m_minus_vix"',
+        "vix1y_minus_vix": 'raw."vix1y_level" - raw."vix_level" AS "vix1y_minus_vix"',
+        "us_10y_minus_us_2y": 'raw."us_10y_level" - raw."us_2y_level" AS "us_10y_minus_us_2y"',
+    }
+    feature_expressions = {
+        expression.rsplit(".", 1)[-1].strip('"'): expression for expression in feature_select
+    }
+    ordered_features = [
+        feature_expressions.get(column, cross_expressions.get(column, ""))
+        for column in _FEATURES_VIEW_COLUMNS
+        if column not in {f"{series}_level" for series in RAW_SERIES}
+    ]
+    if any(not expression for expression in ordered_features):
+        raise ValueError("macro feature catalog contains an expression without SQL projection")
     raw_select = ", ".join(f"raw.{_quote(f'{series}_level')}" for series in RAW_SERIES)
     return (
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH {', '.join(source_ctes)} "
-        f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(feature_select)}, {cross_select} '
+        f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
         f"FROM {_CONSUMER} raw {' '.join(joins)} "
         "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"
     )
@@ -636,12 +652,29 @@ _FEATURES_VIEW_REFRESH_MIGRATION = (
     "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
     f"GRANT USAGE ON SCHEMA {_quote(POSTGRES_CONSUMER_SCHEMA)}, "
     f"{_quote(POSTGRES_SYNC_SCHEMA)} TO {_quote(POSTGRES_SYNC_USER)}, "
-    f"{_quote(_POSTGRES_OWNER_ROLE)}",
+    f"{_quote(POSTGRES_USER)}, {_quote(_POSTGRES_OWNER_ROLE)}",
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_SYNC_STATE}, {_ROW_HASHES} "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
     f"GRANT SELECT ON TABLE {_MIGRATION_LEDGER} TO {_quote(POSTGRES_SYNC_USER)}",
+    f"REVOKE ALL ON {_FEATURES_VIEW} FROM PUBLIC",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
     "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
+
+
+def _normalize_view_definition(value: str) -> str:
+    """Normalize PostgreSQL's pretty-printed view definition for contract checks."""
+    return " ".join(value.strip().rstrip(";").split()).lower()
+
+
+_FEATURES_VIEW_DEFINITION = _normalize_view_definition(_FEATURES_VIEW_DDL.split(" AS ", 1)[1])
+_FEATURES_VIEW_COLUMNS_EXPECTED = ("timestamp_m1",) + tuple(_FEATURES_VIEW_COLUMNS)
+_FEATURES_VIEW_DEFINITION_MARKERS = (
+    "with vix_source as",
+    "raw.timestamp_m1",
+    "vix9d_vix3m_log_ratio",
+    "2010-01-01",
 )
 
 
@@ -1296,6 +1329,83 @@ class PostgresGoldSyncRepository:
         }
         if actual_keys != expected_keys:
             raise ValueError("PostgreSQL key contract does not match specification")
+        PostgresGoldSyncRepository._assert_features_view_contract(cursor)
+
+    @staticmethod
+    def _assert_features_view_contract(cursor: CursorPort) -> None:
+        """Fail closed when the published materialized view drifts from its catalog contract."""
+        cursor.execute(
+            """SELECT classes.relkind, roles.rolname,
+                      obj_description(classes.oid, 'pg_class'),
+                      pg_get_viewdef(classes.oid, true)
+               FROM pg_class AS classes
+               JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+               JOIN pg_roles AS roles ON roles.oid = classes.relowner
+              WHERE namespaces.nspname = %s AND classes.relname = %s""",
+            (POSTGRES_CONSUMER_SCHEMA, "macro_features"),
+        )
+        row = cursor.fetchone()
+        if row is None or len(row) != 4:
+            raise ValueError("PostgreSQL macro feature view is missing")
+        if row[0] != "m" or row[1] != _POSTGRES_OWNER_ROLE:
+            raise ValueError("PostgreSQL macro feature view kind or owner differs")
+        comment = row[2] if isinstance(row[2], str) else ""
+        expected_comment = (
+            f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+            f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}"
+        )
+        if comment != expected_comment:
+            raise ValueError("PostgreSQL macro feature view version differs")
+        definition = row[3] if isinstance(row[3], str) else ""
+        normalized_definition = _normalize_view_definition(definition).replace('"', "")
+        missing_markers = tuple(
+            marker
+            for marker in _FEATURES_VIEW_DEFINITION_MARKERS
+            if marker not in normalized_definition
+        )
+        if missing_markers:
+            raise ValueError(
+                "PostgreSQL macro feature view definition differs: "
+                + ",".join(missing_markers)
+                + " actual="
+                + normalized_definition[:300]
+            )
+
+        cursor.execute(
+            """SELECT attributes.attnum, attributes.attname,
+                      format_type(attributes.atttypid, attributes.atttypmod),
+                      attributes.attnotnull
+               FROM pg_attribute AS attributes
+               WHERE attributes.attrelid = %s::regclass
+                 AND attributes.attnum > 0 AND NOT attributes.attisdropped
+              ORDER BY attributes.attnum""",
+            (f"{POSTGRES_CONSUMER_SCHEMA}.macro_features",),
+        )
+        columns = cursor.fetchall()
+        actual_names = tuple(row[1] for row in columns)
+        if actual_names != _FEATURES_VIEW_COLUMNS_EXPECTED:
+            raise ValueError(
+                "PostgreSQL macro feature view columns differ: "
+                + repr((actual_names[:20], _FEATURES_VIEW_COLUMNS_EXPECTED[:20]))
+            )
+        for ordinal, column in enumerate(columns, start=1):
+            if len(column) != 4 or column[0] != ordinal:
+                raise ValueError("PostgreSQL macro feature view column order differs")
+            if column[2] != ("timestamp(6) with time zone" if ordinal == 1 else "double precision"):
+                raise ValueError("PostgreSQL macro feature view column type differs")
+            if column[3] is not False:
+                raise ValueError("PostgreSQL macro feature view column nullability differs")
+        for role, select_expected in (
+            (POSTGRES_USER, True),
+            (POSTGRES_SYNC_USER, True),
+            ("public", False),
+        ):
+            cursor.execute(
+                "SELECT has_table_privilege(%s, %s, 'SELECT')",
+                (role, f"{POSTGRES_CONSUMER_SCHEMA}.macro_features"),
+            )
+            if cursor.fetchone() != (select_expected,):
+                raise ValueError(f"PostgreSQL macro feature view grants differ for {role}")
 
 
 class PostgresGoldSchemaMigrator:

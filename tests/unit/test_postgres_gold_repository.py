@@ -91,7 +91,7 @@ class FakeCursor:
                 (specification.schema, specification.name)
                 for specification in module._SCHEMA_SPECIFICATION
             )
-        elif "FROM information_schema.columns" in query:
+        elif "FROM information_schema.columns" in query and "table_name = %s" not in query:
             self.many = [
                 (
                     specification.schema,
@@ -116,6 +116,26 @@ class FakeCursor:
                 )
                 for specification in module._SCHEMA_SPECIFICATION
             ]
+        elif "FROM pg_class AS classes" in query:
+            self.one = (
+                "m",
+                module._POSTGRES_OWNER_ROLE,
+                f"macro feature view version={module.MACRO_FEATURE_VIEW_VERSION}; "
+                f"fingerprint={module.MACRO_FEATURE_VIEW_FINGERPRINT}",
+                module._FEATURES_VIEW_DEFINITION,
+            )
+        elif "FROM pg_attribute AS attributes" in query:
+            self.many = [
+                (
+                    ordinal,
+                    name,
+                    "timestamp(6) with time zone" if ordinal == 1 else "double precision",
+                    False,
+                )
+                for ordinal, name in enumerate(module._FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
+            ]
+        elif "has_table_privilege" in query:
+            self.one = (params[0] != "public",) if isinstance(params, tuple) else (True,)
         elif query.startswith("SELECT dataset_id"):
             self.one = self.connection.state_row
         elif query.startswith("SELECT timestamp_m1, row_sha256"):

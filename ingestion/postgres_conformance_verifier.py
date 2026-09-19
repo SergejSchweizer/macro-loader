@@ -13,6 +13,7 @@ from ingestion.postgres_gold_repository import (
     ConnectionPort,
     CursorPort,
     PostgresGoldRepositoryError,
+    PostgresGoldSyncRepository,
     PostgresSyncConfig,
     _default_connection,
     _session_configuration,
@@ -153,6 +154,7 @@ class PostgresLiveDatabaseConformanceInspector:
         }
         if actual_keys != expected_keys:
             raise ValueError("owned keys differ")
+        PostgresGoldSyncRepository._assert_features_view_contract(cursor)
 
     @staticmethod
     def _assert_roles(cursor: CursorPort) -> None:
