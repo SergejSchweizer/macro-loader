@@ -9,6 +9,7 @@ from application.macro_feature_catalog import (
 )
 from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import RETURN_WINDOWS
+from ingestion.postgres_gold_repository import _FEATURES_VIEW_DDL, _MIGRATIONS
 
 
 def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
@@ -41,3 +42,12 @@ def test_catalog_fingerprint_is_stable_and_versioned() -> None:
     assert MACRO_FEATURE_VIEW_VERSION == 1
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
+
+
+def test_postgres_view_migration_is_populated_and_versioned() -> None:
+    assert "WHERE FALSE" not in _FEATURES_VIEW_DDL
+    assert "CREATE MATERIALIZED VIEW" in _FEATURES_VIEW_DDL
+    assert '"vix_level"' in _FEATURES_VIEW_DDL
+    assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
+    assert f"version={MACRO_FEATURE_VIEW_VERSION}" in " ".join(_MIGRATIONS[-1])
+    assert MACRO_FEATURE_VIEW_FINGERPRINT in " ".join(_MIGRATIONS[-1])

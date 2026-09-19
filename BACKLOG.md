@@ -63,11 +63,11 @@ Acceptance:
 ## PR-81: Define Executable Macro Feature Catalog And View Version
 
 PR name: `macro-feature-catalog-contract`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-19
-PR: TBD
+PR: #82
 Git branch: `pr-81/macro-feature-catalog-contract`
-Git status: `active-dirty: application/macro_feature_catalog.py, tests/unit/test_macro_feature_catalog.py`
+Git status: `merged`
 Agent lane: Feature contract; one agent only
 Depends on: PR-80
 Commit: `feat(pr-81): define macro feature catalog contract`
@@ -88,11 +88,11 @@ Acceptance:
 ## PR-82: Make Macro Features A Versioned PostgreSQL Materialized View
 
 PR name: `versioned-macro-features-view`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-19
 PR: TBD
 Git branch: `pr-82/versioned-macro-features-view`
-Git status: `not-started (branch absent)`
+Git status: `active-clean`
 Agent lane: PostgreSQL feature materialization; one agent only
 Depends on: PR-81
 Commit: `feat(pr-82): materialize canonical macro feature library`

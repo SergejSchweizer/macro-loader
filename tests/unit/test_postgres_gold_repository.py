@@ -356,15 +356,15 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
-    assert len(module._FEATURES_VIEW_COLUMNS) == 139
-    assert all(not column.endswith("_level") for column in module._FEATURES_VIEW_COLUMNS)
+    assert len(module._FEATURES_VIEW_COLUMNS) == 165
+    assert all(column.endswith("_level") for column in module._FEATURES_VIEW_COLUMNS[:13])
     assert all(not column.startswith(("fed_", "fomc_")) for column in module._FEATURES_VIEW_COLUMNS)
-    assert 'NULL::DOUBLE PRECISION AS "vix_delta_1obs"' in ddl
-    assert 'NULL::DOUBLE PRECISION AS "vix9d_delta_1obs"' in ddl
-    assert 'NULL::DOUBLE PRECISION AS "vix9d_vix_ratio"' in ddl
-    assert 'NULL::DOUBLE PRECISION AS "us_10y_return_geom_240obs_pct"' in ddl
-    assert "WHERE FALSE" in ddl
-    assert '"estr_return_geom_10obs_pct"' not in ddl
+    assert 'AS "vix_delta_1obs"' in ddl
+    assert 'AS "vix9d_delta_1obs"' in ddl
+    assert 'AS "vix9d_vix_ratio"' in ddl
+    assert 'AS "us_10y_return_geom_240obs_pct"' in ddl
+    assert "WHERE FALSE" not in ddl
+    assert '"estr_return_geom_10obs_pct"' in ddl
 
 
 def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:
