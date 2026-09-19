@@ -62,8 +62,20 @@ def _unquote(value: str) -> str:
 def _validate(text: str) -> list[BacklogPr]:
     sections = _sections(text)
     assert sections, "backlog must contain at least one PR section"
-    expected = [f"PR-{index:02d}" for index in range(1, len(sections) + 1)]
-    assert [section.pr_id for section in sections] == expected
+    active = [section for section in sections if int(section.pr_id[3:]) >= ACTIVE_FIRST]
+    historical = [section for section in sections if int(section.pr_id[3:]) <= HISTORICAL_LAST]
+    assert sections == [*active, *historical]
+    assert [section.pr_id for section in active] == [
+        f"PR-{index:02d}"
+        for index in range(ACTIVE_FIRST, ACTIVE_FIRST + len(active))
+    ]
+    assert [section.pr_id for section in historical] == [
+        f"PR-{index:02d}" for index in range(1, HISTORICAL_LAST + 1)
+    ]
+    assert all(
+        not (HISTORICAL_LAST < int(section.pr_id[3:]) < ACTIVE_FIRST)
+        for section in sections
+    )
 
     for section in sections:
         values = {name: _field(section, name) for name in REQUIRED_FIELDS}
@@ -87,6 +99,22 @@ def _validate(text: str) -> list[BacklogPr]:
         patterns = values["Design patterns"].strip()
         assert patterns, f"{section.pr_id}: Design patterns must be non-empty"
 
+        if int(section.pr_id[3:]) >= ACTIVE_FIRST:
+            requirements = [
+                int(value)
+                for value in re.findall(r"^- R(\\d+):", section.body, re.MULTILINE)
+            ]
+            acceptance = [
+                int(value)
+                for value in re.findall(
+                    r"^- A(\\d+) \\(verifies R\\d+\\):",
+                    section.body,
+                    re.MULTILINE,
+                )
+            ]
+            assert requirements == list(range(1, len(requirements) + 1))
+            assert acceptance == requirements
+
         status = values["Status"]
         if status == "Merged":
             assert git_status == "merged"
@@ -105,9 +133,10 @@ def _validate(text: str) -> list[BacklogPr]:
     return sections
 
 
-def test_backlog_has_contiguous_pr_metadata_contract() -> None:
+def test_backlog_has_active_program_first_and_historical_metadata_contract() -> None:
     sections = _validate(BACKLOG.read_text(encoding="utf-8"))
-    assert sections[0].pr_id == "PR-01"
+    assert sections[0].pr_id == f"PR-{ACTIVE_FIRST:02d}"
+    assert sections[-1].pr_id == f"PR-{HISTORICAL_LAST:02d}"
 
 
 def _minimal_section() -> str:
