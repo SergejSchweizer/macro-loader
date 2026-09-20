@@ -16,11 +16,9 @@ def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
     validate_feature_catalog()
     assert FEATURE_COLUMNS[0] == "timestamp_m1"
     assert tuple(spec.name for spec in FEATURE_CATALOG[: len(RAW_SERIES)]) == tuple(
-        f"{series}_level" for series in RAW_SERIES
+        f"{series}_log_level" for series in RAW_SERIES
     )
-    assert {spec.series for spec in FEATURE_CATALOG if spec.family == "raw_level"} == set(
-        RAW_SERIES
-    )
+    assert {spec.series for spec in FEATURE_CATALOG if spec.family == "raw_log"} == set(RAW_SERIES)
     assert len(FEATURE_COLUMNS) == len(set(FEATURE_COLUMNS))
     assert not any(name.startswith("foo_") for name in FEATURE_COLUMNS)
 
@@ -28,7 +26,7 @@ def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
 def test_catalog_contains_all_fixed_feature_families() -> None:
     names = set(FEATURE_COLUMNS)
     for series in RAW_SERIES:
-        assert f"{series}_level" in names
+        assert f"{series}_log_level" in names
         for lag, window in MOMENTUM_POLICY.lag_windows:
             assert f"{series}_momentum_autocorr_{lag}_{window}obs" in names
         for window in RETURN_WINDOWS:
@@ -41,7 +39,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 1
+    assert MACRO_FEATURE_VIEW_VERSION == 2
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -49,7 +47,8 @@ def test_catalog_fingerprint_is_stable_and_versioned() -> None:
 def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert "WHERE FALSE" not in _FEATURES_VIEW_DDL
     assert "CREATE MATERIALIZED VIEW" in _FEATURES_VIEW_DDL
-    assert '"vix_level"' in _FEATURES_VIEW_DDL
+    assert '"vix_log_level"' in _FEATURES_VIEW_DDL
+    assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
     migration_sql = " ".join(statement for migration in _MIGRATIONS[-2:] for statement in migration)
     assert f"version={MACRO_FEATURE_VIEW_VERSION}" in migration_sql
