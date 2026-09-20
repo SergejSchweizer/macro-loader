@@ -277,6 +277,12 @@ row digests:     macro_loader_sync.gold_row_hashes
 
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
 
+The PostgreSQL `macro_features` materialized view exposes one `*_log_level`
+column per raw source, calculated as `ln(macro_raw.<source>_level)` when the
+source is positive; non-positive or missing source values become `NULL`. The
+untransformed source values remain available only in `macro_raw`. The view is
+explicitly refreshed after a successful raw-table delta.
+
 The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 
 A semantic `schema_version` or `feature_version` mismatch fails closed; it never triggers a hidden full rewrite. PostgreSQL delete semantics affect only the rebuildable serving replica and do not alter Bronze, Silver, immutable Gold, or source-history retention rules.

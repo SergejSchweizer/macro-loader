@@ -750,3 +750,9 @@ materialized view. Python retains only source-series policy metadata and canonic
 column naming. The authorized full-history and Sunday-wrapper acceptance runners
 execute the documented commands in order and emit sanitized reports under
 `artifacts/acceptance/`; neither runner is part of the normal cron path.
+
+The view's raw-source projections are named `*_log_level` and contain the
+natural logarithm of the corresponding positive `macro_raw.*_level` value.
+Missing or non-positive values are exposed as `NULL`; the original levels
+remain in `macro_raw`. A delta sync explicitly refreshes the materialized view
+after applying its row mutations.

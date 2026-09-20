@@ -17,10 +17,10 @@ from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import RETURN_WINDOWS
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 1
+MACRO_FEATURE_VIEW_VERSION = 2
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
-RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_level" for series in RAW_SERIES)
+RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in RAW_SERIES)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +36,16 @@ class MacroFeatureSpec:
 def _source_specs() -> tuple[MacroFeatureSpec, ...]:
     specs: list[MacroFeatureSpec] = []
     for series in RAW_SERIES:
-        specs.append(MacroFeatureSpec(f"{series}_level", "raw_level", series, "source level"))
+        # The serving view exposes the natural-log transform of each raw
+        # source; the untransformed values remain in ``macro_raw``.
+        specs.append(
+            MacroFeatureSpec(
+                f"{series}_log_level",
+                "raw_log",
+                series,
+                "ln(source level) when source level is positive",
+            )
+        )
     for series in VOLATILITY_SERIES:
         specs.extend(
             MacroFeatureSpec(
@@ -116,11 +125,11 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog contains duplicate columns")
     if any(not spec.name or not spec.family or not spec.formula for spec in catalog):
         raise ValueError("macro feature catalog contains incomplete metadata")
-    if tuple(spec.name for spec in catalog if spec.family == "raw_level") != RAW_COLUMNS:
-        raise ValueError("macro feature catalog raw-level order/coverage mismatch")
-    if set(spec.series for spec in catalog if spec.family == "raw_level") != set(RAW_SERIES):
+    if tuple(spec.name for spec in catalog if spec.family == "raw_log") != RAW_COLUMNS:
+        raise ValueError("macro feature catalog raw-log order/coverage mismatch")
+    if set(spec.series for spec in catalog if spec.family == "raw_log") != set(RAW_SERIES):
         raise ValueError("macro feature catalog does not cover all registered raw series")
-    if "foo_level" in names:
+    if "foo_log_level" in names:
         raise ValueError("unapproved wildcard feature in macro feature catalog")
 
 

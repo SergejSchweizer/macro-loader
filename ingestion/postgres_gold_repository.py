@@ -599,11 +599,15 @@ def _macro_features_view_query() -> str:
     ordered_features = [
         feature_expressions.get(column, cross_expressions.get(column, ""))
         for column in _FEATURES_VIEW_COLUMNS
-        if column not in {f"{series}_level" for series in RAW_SERIES}
+        if column not in {f"{series}_log_level" for series in RAW_SERIES}
     ]
     if any(not expression for expression in ordered_features):
         raise ValueError("macro feature catalog contains an expression without SQL projection")
-    raw_select = ", ".join(f"raw.{_quote(f'{series}_level')}" for series in RAW_SERIES)
+    raw_select = ", ".join(
+        f"CASE WHEN raw.{_quote(f'{series}_level')} > 0 "
+        f"THEN ln(raw.{_quote(f'{series}_level')}) END AS {_quote(f'{series}_log_level')}"
+        for series in RAW_SERIES
+    )
     return (
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH {', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
@@ -758,6 +762,10 @@ _MIGRATIONS = (
     _RAW_ONLY_LAYOUT_MIGRATION,
     _FEATURES_VIEW_REBUILD_MIGRATION,
     _FEATURES_VIEW_REFRESH_MIGRATION,
+    # The view now publishes explicit *_log_level columns instead of levels.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Rebuild again for the explicit *_log_level column-name contract.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

@@ -377,7 +377,8 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
     assert len(module._FEATURES_VIEW_COLUMNS) == 167
-    assert all(column.endswith("_level") for column in module._FEATURES_VIEW_COLUMNS[:13])
+    assert all(column.endswith("_log_level") for column in module._FEATURES_VIEW_COLUMNS[:13])
+    assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in ddl
     assert all(not column.startswith(("fed_", "fomc_")) for column in module._FEATURES_VIEW_COLUMNS)
     assert 'AS "vix_delta_1obs"' in ddl
     assert 'AS "vix9d_delta_1obs"' in ddl
