@@ -83,14 +83,14 @@ PR-97 contract
 ## PR-97: Freeze Fed Policy EOD Contract And Delivery Program
 
 PR name: `fed-policy-eod-contract`
-Status: In Progress
+Status: Ready
 Updated: 2026-09-23
 PR: #97
 Git branch: `pr-97/fed-policy-eod-contract`
-Git status: `active-clean`
+Git status: `pushed-ci-green`
 Agent lane: Architecture/backlog contract; one agent only
 Depends on: none
-Commit: `docs(pr-97): define fed policy eod delivery program`
+Commit: `test(pr-97): cover catalog validation guard`
 Design patterns: Specification/Policy Object, Ports and Adapters.
 
 Description:
