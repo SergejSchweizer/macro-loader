@@ -8,18 +8,34 @@ Last reviewed: 2026-09-23
 
 ## Current repository and production status
 
-As of 2026-09-23, the Fed-policy implementation path through ZQ reconstruction,
-`macro_raw`, and `macro_features` is implemented and the associated code/QA harnesses
-through PR-118 are merged. However, the repository does **not** currently contain or
-prove possession of the historical individual-contract ZQ settlement curve required to
-reconstruct the four Fed-policy origins continuously from 2010.
+As of 2026-09-23, the Fed-policy reconstruction, `macro_raw` exposure, and
+`macro_features` transformations are implemented. The unresolved issue is historical
+source coverage, not formula availability.
 
-This distinction is mandatory:
+The repository now has enough evidence to distinguish three different facts that were
+previously conflated:
 
-```text
-implemented reconstruction algorithm != available historical source dataset
-test/acceptance harness             != historical data coverage proof
-```
+1. The Chinese CME FedWatch page really was used to download official
+   `MeetingExport.aspx` CSVs.
+2. Those raw CSV files were **not retained**: the browser adapter reads the temporary
+   Playwright download path into memory and discards the file after parsing.
+3. The then-active pipeline called the source only for
+   `today - 30 calendar days .. today`, and the parser discarded export rows outside
+   that requested interval before persisting normalized snapshots.
+
+The historical operational status recorded on 2026-09-19 therefore proves only a recent
+slice: the serving table had 16,775 total macro rows, while the four Fed columns had
+20, 20, 20, and 15 non-NULL observations respectively. The 15-row repricing count is
+consistent with the five-valid-observation warm-up. This is **not** evidence that only
+20 observations existed in the downloaded CME CSVs; it proves that only the bounded
+30-day slice was retained.
+
+Official CME documentation for the same FedWatch tool states that the historical panel for
+a selected meeting goes back **one full year** and that raw historical probability data
+can be downloaded. Therefore the first corrective action is to redownload the official
+Chinese CME exports without the historical 30-day truncation and measure their actual
+coverage. The residual history gap, not the entire 2010-present span, is what may require
+ZQ-settlement reconstruction.
 
 The four canonical Fed-policy origins remain:
 
@@ -30,70 +46,64 @@ fed_next_uncertainty_bp
 fed_repricing_5obs_bp
 ```
 
-They require, for each historical EOD observation, the individual monthly CME 30-Day
-Federal Funds futures (`ZQ`) settlement curve needed by the PR-101 probability engine.
-FRED DFF/EFFR, Federal Reserve FOMC calendars, target-range history, and CME FedWatch
-exports are supporting/reference inputs; none substitutes for the historical ZQ curve.
-A continuous/front-month futures series is explicitly insufficient.
+For dates covered by official CME MeetingExport probability distributions, those official
+probabilities are the preferred historical source. For older dates not covered by the
+official exports, the existing PR-101 reconstruction requires the simultaneous individual
+monthly ZQ final-settlement curve plus point-in-time EFFR/target/FOMC references. A
+continuous/front-month future cannot substitute for that curve.
 
-The previous PR-108 history-acceptance implementation is therefore classified as an
-**acceptance harness**, not evidence that 2010-present Fed-policy data exists or passed.
 No repository documentation, QA artifact, PostgreSQL row, or downstream model may claim
-verified 2010 Fed-policy history until PR-120 through PR-124 complete with a real
-historical ZQ dataset.
+verified 2010-present Fed-policy coverage until the corrected source-coverage and hybrid
+history acceptance below pass.
 
-## Corrective Delivery Program — Historical ZQ Source Gate
+## Corrective Delivery Program — Measure CME Export History Then Fill Only The Residual Gap
 
-### External data prerequisite
+The source hierarchy is:
 
-A real historical dataset must be supplied to the authorized runtime outside Git. It must
-contain final EOD settlements for individual standard monthly ZQ contracts with sufficient
-curve breadth to reconstruct probabilities through at least the third known future FOMC
-meeting for each observation date.
-
-Acceptable examples, subject to actual coverage verification, include:
-
-- CME DataMine historical ZQ settlements;
-- a Bloomberg export of individual ZQ contract final settlements;
-- a Refinitiv/LSEG export of individual ZQ contract final settlements;
-- another licensed/raw source that independently proves equivalent individual-contract
-  final-settlement coverage and provenance.
-
-Known limitations that must be encoded in QA rather than ignored:
-
-- CME FedWatch API history begins in 2015 and cannot satisfy a 2010 backfill alone;
-- Databento ZQ coverage begins 2010-06-06 and therefore cannot satisfy the requested
-  2010-01-01 boundary alone;
-- FRED DFF/EFFR and Federal Reserve FOMC calendars are reference inputs only;
-- continuous futures such as Nasdaq/Quandl CHRIS-style series are not sufficient because
-  they do not preserve the simultaneous individual-contract term structure.
-
-No paid/vendor dataset bytes, credentials, or license-restricted raw payloads are committed
-to Git. Git may contain only schemas, import code, sanitized manifests/hashes, and QA
-artifacts permitted by the source license.
+```text
+official CME China MeetingExport probabilities
+        |
+        | direct probability source where actually available
+        v
+canonical Fed probability snapshots
+        ^
+        |
+        | PR-101 reconstruction only for dates before direct export coverage
+        |
+individual monthly ZQ final settlements
++ point-in-time EFFR / target range / FOMC schedule
+```
 
 The corrected dependency chain is:
 
 ```text
-PR-120 source/acceptance contract correction
+PR-120 correct source/acceptance contract
         |
         v
-PR-121 licensed historical ZQ import adapter
+PR-121 retain + inventory unfiltered CME China exports
         |
         v
-PR-122 raw curve coverage + provenance + seam QA
+PR-122 prove actual direct-export date/meeting coverage
         |
         v
-PR-123 rebuild four Fed origins + macro_raw + macro_features
+PR-123 acquire/verify ZQ curves only for residual history gap
         |
         v
-PR-124 true 2010-present end-to-end acceptance
+PR-124 build and seam-test hybrid probability history
+        |
+        v
+PR-125 rebuild four origins + macro_raw + macro_features
+        |
+        v
+PR-126 true 2010-present end-to-end acceptance
 ```
 
-PR-121 and everything downstream remain BLOCKED until an operator supplies a source that
-passes the PR-122 coverage contract. This is intentional fail-closed behavior.
+PR-123 is conditional on the residual gap measured by PR-122. If the direct official CME
+exports unexpectedly cover the complete requested reconstruction domain, PR-123 becomes a
+documented no-op. Otherwise it must fill exactly the uncovered historical interval and no
+more.
 
-## PR-120: Correct Historical ZQ Source And Acceptance Contract
+## PR-120: Correct Fed Historical Source And Acceptance Contract
 
 PR name: `fed-history-source-gate`
 Status: In Progress
@@ -103,142 +113,196 @@ Git branch: `pr-120/fed-history-source-gate`
 Git status: `active-clean`
 Agent lane: Architecture/data-provenance correction; one agent only
 Depends on: none
-Commit: `docs(pr-120): gate fed history on real zq curve data`
+Commit: `docs(pr-120): measure cme export history before zq fallback`
 Design patterns: Specification/Policy Object, Fail-Closed Verification.
 
 Description:
-- R1: Correct the historical source contract so 2010-present reconstruction requires individual monthly ZQ final settlements with enough simultaneous contract-month coverage for the PR-101 probability engine through at least the third known future FOMC meeting; continuous/front-month series are forbidden.
-- R2: Explicitly classify DFF/EFFR, target-range history, and FOMC calendars as reference inputs; classify CME FedWatch exports/API as validation/oracle inputs where available, not as the missing 2010 raw curve.
-- R3: Record source-boundary facts in the backlog: FedWatch API history alone starts too late for 2010, and Databento ZQ starts 2010-06-06, so neither alone proves the requested 2010-01-01 coverage.
-- R4: Reclassify merged PR-108 as an acceptance-harness delivery only; absence of a real source manifest/coverage artifact means it must not be cited as evidence of successful 2010 historical population.
-- R5: Make PR-121 through PR-124 hard prerequisites for any renewed claim that `macro_raw` or `macro_features` contains verified Fed-policy history from 2010 to current EOD.
+- R1: Record the actual prior-download behavior: the Chinese CME browser path downloaded all exposed future-meeting `MeetingExport.aspx` files, but raw CSV bytes were temporary/unretained and normalized rows were filtered to the requested source interval before persistence.
+- R2: Record the prior operational evidence exactly: on 2026-09-19 the serving copy had 16,775 total macro rows and the four Fed columns had 20/20/20/15 non-NULL observations; classify that as recent-slice evidence rather than source-history coverage.
+- R3: Record the official direct-source contract: CME documents one full year of historical target-rate probabilities for a selected meeting and downloadable raw historical probability data; actual current export coverage must nevertheless be measured, not assumed.
+- R4: Define source precedence: use official CME MeetingExport probability distributions directly where covered; use PR-101 ZQ reconstruction only for the older residual gap; supporting FRED/FOMC inputs and continuous futures never substitute for missing ZQ term structure.
+- R5: Reclassify the earlier PR-108 work as an acceptance harness rather than proof of 2010-present historical population and make PR-121–126 prerequisites for any renewed verified-2010 claim.
 
 Acceptance:
-- A1 (verifies R1): BACKLOG states the exact individual-contract/final-settlement/curve-breadth prerequisite and rejects continuous futures as a substitute.
-- A2 (verifies R2): each supporting reference/oracle source has an explicit non-substitute role and no text implies FRED/FOMC data can reconstruct missing futures prices.
-- A3 (verifies R3): the documented provider date limits prevent either 2015 FedWatch history or 2010-06-06 Databento coverage from being represented as complete 2010-01-01 coverage.
-- A4 (verifies R4): PR-108 is explicitly described as harness-only until a real historical source manifest and PASS artifact exist; repository status text contains no unsupported 2010 PASS claim.
-- A5 (verifies R5): dependency text makes a verified 2010 serving claim impossible before PR-121–124 complete successfully.
+- A1 (verifies R1): BACKLOG and code references distinguish temporary raw downloads, filtered normalized persistence, and actual source coverage; no statement equates the retained 30-day slice with CME's full export contents.
+- A2 (verifies R2): the 16,775 total-row and 20/20/20/15 Fed non-NULL evidence is documented with its correct scope and cannot satisfy a 2010-history assertion.
+- A3 (verifies R3): the direct-source contract cites/measures one-year-style CME history and requires an emitted min/max/coverage manifest before any historical assumption is accepted.
+- A4 (verifies R4): the backlog makes direct official probabilities primary where available, ZQ reconstruction residual-only, and explicitly rejects FRED/calendar/continuous-future substitution for a missing curve.
+- A5 (verifies R5): no current status or acceptance item may claim verified 2010-present Fed history until PR-126 PASS exists.
 
-## PR-121: Import Licensed Historical Individual-Contract ZQ Settlements
+## PR-121: Persist And Inventory Unfiltered Chinese CME Meeting Exports
 
-PR name: `fed-history-zq-import`
-Status: Blocked
+PR name: `fed-history-cme-export-capture`
+Status: Planned
 Updated: 2026-09-23
 PR: not opened
-Git branch: `pr-121/fed-history-zq-import`
+Git branch: `pr-121/fed-history-cme-export-capture`
 Git status: `not-started (branch absent)`
-Agent lane: Historical market-data import; one agent only
-Depends on: PR-120; external operator-supplied historical ZQ dataset
-Blocked by: no verified 2010-capable individual-contract ZQ dataset is currently present
-Commit: `feat(pr-121): import historical zq settlement curves`
+Agent lane: Official CME direct-probability acquisition; one agent only
+Depends on: PR-120
+Commit: `feat(pr-121): retain cme fedwatch meeting export history`
 Design patterns: Adapter, Repository, Ports and Adapters, Value Object.
 
 Description:
-- R1: Add a provider-neutral offline import adapter for operator-supplied licensed ZQ history in CSV/Parquet or an explicitly supported vendor export; no vendor credential or licensed payload may be committed to Git.
-- R2: Normalize each source row to at least `observation_date`, canonical contract month/instrument identity, final settlement price, settlement status/type, source/provider identity, source extraction timestamp, imported-at timestamp, and source-file/content hash.
-- R3: Accept only individual standard monthly ZQ contracts and final EOD settlements; reject continuous symbols, synthetic back-adjusted series, OHLC close/last-trade substitutes, preliminary/non-final values when final status is required, ambiguous contract-month mapping, duplicates, and non-finite prices.
-- R4: Support multi-file/multi-source history without erasing provenance: each normalized row retains its exact source identity, and equal-key conflicts across sources fail closed unless an explicit deterministic precedence rule backed by PR-122 overlap evidence is configured.
-- R5: Store imported curves in the existing canonical ZQ settlement store used by PR-101 so the probability/feature code does not gain a second historical algorithm path.
-- R6: Add hermetic import fixtures for CME-style, Bloomberg-style, Refinitiv-style, malformed, continuous-series, duplicate/conflict, and idempotent-reimport cases; vendor-specific fixtures must be synthetic/sanitized and license-safe.
+- R1: Add an explicit historical-export command that navigates the official Chinese CME FedWatch/QuikStrike page and downloads every exposed future-meeting `MeetingExport.aspx` CSV without applying the normal 30-day observation filter.
+- R2: Persist raw export bytes outside Git in a deterministic lake source directory keyed by fetch date/meeting date/content hash, rather than reading only the temporary Playwright path; never overwrite a different historical export silently.
+- R3: Parse and normalize every CSV row to `observation_date`, `meeting_date`, target-rate bucket/move, probability, source URL/export identity, fetched-at time, content hash, and explicit availability/provenance metadata.
+- R4: Preserve the raw official probability distributions exactly as published apart from deterministic normalization; reject malformed headers, invalid bucket syntax, duplicate outcomes, non-finite probabilities, or probability mass outside the declared tolerance.
+- R5: Keep this historical capture separate from normal EOD cron execution: daily update remains bounded/delta-oriented, while complete export recapture is explicit operator-controlled reconcile/coverage work.
+- R6: Add hermetic sanitized MeetingExport fixtures plus an opt-in real-browser smoke that records exposed meeting links, downloaded file count, hashes, and parsed date bounds without committing live/raw export payloads.
 
 Acceptance:
-- A1 (verifies R1): a synthetic licensed-export-shaped fixture imports offline with zero network/credential dependency and repository search finds no committed vendor secrets/raw licensed dataset.
-- A2 (verifies R2): round-trip rows preserve exact date/contract/final-settlement/provenance/hash metadata in deterministic schema/order.
-- A3 (verifies R3): every forbidden input class fails closed and valid individual final settlements preserve all simultaneous contract months for a date.
-- A4 (verifies R4): multi-source equal-key equality is auditable, conflicting values fail without a declared validated precedence policy, and no source silently overwrites another.
-- A5 (verifies R5): imported data is consumable by the existing canonical ZQ store/PR-101 engine without an alternate probability implementation.
-- A6 (verifies R6): all import/validation/idempotence fixtures pass required offline CI and contain no license-restricted raw data.
+- A1 (verifies R1): command trace proves every currently exposed MeetingExport link is attempted and no `start=today-30d` row truncation occurs in historical capture mode.
+- A2 (verifies R2): successful capture leaves durable raw files/manifests with stable hashes; deleting the Playwright temp file after parsing does not remove the retained source.
+- A3 (verifies R3): normalized rows round-trip exact observation/meeting/bucket/probability/provenance values and remain uniquely attributable to one raw export hash.
+- A4 (verifies R4): invalid/duplicate/mass-error fixtures fail closed and valid official distributions retain exact probability mass within the source-controlled tolerance.
+- A5 (verifies R5): repository call-path tests prove normal EOD cron cannot trigger full MeetingExport-history recapture implicitly.
+- A6 (verifies R6): offline CI is fully hermetic; authorized browser smoke emits only sanitized coverage metadata and never commits live raw data.
 
-## PR-122: Prove Historical ZQ Curve Coverage Provenance And Source Seam
+## PR-122: Prove Actual Chinese CME FedWatch Export Coverage
 
-PR name: `fed-history-zq-coverage-qa`
-Status: Blocked
+PR name: `fed-history-cme-export-coverage-qa`
+Status: Planned
 Updated: 2026-09-23
 PR: not opened
-Git branch: `pr-122/fed-history-zq-coverage-qa`
+Git branch: `pr-122/fed-history-cme-export-coverage-qa`
 Git status: `not-started (branch absent)`
-Agent lane: Historical source QA; one agent only
+Agent lane: Official direct-source coverage QA; one agent only
 Depends on: PR-121
-Blocked by: PR-121 external dataset prerequisite
-Commit: `test(pr-122): prove historical zq curve coverage`
+Commit: `test(pr-122): measure cme fedwatch export coverage`
 Design patterns: End-to-End Test, Reconciliation, Differential Testing, Fail-Closed Verification.
 
 Description:
-- R1: Inventory the real imported ZQ history from requested boundary 2010-01-01 through latest completed EOD and emit source manifests containing provider/file hashes, min/max observation dates, row counts, unique contract counts, and source transitions without exposing licensed prices.
-- R2: For every expected trading observation used for Fed reconstruction, verify the simultaneous curve contains all contract months required by PR-101 to resolve probability distributions through the third known future FOMC meeting; missing required contract months/dates are hard gaps.
-- R3: Independently validate final-settlement identity, contract-month mapping, duplicate/conflict absence, finite/range sanity, monotonic date ordering, and exact preservation of vendor precision/tick semantics.
-- R4: Where two sources overlap (for example licensed history vs current public CME or Databento), compare same-date/same-contract final settlements under one explicit tick-level tolerance; any systematic seam or unresolved disagreement blocks downstream reconstruction.
-- R5: Run PR-101 as a sufficiency probe across the imported history and report every date on which source/reference inputs cannot produce valid probability distributions through meeting three; classify each failure by raw-curve gap, reference-calendar availability, or methodology condition.
-- R6: Emit deterministic sanitized `artifacts/acceptance/fed-history-zq-coverage-v1.json` with source hashes/identities, coverage metrics, required-curve gaps, overlap error statistics, PR-101 sufficiency results, and PASS|FAIL.
+- R1: Inventory the real retained MeetingExport files and emit global/per-meeting `min(observation_date)`, `max(observation_date)`, distinct observation count, distinct meeting count, raw row count, normalized outcome count, and content hashes.
+- R2: Verify actual direct-feature sufficiency by observation date: a date is directly usable only if official exported distributions exist for the first, second, and third future known FOMC meetings required by the four-feature contract; partial meeting coverage is reported, not silently promoted to complete coverage.
+- R3: Quantify contiguous direct-coverage intervals, holes, weekday/business-day patterns, per-meeting one-year windows, and the exact earliest observation date that can produce all four canonical features.
+- R4: Independently compare overlapping observations across multiple meeting exports for the same meeting/date/bucket and require equality within one explicit probability tolerance; conflicts fail closed and retain both source hashes for audit.
+- R5: Compare the real observed export coverage with the documented one-year CME behavior and classify any shorter/longer coverage explicitly rather than forcing the documentation expectation.
+- R6: Emit deterministic sanitized `artifacts/acceptance/fed-history-cme-export-coverage-v1.json` containing source hashes/meeting identities, global/per-meeting bounds, direct-feature coverage intervals/gaps, conflict statistics, and PASS|FAIL.
 
 Acceptance:
-- A1 (verifies R1): the artifact identifies the actual source dataset(s) and proves their real temporal extent without embedding licensed price payloads.
-- A2 (verifies R2): PASS requires zero unexplained missing required curves/contract months over the claimed 2010-current reconstruction domain; a date lacking enough curve breadth cannot be counted as covered.
-- A3 (verifies R3): all raw identity/precision/duplicate/order checks pass and deliberate contract-month or settlement-type corruption fails QA.
-- A4 (verifies R4): every source handoff has an overlap/parity result within the declared tolerance or the overall artifact is FAIL.
-- A5 (verifies R5): each claimed reconstructable date actually runs through PR-101 successfully to at least meeting three; all failures are enumerated and prevent unsupported continuity claims.
-- A6 (verifies R6): the sanitized artifact is deterministic, license-safe, and PASS is impossible unless A1-A5 all pass.
+- A1 (verifies R1): the artifact states the exact actual earliest/latest observation dates and counts from the newly retained official exports; no inferred or documentation-only date may substitute for measured data.
+- A2 (verifies R2): each date claimed as direct four-feature coverage has distributions through meeting three; missing third-meeting support is visible as a hard coverage gap.
+- A3 (verifies R3): the exact earliest fully usable direct date and every internal gap are reported, making the residual pre-direct interval mechanically derivable.
+- A4 (verifies R4): all duplicate-overlap probabilities agree within tolerance or the artifact is FAIL with conflicting source hashes listed.
+- A5 (verifies R5): observed-vs-documented coverage comparison is informational only; PASS is based on measured files, not an assumed one-year cutoff.
+- A6 (verifies R6): artifact is deterministic/sanitized and sufficient to define the exact PR-123 residual history interval.
 
-## PR-123: Rebuild Fed Policy History And Repopulate PostgreSQL
+## PR-123: Acquire And Verify ZQ Curves For The Residual Historical Gap
 
-PR name: `fed-history-rebuild-serving`
-Status: Blocked
+PR name: `fed-history-zq-residual-gap`
+Status: Planned
 Updated: 2026-09-23
 PR: not opened
-Git branch: `pr-123/fed-history-rebuild-serving`
+Git branch: `pr-123/fed-history-zq-residual-gap`
 Git status: `not-started (branch absent)`
-Agent lane: Historical reconstruction/backfill; one agent only
-Depends on: PR-122 PASS
-Blocked by: verified historical ZQ coverage artifact not yet present
-Commit: `feat(pr-123): rebuild fed policy history from verified zq curves`
+Agent lane: Residual historical market-data acquisition/QA; one agent only
+Depends on: PR-122
+Commit: `feat(pr-123): fill residual fed history with zq curves`
+Design patterns: Adapter, Repository, Strategy, Reconciliation.
+
+Description:
+- R1: Derive the exact required ZQ interval as `2010-01-01 .. day-before-earliest-complete-direct-CME-date` from the PR-122 artifact; do not acquire or reconstruct dates already covered by complete official MeetingExport probabilities except for overlap QA.
+- R2: Probe the existing public date-specific CME ZQ settlement adapter first and record its real earliest usable date/contract breadth; only unresolved residual dates may use an operator-supplied Databento/vendor/licensed export.
+- R3: Normalize only individual standard monthly ZQ **final EOD settlements** into the existing canonical ZQ store with observation date, contract month/symbol, settlement, source identity, source hash/URL, fetched/imported time, and availability metadata; reject continuous/back-adjusted/front-month-only inputs.
+- R4: For every residual observation date, prove enough simultaneous contract-month breadth for PR-101 to reconstruct through the third known future FOMC meeting; missing required curves are hard gaps and no synthetic term structure is allowed.
+- R5: Where ZQ sources overlap each other or overlap the direct-CME period, compare same-date/same-contract final settlements and resulting PR-101 probabilities under explicit source-controlled tolerances to detect source seams.
+- R6: Emit deterministic sanitized `artifacts/acceptance/fed-history-zq-residual-coverage-v1.json` with actual source identities/hashes, min/max coverage, hard gaps, curve breadth, overlap/seam statistics, and PASS|FAIL.
+
+Acceptance:
+- A1 (verifies R1): requested/acquired ZQ history is exactly the PR-122 residual interval plus explicit small overlap QA windows; complete direct-CME dates are not needlessly reconstructed as primary history.
+- A2 (verifies R2): artifact distinguishes what the public CME settlement endpoint actually supplied from what required another source; no provider capability is assumed from documentation alone.
+- A3 (verifies R3): all normalized rows are individual final-settlement contracts with deterministic provenance and every continuous/front-only input fails.
+- A4 (verifies R4): every date counted as reconstructable successfully supplies PR-101 through meeting three; all missing-curve dates are enumerated and cannot be filled.
+- A5 (verifies R5): each source transition/overlap is within declared settlement/probability tolerances or the QA artifact is FAIL.
+- A6 (verifies R6): artifact deterministically defines the actual reconstructable residual domain and is license-safe/sanitized.
+
+## PR-124: Assemble And Validate Hybrid Fed Probability History
+
+PR name: `fed-history-hybrid-probabilities`
+Status: Planned
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-124/fed-history-hybrid-probabilities`
+Git status: `not-started (branch absent)`
+Agent lane: Historical probability-source composition; one agent only
+Depends on: PR-122, PR-123
+Commit: `feat(pr-124): assemble hybrid fed probability history`
+Design patterns: Strategy, Specification/Policy Object, Reconciliation.
+
+Description:
+- R1: Build one canonical probability-snapshot history with deterministic precedence: official CME MeetingExport distributions are authoritative where PR-122 marks complete direct coverage; PR-101 ZQ reconstruction supplies only older/residual dates approved by PR-123.
+- R2: Preserve per-row source method (`cme_meeting_export` or `zq_reconstruction`), source-manifest hash, methodology version, and availability provenance so downstream features can be traced to the exact source path.
+- R3: At the direct/reconstructed seam, maintain an overlap QA window in which both methods are computed independently and compare meeting/bucket distributions plus the four resulting canonical features under PR-106 tolerances; seam disagreement blocks publication.
+- R4: Reject a date if the selected source lacks distributions through meeting three, contains conflicting probability mass, violates point-in-time meeting/reference availability, or is outside a PASS coverage artifact.
+- R5: Keep source composition independent of `macro_raw`/`macro_features`; this PR publishes only the canonical probability history consumed by the existing feature builder.
+- R6: Emit a sanitized hybrid-history manifest with source intervals, source hashes, seam errors, actual min/max reconstructable dates, hard gaps, and deterministic data hash.
+
+Acceptance:
+- A1 (verifies R1): every canonical probability row is sourced from exactly one declared primary method according to the PR-122/123 precedence contract with no duplicate-primary dates.
+- A2 (verifies R2): lineage can trace any date/meeting/bucket back to an exact raw-export or ZQ-source manifest and methodology version.
+- A3 (verifies R3): seam overlap compares both distributions and all four canonical features; any error above tolerance prevents publication.
+- A4 (verifies R4): incomplete/causally unavailable dates are explicit gaps rather than fallback-filled rows.
+- A5 (verifies R5): no PostgreSQL serving mutation occurs in this PR and the existing feature builder consumes the canonical snapshots unchanged.
+- A6 (verifies R6): manifest is deterministic/sanitized and fully specifies source intervals/gaps required by PR-125.
+
+## PR-125: Rebuild Canonical Fed Origins And PostgreSQL Serving History
+
+PR name: `fed-history-rebuild-serving`
+Status: Planned
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-125/fed-history-rebuild-serving`
+Git status: `not-started (branch absent)`
+Agent lane: Historical feature rebuild/serving reconciliation; one agent only
+Depends on: PR-124
+Commit: `feat(pr-125): rebuild fed serving history from hybrid probabilities`
 Design patterns: Command, Unit of Work, Repository, Reconciliation.
 
 Description:
-- R1: Rebuild the canonical probability snapshots and four Fed-policy origin features from the PR-122-approved historical ZQ curves plus point-in-time EFFR/target/FOMC reference inputs using exactly the existing versioned PR-101/PR-102 algorithms.
-- R2: Process the requested 2010-01-01 boundary through latest completed EOD, but publish values only for dates proven reconstructable by PR-122; no probability/value may be synthesized for a missing curve.
-- R3: Persist reconstruction lineage including source-manifest hash, probability-methodology version, reference-input versions, min/max dates, row counts, and deterministic data hash so the serving history can be traced back to the approved raw dataset.
-- R4: Reconcile the rebuilt four origins into `macro_raw` and refresh/rebuild all 28 approved Fed-derived columns in `macro_features` through the existing serving path; do not write the materialized derived values independently.
-- R5: Verify transaction/rebuild atomicity and idempotence: failure leaves prior serving state selectable, successful immediate replay produces identical hashes/rows and zero semantic changes.
-- R6: Produce a sanitized rebuild artifact linking the PR-122 source-coverage artifact to canonical feature hashes and PostgreSQL sync/view fingerprints.
+- R1: Rebuild the four canonical Fed-policy origin features from the PR-124 canonical probability history using exactly the existing feature formulas and five-valid-observation repricing semantics; no history-only alternate formula exists.
+- R2: Publish only dates approved by the hybrid source manifest, preserving explicit NULL/gap behavior and source/availability lineage; process the requested 2010-01-01 boundary through latest completed EOD without fabricating uncovered dates.
+- R3: Reconcile the rebuilt four origins into `macro_raw` and rebuild/refresh the 28 approved Fed-derived columns in `macro_features` exclusively from `macro_raw`.
+- R4: Persist source-manifest hash, probability-methodology/source-composition version, feature contract version, min/max dates, row counts, canonical data hash, PostgreSQL sync state, and materialized-view fingerprint.
+- R5: Verify transactional atomicity, historical revision propagation, and idempotence: failed rebuild leaves prior serving state committed; immediate successful replay yields identical hashes and zero semantic mutations/refreshes.
+- R6: Emit deterministic sanitized rebuild evidence linking PR-122/123/124 artifact hashes to canonical feature and PostgreSQL fingerprints.
 
 Acceptance:
-- A1 (verifies R1): every canonical Fed row is reproducible from the approved raw/source/reference manifests using the existing methodology versions; no alternate history-only formula exists.
-- A2 (verifies R2): published coverage exactly equals the dates approved reconstructable by PR-122 and no gap is filled or silently dropped from reporting.
-- A3 (verifies R3): lineage/digest metadata uniquely identifies source and methodology inputs for the rebuilt history.
-- A4 (verifies R4): `macro_raw` contains exact four-origin parity and `macro_features` contains those four plus the 28 derived columns computed from `macro_raw`, not from a side channel.
-- A5 (verifies R5): injected failure preserves prior committed serving state; immediate successful replay is idempotent with identical data/view fingerprints.
-- A6 (verifies R6): rebuild evidence is deterministic/sanitized and references the exact PASS PR-122 source artifact hash.
+- A1 (verifies R1): every canonical origin value is independently reproducible from the approved PR-124 probability rows and existing formulas.
+- A2 (verifies R2): serving coverage equals the approved hybrid domain exactly; every uncovered date remains explicit and attributable.
+- A3 (verifies R3): `macro_raw` contains the four origins and `macro_features` contains those four plus all 28 approved derived columns computed from `macro_raw`, never a side table.
+- A4 (verifies R4): all source/methodology/feature/PostgreSQL lineage hashes and date/count bounds reconcile deterministically.
+- A5 (verifies R5): failure/revision/no-op scenarios have exact expected mutation and refresh behavior with no partial serving publication.
+- A6 (verifies R6): rebuild artifact is deterministic/sanitized and references exact PASS upstream artifact hashes.
 
-## PR-124: Execute True 2010-Present Fed History Acceptance
+## PR-126: Execute True 2010-Present Fed History Acceptance
 
 PR name: `fed-history-true-2010-acceptance`
-Status: Blocked
+Status: Planned
 Updated: 2026-09-23
 PR: not opened
-Git branch: `pr-124/fed-history-true-2010-acceptance`
+Git branch: `pr-126/fed-history-true-2010-acceptance`
 Git status: `not-started (branch absent)`
-Agent lane: Production-like historical acceptance; one agent only
-Depends on: PR-123, PASS source/rebuild artifacts
-Blocked by: no verified 2010-capable historical ZQ dataset/rebuild currently exists
-Commit: `test(pr-124): accept verified fed history from 2010`
+Agent lane: Production-like real-data historical acceptance; one agent only
+Depends on: PR-122 PASS, PR-123 PASS, PR-124 PASS, PR-125 PASS
+Commit: `test(pr-126): accept measured fed history from 2010`
 Design patterns: End-to-End Acceptance, Differential Testing, Reconciliation, Fail-Closed Verification.
 
 Description:
-- R1: Execute the complete real-data path in an authorized environment: import/verify source manifest -> point-in-time references -> PR-101 probability reconstruction -> four canonical origins -> `macro_raw` -> `macro_features` -> independent PostgreSQL verification.
-- R2: Prove the exact real reconstruction domain from the requested 2010-01-01 boundary to latest completed EOD, reporting first reconstructable date, every non-reconstructable expected date, reason, and source manifest; no date may be counted solely because a PostgreSQL timestamp row exists.
-- R3: Validate reconstructed probabilities/features against official CME FedWatch exports on all available overlapping QA dates and report per-meeting/per-feature errors under the source-controlled PR-106 tolerances; 2015+ oracle availability must not be extrapolated backward as evidence.
-- R4: Verify real `macro_raw` four-origin coverage/parity and all 32 Fed columns in `macro_features`, including independent recalculation of 28 derived columns, warm-up NULL attribution, finite values, chronology, and no look-ahead.
-- R5: Verify the historical-to-current source seam and normal daily EOD continuation: current CME delta data must append/revise through the same canonical ZQ store and feature pipeline without a methodology/source discontinuity outside the PR-122 tolerance.
-- R6: Commit only deterministic sanitized `artifacts/acceptance/fed-history-true-2010-v1.json` containing source/rebuild artifact hashes, actual domain/gaps, CME overlap statistics, PostgreSQL coverage, seam results, and PASS|FAIL; PASS requires a real PR-122 source-coverage PASS.
+- R1: Execute the real-data chain in an authorized environment: retained direct CME exports -> residual ZQ coverage -> hybrid probability assembly -> four canonical origins -> `macro_raw` -> `macro_features` -> independent PostgreSQL verification.
+- R2: Prove the exact actual reconstruction domain from requested 2010-01-01 through latest completed EOD using measured source coverage, reporting first reconstructable date, every expected non-reconstructable date/reason, direct-vs-reconstructed source interval, and all source manifest hashes.
+- R3: Verify official direct-CME probabilities against reconstructed overlap probabilities and all four canonical features under PR-106 tolerances without treating the official one-year direct history as evidence for older dates.
+- R4: Verify real PostgreSQL `macro_raw` four-origin parity and all 32 Fed columns in `macro_features`, including independent recomputation of 28 derived columns, warm-up NULL attribution, finite values, chronology, and no look-ahead.
+- R5: Verify ongoing normal EOD continuation after the historical rebuild: bounded current source update must append/revise through the same canonical probability/feature/serving contracts, and immediate unchanged replay must produce zero semantic mutations/refreshes.
+- R6: Commit only deterministic sanitized `artifacts/acceptance/fed-history-true-2010-v1.json` containing exact upstream artifact hashes, actual source/domain/gaps, overlap errors, PostgreSQL coverage, EOD replay evidence, and PASS|FAIL.
 
 Acceptance:
-- A1 (verifies R1): evidence proves the actual licensed/public source data, existing reconstruction algorithms, serving path, and independent verifier all executed in order; no fixture/synthetic data can satisfy this acceptance.
-- A2 (verifies R2): the claimed historical domain is derived from reconstructable raw curves rather than table timestamps, and every missing expected date is explicit.
-- A3 (verifies R3): available official CME overlap distributions/features meet the declared tolerances with no use of future/oracle information outside QA.
+- A1 (verifies R1): evidence proves every real source and pipeline stage executed in dependency order; fixture/synthetic data cannot satisfy this acceptance.
+- A2 (verifies R2): historical coverage claims derive from measured direct-export/ZQ source manifests rather than timestamps or planned boundaries; every gap is explicit.
+- A3 (verifies R3): all direct-vs-reconstructed overlap distributions/features meet declared tolerances or acceptance is FAIL.
 - A4 (verifies R4): real PostgreSQL contains exact canonical origins and independently correct derived features with all NULL/gap/warm-up causes accounted for.
-- A5 (verifies R5): overlap/seam evidence proves historical backfill and ongoing EOD updates form one consistent series or acceptance fails.
-- A6 (verifies R6): the artifact is deterministic/sanitized and cannot report PASS without the exact PR-122 and PR-123 PASS artifact hashes.
+- A5 (verifies R5): normal current EOD mutation and immediate no-op replay obey bounded-delta and one-refresh/zero-refresh contracts.
+- A6 (verifies R6): artifact is deterministic/sanitized and PASS is impossible without the exact PR-122–125 PASS artifact hashes.
 
 ## Delivery Policy
 
@@ -615,6 +679,6 @@ because replacement/cleanup PRs were occasionally opened under the same backlog 
 - PR-96: Raw source exposure in `macro_features` was changed to explicit logarithmic `*_log_level` columns; GitHub PRs #93–#95 were superseded/closed attempts of the same scope and #96 is the merged implementation.
 - PR-97–105: Fed-policy EOD contract, ZQ persistence/acquisition adapters, point-in-time references, probability reconstruction, four canonical features, PostgreSQL synchronization, delta orchestration, and daily cron machinery were delivered; these implementations do not by themselves prove possession of a 2010-capable historical ZQ curve.
 
-- PR-106–118: CME differential-test machinery, PostgreSQL QA/acceptance harnesses, legacy cleanup, Fed origin/materialized transformations, `macro_raw` integration, and associated QA were delivered. PR-108 is retained as a historical acceptance harness only; because no real 2010-capable ZQ source manifest/coverage artifact was committed or verified, it is not evidence of successful 2010-present data population.
+- PR-106–118: CME differential-test machinery, PostgreSQL acceptance harnesses, Fed origin/materialized transformations, `macro_raw` integration, and QA were delivered. The historical 2026-09-19 evidence contained only 20/20/20/15 non-NULL Fed feature observations because the then-active source call retained only a 30-day slice; raw MeetingExport CSVs themselves were temporary and their full date bounds were not retained.
 
-The active corrective backlog above begins with PR-120. Completed implementation/harness work is historical context only; verified 2010-present data coverage may be claimed only after PR-122 and PR-124 produce PASS artifacts against a real historical ZQ source.
+The active corrective backlog above begins with PR-120. Verified 2010-present Fed history may be claimed only after PR-122 measures the retained official CME export coverage, PR-123 proves the residual ZQ interval, and PR-126 completes the real-data acceptance.
