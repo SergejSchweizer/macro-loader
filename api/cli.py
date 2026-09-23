@@ -69,6 +69,7 @@ EXIT_PIPELINE = 20
 _SOURCE_COMMANDS = frozenset({"bootstrap", "update", "reconcile", "run-daily"})
 _GOLD_COMMANDS = frozenset({"gold-build", "run-daily"})
 _POSTGRES_SYNC_COMMAND = "gold-sync-postgres"
+_FED_POLICY_POSTGRES_SYNC_COMMAND = "fed-policy-sync-postgres"
 _POSTGRES_MIGRATE_COMMAND = "postgres-migrate"
 _POSTGRES_VERIFY_COMMAND = "postgres-verify"
 _POSTGRES_RECONSTRUCT_COMMAND = "postgres-reconstruct"
@@ -150,6 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparsers.add_parser(command)
     subparsers.add_parser("gold-build")
     subparsers.add_parser(_POSTGRES_SYNC_COMMAND)
+    subparsers.add_parser(_FED_POLICY_POSTGRES_SYNC_COMMAND)
     subparsers.add_parser(_POSTGRES_MIGRATE_COMMAND)
     subparsers.add_parser(_POSTGRES_VERIFY_COMMAND)
     reconstruction = subparsers.add_parser(_POSTGRES_RECONSTRUCT_COMMAND)
@@ -513,7 +515,7 @@ def main(
     series = tuple(getattr(args, "series", []))
     runtime: Runtime | None = None
     try:
-        if command == _POSTGRES_SYNC_COMMAND:
+        if command in {_POSTGRES_SYNC_COMMAND, _FED_POLICY_POSTGRES_SYNC_COMMAND}:
             return _dispatch_postgres_sync(
                 build_postgres_sync_runtime(lake_root=args.lake_root, stderr=error)
             )

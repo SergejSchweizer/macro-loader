@@ -84,6 +84,7 @@ def test_parser_exposes_exact_operational_command_surface() -> None:
         "silver-build",
         "gold-build",
         "gold-sync-postgres",
+        "fed-policy-sync-postgres",
         "postgres-migrate",
         "postgres-verify",
         "postgres-reconstruct",

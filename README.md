@@ -310,6 +310,7 @@ postgres-verify
 postgres-reconstruct
 inventory
 run-daily
+fed-policy-sync-postgres
 fed-policy-bootstrap
 fed-policy-update
 fed-policy-reconcile
