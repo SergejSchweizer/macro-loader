@@ -93,7 +93,7 @@ Acceptance:
 PR name: `fed-policy-macro-raw-quality-qa`
 Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #119
 Git branch: `pr-116/fed-policy-macro-raw-quality-qa`
 Git status: active-dirty: tests/integration/test_postgres_real.py
 Agent lane: Real PostgreSQL/history data-quality QA; one agent only
