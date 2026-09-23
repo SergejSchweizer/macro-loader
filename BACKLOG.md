@@ -187,11 +187,11 @@ Acceptance:
 ## PR-101: Implement Versioned CME FedWatch Probability Reconstruction
 
 PR name: `fed-policy-probability-engine`
-Status: Ready
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #101
 Git branch: `pr-101/fed-policy-probability-engine`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: Probability reconstruction; one agent only
 Depends on: PR-99, PR-100
 Commit: `feat(pr-101): reconstruct cme fedwatch probabilities`
@@ -212,11 +212,11 @@ Acceptance:
 ## PR-102: Build The Four Canonical Fed Policy Features
 
 PR name: `fed-policy-four-feature-builder`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-102/fed-policy-four-feature-builder`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Fed feature transformation; one agent only
 Depends on: PR-101
 Commit: `feat(pr-102): build canonical fed policy features`

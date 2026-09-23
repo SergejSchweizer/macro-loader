@@ -454,10 +454,12 @@ The Fed policy family is computed from normalized end-of-day CME FedWatch
 probability exports obtained in production only from the Chinese CME page
 (`https://www.cmegroup.cn/fed-watch/`). For
 observation date `t`, the next meeting is the first scheduled decision date
-strictly after `t`; `fed_m3_expected_move_bp` is the expected cumulative move
-through the third future meeting, relative to the current target midpoint.
-`fed_repricing_5obs_bp` is the only Fed-policy delta. Snapshot availability is
-explicitly `23:59:59.999999 UTC`; missing free-history observations remain null
+strictly after `t`; `fed_path_slope_m3_bp` is the expected move at the third
+future meeting minus the expected move at the next meeting. The four canonical
+features are `fed_next_expected_move_bp`, `fed_path_slope_m3_bp`,
+`fed_next_uncertainty_bp`, and `fed_repricing_5obs_bp`. Repricing uses the fifth
+previous valid observation, not five calendar days. Snapshot availability is
+carried as explicit lineage; missing free-history observations remain null
 rather than being fabricated or carried forward.
 
 Forbidden:
