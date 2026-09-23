@@ -151,6 +151,18 @@ def test_zq_provider_rejects_non_final_settlements() -> None:
         ).fetch(date(2026, 1, 2), date(2026, 1, 2))
 
 
+def test_zq_provider_rejects_reverse_range_and_http_failure() -> None:
+    with pytest.raises(ValueError, match="must not exceed"):
+        CmeZqSettlementProvider(
+            FakeTransport(), clock=lambda: datetime(2026, 1, 3, tzinfo=UTC)
+        ).fetch(date(2026, 1, 3), date(2026, 1, 2))
+    with pytest.raises(ValueError, match="request failed: 503"):
+        CmeZqSettlementProvider(
+            FakeTransport(settlement_status=503),
+            clock=lambda: datetime(2026, 1, 3, tzinfo=UTC),
+        ).fetch(date(2026, 1, 2), date(2026, 1, 2))
+
+
 def test_provider_falls_back_to_browser_after_transport_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
