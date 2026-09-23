@@ -77,3 +77,14 @@ class LakePaths:
 
     def fed_policy_snapshots(self) -> Path:
         return self.root / "fed_policy" / "snapshots.parquet"
+
+    def fed_policy_settlement_root(self) -> Path:
+        return self.root / "fed_policy" / "zq_settlements"
+
+    def fed_policy_settlement_month(self, observation_date: date) -> Path:
+        return (
+            self.fed_policy_settlement_root()
+            / f"year={observation_date.year:04d}"
+            / f"month={observation_date.month:02d}"
+            / "data.parquet"
+        )
