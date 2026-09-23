@@ -12,9 +12,9 @@ import psycopg
 import pytest
 
 import ingestion.postgres_gold_repository as postgres_module
+from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
-from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
