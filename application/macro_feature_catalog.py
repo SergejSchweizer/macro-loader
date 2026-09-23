@@ -18,11 +18,36 @@ from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import RETURN_WINDOWS
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 3
+MACRO_FEATURE_VIEW_VERSION = 4
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in RAW_SERIES)
 FED_POLICY_ORIGIN_COLUMNS = FED_POLICY_FEATURE_COLUMNS
+FED_POLICY_DERIVED_COLUMNS = tuple(
+    column
+    for origin in FED_POLICY_ORIGIN_COLUMNS
+    for column in (
+        *(f"{origin}_delta_{lag}obs" for lag in (1, 5, 20)),
+        f"{origin}_zscore_60obs",
+        *(
+            f"{origin}_momentum_autocorr_{lag}_{window}obs"
+            for lag, window in MOMENTUM_POLICY.lag_windows
+        ),
+    )
+)
+FED_POLICY_MATERIALIZED_COLUMNS = tuple(
+    column
+    for origin in FED_POLICY_ORIGIN_COLUMNS
+    for column in (
+        origin,
+        *(f"{origin}_delta_{lag}obs" for lag in (1, 5, 20)),
+        f"{origin}_zscore_60obs",
+        *(
+            f"{origin}_momentum_autocorr_{lag}_{window}obs"
+            for lag, window in MOMENTUM_POLICY.lag_windows
+        ),
+    )
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +193,13 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog does not cover all registered raw series")
     if "foo_log_level" in names:
         raise ValueError("unapproved wildcard feature in macro feature catalog")
+    fed_columns = tuple(
+        spec.name
+        for spec in catalog
+        if spec.family.startswith("fed_") or spec.family == "fed_origin"
+    )
+    if fed_columns != FED_POLICY_MATERIALIZED_COLUMNS:
+        raise ValueError("macro feature catalog Fed output contract mismatch")
 
 
 def feature_catalog_payload(
