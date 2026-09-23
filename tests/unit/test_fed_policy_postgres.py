@@ -68,8 +68,15 @@ def test_public_contract_has_exact_four_features() -> None:
 
 
 class _Cursor:
-    def __init__(self, rows: list[tuple[object, ...]], fail_on: str | None = None) -> None:
+    def __init__(
+        self,
+        rows: list[tuple[object, ...]],
+        digest_rows: list[tuple[object, ...]] | None = None,
+        fail_on: str | None = None,
+    ) -> None:
         self.rows = rows
+        self.digest_rows = digest_rows if digest_rows is not None else []
+        self.result_rows = rows
         self.fail_on = fail_on
         self.queries: list[str] = []
 
@@ -81,21 +88,27 @@ class _Cursor:
         self.queries.append(query)
         if self.fail_on and self.fail_on in query:
             raise RuntimeError("refresh failed")
+        self.result_rows = self.digest_rows if "row_sha256" in query else self.rows
         return self
 
     def fetchone(self) -> tuple[object, ...] | None:
         return None
 
     def fetchall(self) -> list[tuple[object, ...]]:
-        return self.rows
+        return self.result_rows
 
     def close(self) -> None:
         pass
 
 
 class _Connection:
-    def __init__(self, rows: list[tuple[object, ...]], fail_on: str | None = None) -> None:
-        self.cursor_value = _Cursor(rows, fail_on)
+    def __init__(
+        self,
+        rows: list[tuple[object, ...]],
+        digest_rows: list[tuple[object, ...]] | None = None,
+        fail_on: str | None = None,
+    ) -> None:
+        self.cursor_value = _Cursor(rows, digest_rows, fail_on)
         self.commits = 0
         self.rollbacks = 0
 
@@ -140,7 +153,8 @@ def test_sync_refreshes_once_for_mutation() -> None:
 def test_sync_noop_does_not_refresh() -> None:
     rows = fed_policy_rows(_frame([1]))
     database_rows = [(row.timestamp_m1, *row.values, row.available_at_utc) for row in rows]
-    connection = _Connection(database_rows)
+    digest_rows = [(row.timestamp_m1, row.row_sha256) for row in rows]
+    connection = _Connection(database_rows, digest_rows)
     repository = FedPolicyPostgresRepository(_config(), connection_factory=lambda _: connection)
     plan = repository.sync(
         _frame([1]),

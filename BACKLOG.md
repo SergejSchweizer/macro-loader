@@ -320,11 +320,11 @@ Acceptance:
 ## PR-106: Differentially Validate Reconstruction Against Official CME FedWatch
 
 PR name: `fed-policy-cme-differential-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #106 (merged)
 Git branch: `pr-106/fed-policy-cme-differential-qa`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: `merged`
 Agent lane: Formula/differential QA; one agent only
 Depends on: PR-102
 Commit: `test(pr-106): validate fed policy reconstruction against cme`
@@ -347,11 +347,11 @@ Acceptance:
 ## PR-107: Run Real-PostgreSQL Fed Policy Integration QA
 
 PR name: `fed-policy-real-postgres-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-107/fed-policy-real-postgres-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Real PostgreSQL QA; one agent only
 Depends on: PR-103, PR-106
 Commit: `test(pr-107): validate fed policy postgres integration`
