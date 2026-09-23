@@ -3,6 +3,8 @@ import pytest
 from application.macro_feature_catalog import (
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
+    FED_POLICY_DERIVED_COLUMNS,
+    FED_POLICY_MATERIALIZED_COLUMNS,
     FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
@@ -52,7 +54,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 3
+    assert MACRO_FEATURE_VIEW_VERSION == 4
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -60,6 +62,19 @@ def test_catalog_fingerprint_is_stable_and_versioned() -> None:
 def test_catalog_rejects_duplicate_columns() -> None:
     with pytest.raises(ValueError, match="duplicate columns"):
         validate_feature_catalog(FEATURE_CATALOG[:-1] + (FEATURE_CATALOG[0],))
+
+
+def test_fed_materialized_contract_has_exactly_four_origins_and_28_derived_columns() -> None:
+    assert len(FED_POLICY_ORIGIN_COLUMNS) == 4
+    assert len(FED_POLICY_DERIVED_COLUMNS) == 28
+    assert len(FED_POLICY_MATERIALIZED_COLUMNS) == 32
+    assert all(
+        "log" not in column and "return" not in column for column in FED_POLICY_MATERIALIZED_COLUMNS
+    )
+    for origin in FED_POLICY_ORIGIN_COLUMNS:
+        assert f'raw."{origin}" AS "{origin}"' in _FEATURES_VIEW_DDL
+    for derived in FED_POLICY_DERIVED_COLUMNS:
+        assert f'"{derived}"' in _FEATURES_VIEW_DDL
 
 
 def test_postgres_view_migration_is_populated_and_versioned() -> None:
