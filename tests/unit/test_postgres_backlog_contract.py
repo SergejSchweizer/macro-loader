@@ -25,7 +25,7 @@ def test_active_postgres_feature_program_has_real_qa_and_operational_qa() -> Non
     summary = text.split("## Closed Delivery Summary", maxsplit=1)[1]
     for range_label in ("PR-80–81", "PR-82–85", "PR-86–88", "PR-89–90"):
         assert range_label in summary
-    for pr_id in ("PR-103", "PR-107", "PR-108", "PR-109"):
+    for pr_id in ("PR-107", "PR-108", "PR-109"):
         assert f"## {pr_id}:" in text
     assert "real PostgreSQL" in text
     assert "full fed policy history acceptance" in text.lower()

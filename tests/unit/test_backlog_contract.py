@@ -20,8 +20,11 @@ HEADER_RE = re.compile(r"^## (PR-\d{2,3}): .+$", re.MULTILINE)
 LEVEL2_RE = re.compile(r"^## .+$", re.MULTILINE)
 BRANCH_RE = re.compile(r"^(pr-\d{2,3})/[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2,3}})\): [a-z0-9].+$")
-ACTIVE_FIRST = 97
-ACTIVE_LAST = 111
+EXPECTED_DETAILED = [
+    *[f"PR-{index:02d}" for index in range(114, 119)],
+    "PR-113",
+    *[f"PR-{index:02d}" for index in range(106, 111)],
+]
 REQUIRED_FIELDS = (
     "PR name",
     "Status",
@@ -80,9 +83,9 @@ def _requirement_ids(section: BacklogPr, prefix: str) -> list[int]:
 
 def _validate(text: str) -> list[BacklogPr]:
     sections = _sections(text)
-    expected = [f"PR-{index:02d}" for index in range(ACTIVE_FIRST, ACTIVE_LAST + 1)]
+    expected = EXPECTED_DETAILED
     assert [section.pr_id for section in sections] == expected
-    assert text.rfind("## Closed Delivery Summary") > text.rfind(f"## PR-{ACTIVE_LAST:02d}:")
+    assert text.rfind("## Closed Delivery Summary") > text.rfind(f"## {expected[-1]}:")
 
     for section in sections:
         values = {name: _field(section, name) for name in REQUIRED_FIELDS}
@@ -135,8 +138,7 @@ def _validate(text: str) -> list[BacklogPr]:
 
 def test_backlog_contains_only_current_detailed_program() -> None:
     sections = _validate(BACKLOG.read_text(encoding="utf-8"))
-    assert sections[0].pr_id == f"PR-{ACTIVE_FIRST:02d}"
-    assert sections[-1].pr_id == f"PR-{ACTIVE_LAST:02d}"
+    assert [section.pr_id for section in sections] == EXPECTED_DETAILED
 
 
 def _minimal_section(pr_number: int) -> str:
