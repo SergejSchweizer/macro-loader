@@ -160,11 +160,11 @@ Acceptance:
 ## PR-100: Add Point-In-Time Fed Reference Inputs
 
 PR name: `fed-policy-point-in-time-references`
-Status: In Progress
+Status: Ready
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-100/fed-policy-point-in-time-references`
-Git status: `active-dirty: preserved user integration-test edit`
+Git status: `pushed-ci-green`
 Agent lane: Fed reference-data causality; one agent only
 Depends on: PR-97
 Commit: `feat(pr-100): persist point in time fed references`
