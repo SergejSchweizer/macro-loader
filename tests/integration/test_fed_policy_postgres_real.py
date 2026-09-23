@@ -20,7 +20,7 @@ from ingestion.postgres_gold_repository import (
 )
 from scripts.provision_postgres_role import provision_sql
 
-pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("postgres-fed-policy-real")]
+pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("postgres-real")]
 
 
 def _frame(days: list[int], value: float = 1.0) -> pl.DataFrame:
