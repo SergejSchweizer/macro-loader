@@ -71,6 +71,7 @@ class FedPolicyPostgresRepository:
                     "SELECT pg_advisory_xact_lock(%s)", (_advisory_lock_key(FED_POLICY_DATASET_ID),)
                 )
                 existing = self._read_rows(cursor)
+                self._verify_integrity(cursor, existing)
                 plan = plan_fed_policy_delta(desired, existing)
                 self._apply_rows(cursor, plan)
                 if plan.mutated:
@@ -127,6 +128,18 @@ class FedPolicyPostgresRepository:
             )
             for row in rows
         )
+
+    @staticmethod
+    def _verify_integrity(cursor: CursorPort, rows: tuple[FedPolicyFeatureRow, ...]) -> None:
+        cursor.execute(
+            f"SELECT timestamp_m1, row_sha256 FROM {_HASHES} "
+            "WHERE dataset_id = %s ORDER BY timestamp_m1",
+            (FED_POLICY_DATASET_ID,),
+        )
+        digests = {cast(datetime, row[0]): cast(str, row[1]) for row in cursor.fetchall()}
+        expected = {row.timestamp_m1: row.row_sha256 for row in rows}
+        if digests != expected:
+            raise PostgresGoldRepositoryError("Fed policy stored row hash verification failed")
 
     @staticmethod
     def _apply_rows(cursor: CursorPort, plan: FedPolicyDeltaPlan) -> None:
