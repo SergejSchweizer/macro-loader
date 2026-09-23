@@ -62,11 +62,11 @@ Acceptance:
 ## PR-115: Backfill And Incrementally Populate Macro Raw Fed Origins
 
 PR name: `fed-policy-macro-raw-population`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
 PR: #118
 Git branch: `pr-115/fed-policy-macro-raw-population`
-Git status: `active-dirty: ingestion/fed_policy_postgres_repository.py, tests/integration/test_fed_policy_postgres_real.py`
+Git status: merged
 Agent lane: Historical/delta synchronization; one agent only
 Depends on: PR-114
 Commit: `feat(pr-115): populate macro raw fed policy origins`
