@@ -159,7 +159,7 @@ def test_live_inspector_independently_checks_schema_roles_session_and_temporal_p
         _config(), connection_factory=lambda _: connection
     )
 
-    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(4, 3, 2)
+    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(5, 3, 2)
     assert connection.rollbacks == 1
     assert connection.closed
     assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2

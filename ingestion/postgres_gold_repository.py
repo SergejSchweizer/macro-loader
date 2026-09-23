@@ -11,6 +11,7 @@ from typing import NoReturn, Protocol, TypeVar, cast
 
 import psycopg
 
+from application.fed_policy_postgres import FED_POLICY_DATASET_ID, FED_POLICY_FEATURE_COLUMNS
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
@@ -229,6 +230,7 @@ _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_T
 _POSTGRES_OWNER_ROLE = "macro-loader-owner"
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
+_FED_POLICY_TABLE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(FED_POLICY_DATASET_ID)}"
 _FEATURES_VIEW_COLUMNS: tuple[str, ...] = (
     "vix_delta_1obs",
     "vix_delta_5obs",
@@ -375,11 +377,20 @@ _FEATURES_VIEW_COLUMNS: tuple[str, ...] = (
 # source-controlled catalog.  Keeping the old literal in this module eases
 # upgrade compatibility for consumers that import it, but migrations and
 # conformance use the catalog-derived contract from this point onward.
-_FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
+_FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:] + FED_POLICY_FEATURE_COLUMNS
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
     {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _FEATURE_COLUMNS)}
+)"""
+_FED_POLICY_DDL = f"""CREATE TABLE IF NOT EXISTS {_FED_POLICY_TABLE} (
+    {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
+    {
+    ",\n    ".join(
+        f"{_quote(column)} DOUBLE PRECISION NULL" for column in FED_POLICY_FEATURE_COLUMNS
+    )
+},
+    {_quote("available_at_utc")} TIMESTAMPTZ(6) NOT NULL
 )"""
 _SYNC_STATE_DDL = f"""CREATE TABLE IF NOT EXISTS {_SYNC_STATE} (
     dataset_id TEXT PRIMARY KEY,
@@ -409,6 +420,7 @@ _OWNERSHIP_MIGRATIONS = tuple(
     f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
     for schema, table in (
         (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
+        (POSTGRES_SYNC_SCHEMA, FED_POLICY_DATASET_ID),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
         (POSTGRES_SYNC_SCHEMA, _MIGRATION_LEDGER_TABLE),
@@ -457,8 +469,6 @@ _FED_POLICY_RENAME_MIGRATION = (
             'DROP COLUMN IF EXISTS "fed_3m_expected_move_bp"',
             'DROP COLUMN IF EXISTS "fed_next_expected_move_bp_delta_5obs"',
             'DROP COLUMN IF EXISTS "fomc_business_days_to_next"',
-            'ADD COLUMN IF NOT EXISTS "fed_m3_expected_move_bp" DOUBLE PRECISION NULL',
-            'ADD COLUMN IF NOT EXISTS "fed_repricing_5obs_bp" DOUBLE PRECISION NULL',
         ]
     )
 )
@@ -596,8 +606,13 @@ def _macro_features_view_query() -> str:
     feature_expressions = {
         expression.rsplit(".", 1)[-1].strip('"'): expression for expression in feature_select
     }
+    fed_expressions = {
+        column: f"fed.{_quote(column)} AS {_quote(column)}" for column in FED_POLICY_FEATURE_COLUMNS
+    }
     ordered_features = [
-        feature_expressions.get(column, cross_expressions.get(column, ""))
+        feature_expressions.get(
+            column, cross_expressions.get(column, fed_expressions.get(column, ""))
+        )
         for column in _FEATURES_VIEW_COLUMNS
         if column not in {f"{series}_log_level" for series in RAW_SERIES}
     ]
@@ -611,7 +626,9 @@ def _macro_features_view_query() -> str:
     return (
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH {', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
-        f"FROM {_CONSUMER} raw {' '.join(joins)} "
+        f"FROM {_CONSUMER} raw LEFT JOIN {_FED_POLICY_TABLE} fed "
+        'ON fed."timestamp_m1" = raw."timestamp_m1" '
+        f"{' '.join(joins)} "
         "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"
     )
 
@@ -659,6 +676,9 @@ _FEATURES_VIEW_REFRESH_MIGRATION = (
     f"{_quote(POSTGRES_USER)}, {_quote(_POSTGRES_OWNER_ROLE)}",
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_SYNC_STATE}, {_ROW_HASHES} "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
+    f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_FED_POLICY_TABLE} "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+    f"GRANT SELECT ON TABLE {_FED_POLICY_TABLE} TO {_quote(POSTGRES_USER)}",
     f"GRANT SELECT ON TABLE {_MIGRATION_LEDGER} TO {_quote(POSTGRES_SYNC_USER)}",
     f"REVOKE ALL ON {_FEATURES_VIEW} FROM PUBLIC",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
@@ -714,6 +734,19 @@ _SCHEMA_SPECIFICATION = (
     ),
     PostgresTableSpecification(
         POSTGRES_SYNC_SCHEMA,
+        FED_POLICY_DATASET_ID,
+        (
+            _TIMESTAMPTZ6_NOT_NULL,
+            *tuple(
+                PostgresColumnSpecification(column, "double precision", None, True)
+                for column in FED_POLICY_FEATURE_COLUMNS
+            ),
+            PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),
+        ),
+        ("timestamp_m1",),
+    ),
+    PostgresTableSpecification(
+        POSTGRES_SYNC_SCHEMA,
         POSTGRES_SYNC_STATE_TABLE,
         (
             PostgresColumnSpecification("dataset_id", "text", None, False),
@@ -750,6 +783,7 @@ _SCHEMA_SPECIFICATION = (
 )
 _MIGRATIONS = (
     (_CONSUMER_DDL,),
+    (_FED_POLICY_DDL,),
     (_SYNC_STATE_DDL,),
     (_ROW_HASH_DDL,),
     (_MOMENTUM_COLUMN_MIGRATION,),
