@@ -20,6 +20,7 @@ from application.fed_policy_postgres import (
 from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
+    POSTGRES_RAW_COLUMNS,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SYNC_SCHEMA,
     POSTGRES_SYNC_STATE_TABLE,
@@ -43,6 +44,14 @@ _HASHES = f'"{POSTGRES_SYNC_SCHEMA}"."{POSTGRES_ROW_HASH_TABLE}"'
 _COLUMN_SQL = ", ".join(f'"{column}"' for column in FED_POLICY_COLUMNS)
 _UPDATE_SQL = ", ".join(f'"{column}" = %s' for column in FED_POLICY_COLUMNS[1:])
 _RAW_UPDATE_SQL = ", ".join(f'"{column}" = %s' for column in FED_POLICY_COLUMNS[1:-1])
+_RAW_INSERT_COLUMNS = (
+    "timestamp_m1",
+    *POSTGRES_RAW_COLUMNS[1:],
+)
+_RAW_INSERT_SQL = (
+    f"INSERT INTO {_RAW_TABLE} ({', '.join(f'"{column}"' for column in _RAW_INSERT_COLUMNS)}) "
+    f"VALUES ({', '.join('%s' for _ in _RAW_INSERT_COLUMNS)})"
+)
 
 
 class FedPolicyPostgresRepository:
@@ -172,10 +181,16 @@ class FedPolicyPostgresRepository:
                 (FED_POLICY_DATASET_ID, timestamp),
             )
         for row in (*plan.inserts, *plan.updates):
-            cursor.execute(
-                f'UPDATE {_RAW_TABLE} SET {_RAW_UPDATE_SQL} WHERE "timestamp_m1" = %s',
-                (*row.values, row.timestamp_m1),
-            )
+            if row in plan.inserts:
+                cursor.execute(
+                    _RAW_INSERT_SQL,
+                    (row.timestamp_m1, *(None for _ in POSTGRES_RAW_COLUMNS[1:-4]), *row.values),
+                )
+            else:
+                cursor.execute(
+                    f'UPDATE {_RAW_TABLE} SET {_RAW_UPDATE_SQL} WHERE "timestamp_m1" = %s',
+                    (*row.values, row.timestamp_m1),
+                )
         for timestamp in plan.deletes:
             cursor.execute(
                 f"UPDATE {_RAW_TABLE} SET "
