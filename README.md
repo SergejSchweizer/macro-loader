@@ -11,8 +11,8 @@ The project is intentionally a **data product**, not a trading system. It does n
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
 Operational status (2026-09-23): `main` is synchronized with `origin/main` through the
-merged backlog sequence PR-80–PR-109 (GitHub PRs #81–#110). Required CI gates pass on the
-merged sequence. Production-like full-history and Sunday-cron acceptance runners are
+merged backlog sequence PR-80–PR-110 (GitHub PRs #81–#112). PR-111 is the active Fed-origin
+transformation scope. Required CI gates pass on the merged sequence. Production-like full-history and Sunday-cron acceptance runners are
 available, but are intentionally not executed from this development workspace; run them
 with their explicit `--execute` guard on the authorized deployment host. The browser-based
 CME export remains an explicit QA-only path; production uses the public transport path and
@@ -278,10 +278,13 @@ row digests:     macro_loader_sync.gold_row_hashes
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
 
 The PostgreSQL `macro_features` materialized view exposes one `*_log_level`
-column per raw source, calculated as `ln(macro_raw.<source>_level)` when the
-source is positive; non-positive or missing source values become `NULL`. The
-untransformed source values remain available only in `macro_raw`. The view is
-explicitly refreshed after a successful raw-table delta.
+column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
+the source is positive; non-positive or missing source values become `NULL`.
+The four signed Fed-policy origins are also stored in `macro_raw` unchanged.
+Because they may be zero or negative, their view transformations are limited to
+valid-observation deltas, causal population z-scores, and positive momentum
+autocorrelation; no Fed log or geometric-return transform is defined. The view
+is explicitly refreshed after a successful raw-table delta.
 
 The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 

@@ -12,15 +12,17 @@ import hashlib
 import json
 from dataclasses import dataclass
 
+from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import RETURN_WINDOWS
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 2
+MACRO_FEATURE_VIEW_VERSION = 3
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in RAW_SERIES)
+FED_POLICY_ORIGIN_COLUMNS = FED_POLICY_FEATURE_COLUMNS
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +112,41 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 f"geometric mean simple return over {window} valid observations, percent",
             )
             for window in RETURN_WINDOWS
+        )
+    for origin in FED_POLICY_ORIGIN_COLUMNS:
+        specs.append(
+            MacroFeatureSpec(
+                origin,
+                "fed_origin",
+                origin,
+                "canonical signed Fed-policy basis-point origin",
+            )
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{origin}_delta_{lag}obs",
+                "fed_delta",
+                origin,
+                f"origin(t)-origin(t-{lag} valid observations)",
+            )
+            for lag in (1, 5, 20)
+        )
+        specs.append(
+            MacroFeatureSpec(
+                f"{origin}_zscore_60obs",
+                "fed_zscore",
+                origin,
+                "population z-score over 60 valid observations",
+            )
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{origin}_momentum_autocorr_{lag}_{window}obs",
+                "fed_momentum_autocorrelation",
+                origin,
+                f"positive autocorrelation of one-observation changes, lag={lag}, window={window}",
+            )
+            for lag, window in MOMENTUM_POLICY.lag_windows
         )
     return tuple(specs)
 

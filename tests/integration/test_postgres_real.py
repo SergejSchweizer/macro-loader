@@ -12,7 +12,6 @@ import psycopg
 import pytest
 
 import ingestion.postgres_gold_repository as postgres_module
-from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
@@ -26,6 +25,8 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
+    POSTGRES_FED_RAW_COLUMNS,
+    POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldRowPayload,
@@ -273,7 +274,10 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         migrations = connection.execute(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
-    assert {column[0] for column in columns} == set(GOLD_COLUMNS)
+    assert {column[0] for column in columns} == {
+        *POSTGRES_RAW_COLUMNS,
+        *POSTGRES_FED_RAW_COLUMNS,
+    }
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
 
     timestamp = _timestamp(20)
@@ -426,10 +430,7 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
                WHERE attrelid = 'macro_loader.macro_features'::regclass
                  AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
         ).fetchall()
-        assert tuple(row[0] for row in columns) == (
-            *FEATURE_COLUMNS,
-            *FED_POLICY_FEATURE_COLUMNS,
-        )
+        assert tuple(row[0] for row in columns) == FEATURE_COLUMNS
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()

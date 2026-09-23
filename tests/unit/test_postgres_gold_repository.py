@@ -376,15 +376,23 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
-    assert len(module._FEATURES_VIEW_COLUMNS) == 171
-    assert module._FEATURES_VIEW_COLUMNS[-4:] == (
+    assert len(module._FEATURES_VIEW_COLUMNS) == 199
+    assert module._FEATURES_VIEW_COLUMNS[-32::8] == (
         "fed_next_expected_move_bp",
         "fed_path_slope_m3_bp",
         "fed_next_uncertainty_bp",
         "fed_repricing_5obs_bp",
     )
-    for column in module._FEATURES_VIEW_COLUMNS[-4:]:
-        assert f'fed."{column}" AS "{column}"' in ddl
+    for column in (
+        "fed_next_expected_move_bp",
+        "fed_path_slope_m3_bp",
+        "fed_next_uncertainty_bp",
+        "fed_repricing_5obs_bp",
+    ):
+        assert f'raw."{column}" AS "{column}"' in ddl
+        assert f'"{column}_delta_20obs"' in ddl
+        assert f'"{column}_zscore_60obs"' in ddl
+        assert f'"{column}_momentum_autocorr_20_120obs"' in ddl
     assert all(column.endswith("_log_level") for column in module._FEATURES_VIEW_COLUMNS[:13])
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in ddl
     assert 'AS "vix_delta_1obs"' in ddl
