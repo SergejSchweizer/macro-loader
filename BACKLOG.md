@@ -35,11 +35,11 @@ than filled, interpolated, carried, or synthesized.
 ## PR-114: Extend Canonical Origin And Macro Raw Schema With Four Fed Features
 
 PR name: `fed-policy-macro-raw-contract`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
 PR: #117
 Git branch: `pr-114/fed-policy-macro-raw-contract`
-Git status: `pushed-ci-failing`
+Git status: `merged`
 Agent lane: Serving schema/migration; one agent only
 Depends on: PR-113
 Commit: `feat(pr-114): add fed policy origins to macro raw contract`
@@ -62,11 +62,11 @@ Acceptance:
 ## PR-115: Backfill And Incrementally Populate Macro Raw Fed Origins
 
 PR name: `fed-policy-macro-raw-population`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #118
 Git branch: `pr-115/fed-policy-macro-raw-population`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: ingestion/fed_policy_postgres_repository.py, tests/integration/test_fed_policy_postgres_real.py`
 Agent lane: Historical/delta synchronization; one agent only
 Depends on: PR-114
 Commit: `feat(pr-115): populate macro raw fed policy origins`
