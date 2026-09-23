@@ -12,6 +12,7 @@ import psycopg
 import pytest
 
 import ingestion.postgres_gold_repository as postgres_module
+from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
@@ -250,7 +251,7 @@ def test_real_postgres_independent_conformance_verifier_passes(
             "consumer_row_count": 1,
             "digest_row_count": 1,
             "role_count": 3,
-            "schema_table_count": 4,
+            "schema_table_count": 5,
             "temporal_probe_count": 2,
         },
     )
@@ -425,7 +426,10 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
                WHERE attrelid = 'macro_loader.macro_features'::regclass
                  AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
         ).fetchall()
-        assert tuple(row[0] for row in columns) == FEATURE_COLUMNS
+        assert tuple(row[0] for row in columns) == (
+            *FEATURE_COLUMNS,
+            *FED_POLICY_FEATURE_COLUMNS,
+        )
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
