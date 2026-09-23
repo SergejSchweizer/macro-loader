@@ -108,11 +108,11 @@ Acceptance:
 ## PR-98: Add Canonical ZQ Settlement-Curve Store
 
 PR name: `fed-policy-zq-settlement-store`
-Status: Ready
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #98
 Git branch: `pr-98/fed-policy-zq-settlement-store`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: Fed-funds-futures persistence; one agent only
 Depends on: PR-97
 Commit: `feat(pr-98): persist canonical zq settlement curves`
@@ -133,11 +133,11 @@ Acceptance:
 ## PR-99: Acquire Historical And Delta ZQ Settlements From Public CME
 
 PR name: `fed-policy-zq-cme-provider`
-Status: Planned
+Status: Ready
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-99/fed-policy-zq-cme-provider`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-green`
 Agent lane: CME public-source adapter; one agent only
 Depends on: PR-98
 Commit: `feat(pr-99): ingest public cme zq settlements`

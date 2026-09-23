@@ -12,7 +12,7 @@ import csv
 import json
 import os
 import re
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO, StringIO
 from typing import Any
@@ -22,6 +22,7 @@ import polars as pl
 from application.contracts import Provider
 from application.errors import ProviderHttpError
 from application.fed_policy_features import EOD_UTC, FED_POLICY_SNAPSHOT_COLUMNS
+from application.fed_policy_settlements import empty_zq_settlements, validate_zq_settlements
 from application.ports.http import HttpRequest, HttpTransport, RequestContext
 
 _CME_SETTLEMENTS_URL = "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/305/FUT"
@@ -329,3 +330,105 @@ class FedPolicyProvider:
             except (KeyError, TypeError, ValueError):
                 continue
         return result
+
+
+class CmeZqSettlementProvider:
+    """Fetch individual public CME ZQ final-settlement curves by trade date."""
+
+    def __init__(self, transport: HttpTransport, *, clock: Callable[[], datetime]) -> None:
+        self._transport = transport
+        self._clock = clock
+
+    def fetch(self, start: date, end: date) -> pl.DataFrame:
+        if start > end:
+            raise ValueError("ZQ settlement start must not exceed end")
+        context = RequestContext(Provider.FEDWATCH, "fed_policy_zq", "cme-zq-settlement")
+        rows: list[dict[str, object]] = []
+        for trade_date in _business_days(start, end):
+            response = self._transport.send(
+                HttpRequest(
+                    "GET",
+                    _CME_SETTLEMENTS_URL,
+                    params={"tradeDate": trade_date.strftime("%m/%d/%Y")},
+                ),
+                context=context,
+            )
+            if response.status_code != 200:
+                raise ValueError(f"CME ZQ settlement request failed: {response.status_code}")
+            rows.extend(self._rows(response.content, trade_date))
+        if not rows:
+            return empty_zq_settlements()
+        return validate_zq_settlements(
+            pl.DataFrame(
+                rows,
+                schema={
+                    "observation_date": pl.Date,
+                    "contract_month": pl.Date,
+                    "settlement_price": pl.Float64,
+                    "contract_symbol": pl.String,
+                    "settlement_type": pl.String,
+                    "source_id": pl.String,
+                    "source_url": pl.String,
+                    "fetched_at_utc": pl.Datetime("us", "UTC"),
+                    "available_at_utc": pl.Datetime("us", "UTC"),
+                },
+            )
+        )
+
+    def _rows(self, content: bytes, observation_date: date) -> list[dict[str, object]]:
+        try:
+            raw = json.loads(content)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("CME ZQ settlement payload is not JSON") from error
+        if not isinstance(raw, dict) or not isinstance(raw.get("settlements"), list):
+            raise ValueError("CME ZQ settlement payload is malformed")
+        fetched_at = self._clock()
+        if fetched_at.tzinfo is None or fetched_at.utcoffset() is None:
+            raise ValueError("CME ZQ clock must return an aware datetime")
+        fetched_at = fetched_at.astimezone(UTC)
+        rows: list[dict[str, object]] = []
+        for item in raw["settlements"]:
+            if not isinstance(item, dict):
+                raise ValueError("CME ZQ settlement row is malformed")
+            month_text = str(item.get("month", ""))
+            if month_text.strip().lower() == "total":
+                continue
+            contract_month, symbol = self._contract_month(month_text)
+            settlement_type = str(item.get("settlementType", "final_settlement"))
+            if settlement_type != "final_settlement":
+                raise ValueError("CME ZQ payload contains a non-final settlement")
+            try:
+                price = float(item["settle"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError("CME ZQ payload contains an invalid settlement price") from error
+            rows.append(
+                {
+                    "observation_date": observation_date,
+                    "contract_month": contract_month,
+                    "settlement_price": price,
+                    "contract_symbol": symbol,
+                    "settlement_type": settlement_type,
+                    "source_id": "cme-zq-settlement",
+                    "source_url": _CME_SETTLEMENTS_URL,
+                    "fetched_at_utc": fetched_at,
+                    "available_at_utc": datetime(
+                        observation_date.year,
+                        observation_date.month,
+                        observation_date.day,
+                        *EOD_UTC,
+                        tzinfo=UTC,
+                    ),
+                }
+            )
+        return rows
+
+    @staticmethod
+    def _contract_month(value: str) -> tuple[date, str]:
+        match = re.fullmatch(r"([A-Za-z]{3})[- ]?(\d{2})", value.strip())
+        if match is None:
+            raise ValueError(f"ambiguous CME ZQ contract month: {value}")
+        month = _MONTHS.get(match.group(1).title())
+        if month is None:
+            raise ValueError(f"ambiguous CME ZQ contract month: {value}")
+        year = 2000 + int(match.group(2))
+        return date(year, month, 1), f"ZQ{_MONTH_CODES[month]}{match.group(2)}"

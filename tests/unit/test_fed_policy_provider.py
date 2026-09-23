@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -12,6 +12,7 @@ import pytest
 from application.errors import ProviderHttpError
 from application.ports.http import HttpRequest, HttpResponse, RequestContext
 from ingestion.fed_policy_provider import (
+    CmeZqSettlementProvider,
     FedPolicyProvider,
     _fomc_decision_dates,
     _outcomes,
@@ -94,6 +95,72 @@ def test_provider_skips_unavailable_settlement_response() -> None:
         date(2026, 1, 2), date(2026, 1, 2)
     )
     assert result.is_empty()
+
+
+def test_zq_provider_requests_business_days_and_preserves_contract_curve() -> None:
+    transport = FakeTransport()
+    provider = CmeZqSettlementProvider(
+        transport, clock=lambda: datetime(2026, 1, 3, 18, tzinfo=UTC)
+    )
+
+    result = provider.fetch(date(2026, 1, 2), date(2026, 1, 5))
+
+    assert [request.params["tradeDate"] for request in transport.requests] == [
+        "01/02/2026",
+        "01/05/2026",
+    ]
+    assert result.height == 4
+    assert result.get_column("contract_month").unique().sort().to_list() == [
+        date(2026, 1, 1),
+        date(2026, 2, 1),
+    ]
+    assert result.get_column("settlement_type").unique().to_list() == ["final_settlement"]
+
+
+def test_zq_provider_rejects_malformed_payload_without_rows() -> None:
+    class MalformedTransport(FakeTransport):
+        def send(self, request: HttpRequest, *, context: RequestContext) -> HttpResponse:
+            self.requests.append(request)
+            return HttpResponse(200, b"<html>blocked</html>", {})
+
+    with pytest.raises(ValueError, match="not JSON"):
+        CmeZqSettlementProvider(
+            MalformedTransport(), clock=lambda: datetime(2026, 1, 3, tzinfo=UTC)
+        ).fetch(date(2026, 1, 2), date(2026, 1, 2))
+
+
+def test_zq_provider_rejects_non_final_settlements() -> None:
+    class NonFinalTransport(FakeTransport):
+        def send(self, request: HttpRequest, *, context: RequestContext) -> HttpResponse:
+            self.requests.append(request)
+            return HttpResponse(
+                200,
+                json.dumps(
+                    {
+                        "settlements": [
+                            {"month": "JAN 26", "settle": "96.36", "settlementType": "close"}
+                        ]
+                    }
+                ).encode(),
+                {},
+            )
+
+    with pytest.raises(ValueError, match="non-final"):
+        CmeZqSettlementProvider(
+            NonFinalTransport(), clock=lambda: datetime(2026, 1, 3, tzinfo=UTC)
+        ).fetch(date(2026, 1, 2), date(2026, 1, 2))
+
+
+def test_zq_provider_rejects_reverse_range_and_http_failure() -> None:
+    with pytest.raises(ValueError, match="must not exceed"):
+        CmeZqSettlementProvider(
+            FakeTransport(), clock=lambda: datetime(2026, 1, 3, tzinfo=UTC)
+        ).fetch(date(2026, 1, 3), date(2026, 1, 2))
+    with pytest.raises(ValueError, match="request failed: 503"):
+        CmeZqSettlementProvider(
+            FakeTransport(settlement_status=503),
+            clock=lambda: datetime(2026, 1, 3, tzinfo=UTC),
+        ).fetch(date(2026, 1, 2), date(2026, 1, 2))
 
 
 def test_provider_falls_back_to_browser_after_transport_error(
