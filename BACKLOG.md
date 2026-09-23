@@ -83,11 +83,11 @@ PR-97 contract
 ## PR-97: Freeze Fed Policy EOD Contract And Delivery Program
 
 PR name: `fed-policy-eod-contract`
-Status: Ready
+Status: Merged
 Updated: 2026-09-23
 PR: #97
 Git branch: `pr-97/fed-policy-eod-contract`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: Architecture/backlog contract; one agent only
 Depends on: none
 Commit: `test(pr-97): cover catalog validation guard`
@@ -133,11 +133,11 @@ Acceptance:
 ## PR-99: Acquire Historical And Delta ZQ Settlements From Public CME
 
 PR name: `fed-policy-zq-cme-provider`
-Status: Ready
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #99
 Git branch: `pr-99/fed-policy-zq-cme-provider`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: CME public-source adapter; one agent only
 Depends on: PR-98
 Commit: `feat(pr-99): ingest public cme zq settlements`
@@ -160,11 +160,11 @@ Acceptance:
 ## PR-100: Add Point-In-Time Fed Reference Inputs
 
 PR name: `fed-policy-point-in-time-references`
-Status: Planned
+Status: Ready
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-100/fed-policy-point-in-time-references`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-green`
 Agent lane: Fed reference-data causality; one agent only
 Depends on: PR-97
 Commit: `feat(pr-100): persist point in time fed references`

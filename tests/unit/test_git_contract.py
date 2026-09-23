@@ -18,6 +18,7 @@ SYNTHETIC_MERGE = " ".join(
 
 def test_branch_pr_id_accepts_canonical_branch() -> None:
     assert contract.branch_pr_id("pr-06/cboe-volatility-provider") == "pr-06"
+    assert contract.branch_pr_id("pr-100/fed-policy-point-in-time-references") == "pr-100"
 
 
 @pytest.mark.parametrize(
@@ -31,6 +32,7 @@ def test_branch_pr_id_rejects_invalid_branch(branch: str) -> None:
 
 def test_validate_subject_accepts_matching_conventional_commit() -> None:
     contract.validate_subject("feat(pr-06): ingest cboe volatility indices", "pr-06")
+    contract.validate_subject("feat(pr-100): persist reference inputs", "pr-100")
 
 
 @pytest.mark.parametrize(
