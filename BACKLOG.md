@@ -133,11 +133,11 @@ Acceptance:
 ## PR-99: Acquire Historical And Delta ZQ Settlements From Public CME
 
 PR name: `fed-policy-zq-cme-provider`
-Status: In Progress
+Status: Ready
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-99/fed-policy-zq-cme-provider`
-Git status: `active-dirty: preserved user integration-test edit`
+Git status: `pushed-ci-green`
 Agent lane: CME public-source adapter; one agent only
 Depends on: PR-98
 Commit: `feat(pr-99): ingest public cme zq settlements`
