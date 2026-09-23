@@ -853,6 +853,8 @@ _MIGRATIONS = (
     # Rebuild again for the explicit *_log_level column-name contract.
     _FEATURES_VIEW_REBUILD_MIGRATION,
     (_FED_POLICY_DDL,),
+    # Older layout migrations could recreate macro_raw before the Fed columns existed.
+    (_FED_POLICY_COLUMN_MIGRATION,),
     _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
