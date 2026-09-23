@@ -247,11 +247,11 @@ PR-106 CME differential QA   PR-107 real PostgreSQL QA
 ## PR-113: Reframe Fed Policy Serving Through Macro Raw
 
 PR name: `fed-policy-transform-backlog`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
 PR: #115
 Git branch: `pr-113/fed-policy-transform-backlog`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: Backlog/governance extension; one agent only
 Depends on: none
 Commit: `docs(pr-113): define fed macro raw serving program`
