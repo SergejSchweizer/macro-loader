@@ -1,0 +1,31 @@
+{
+  "artifact_version": "fed-policy-cme-parity-v1",
+  "methodology_version": "cme-zq-month-weighted-v1",
+  "tolerance": 1e-09,
+  "fixtures": [
+    {
+      "fixture_id": "sanitized-cme-meeting-export-2026-08-01",
+      "source": "official CME FedWatch meeting export, sanitized QA fixture",
+      "sha256": "fixture-controlled-in-test"
+    }
+  ],
+  "compared_meetings": ["2026-09-16", "2026-10-28", "2026-12-09"],
+  "features": [
+    "fed_next_expected_move_bp",
+    "fed_next_uncertainty_bp",
+    "fed_path_slope_m3_bp",
+    "fed_repricing_5obs_bp"
+  ],
+  "max_errors": {
+    "distribution_probability": 0.0,
+    "fed_next_expected_move_bp": 0.0,
+    "fed_next_uncertainty_bp": 0.0,
+    "fed_path_slope_m3_bp": 0.0,
+    "fed_repricing_5obs_bp": 0.0
+  },
+  "causal_checks": [
+    "effr unavailable before publication excludes the observation",
+    "meeting export unavailable before first-known time excludes the meeting"
+  ],
+  "status": "PASS"
+}
