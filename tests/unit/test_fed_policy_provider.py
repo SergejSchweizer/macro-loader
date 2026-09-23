@@ -15,7 +15,7 @@ from ingestion.fed_policy_provider import (
     CmeZqSettlementProvider,
     FedPolicyProvider,
     _fomc_decision_dates,
-    _outcomes,
+    _reconstructed_outcomes,
 )
 
 
@@ -166,11 +166,18 @@ def test_zq_provider_rejects_reverse_range_and_http_failure() -> None:
 def test_provider_falls_back_to_browser_after_transport_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    provider = FedPolicyProvider(FakeTransport(raise_settlement=True))
+    provider = FedPolicyProvider(FakeTransport(raise_settlement=True), browser_only=True)
     expected = pl.DataFrame({"observation_date": [date(2026, 1, 2)]})
     monkeypatch.setattr(provider, "_browser_fetch", lambda *args: expected)
 
     assert provider.fetch(date(2026, 1, 2), date(2026, 1, 2)).equals(expected)
+
+
+def test_production_provider_does_not_fall_back_to_browser() -> None:
+    with pytest.raises(ProviderHttpError, match="blocked"):
+        FedPolicyProvider(FakeTransport(raise_settlement=True)).fetch(
+            date(2026, 1, 2), date(2026, 1, 2)
+        )
 
 
 class _FakeDownload:
@@ -306,10 +313,10 @@ def test_settlement_parser_ignores_malformed_and_total_rows() -> None:
     ) == {"JAN 26": 96.36}
 
 
-def test_outcomes_handles_missing_months_and_early_meeting() -> None:
+def test_reconstructed_outcomes_handles_missing_months_and_early_meeting() -> None:
     meeting = date(2026, 1, 2)
-    assert _outcomes({}, meeting, 3.64) == ()
+    assert _reconstructed_outcomes({}, meeting, 3.64) == ()
     settlements = {"JAN 26": 96.36, "FEB 26": 96.11}
-    outcomes = _outcomes(settlements, meeting, 3.64)
+    outcomes = _reconstructed_outcomes(settlements, meeting, 3.64)
     assert outcomes[0][0] == pytest.approx(25.0)
     assert sum(probability for _, probability in outcomes) == pytest.approx(1.0)

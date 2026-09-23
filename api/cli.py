@@ -250,9 +250,7 @@ def build_runtime(
     )
     silver = SilverSeriesRepository(paths)
     inventory = InventoryRefreshService(paths)
-    fed_policy_source = FedPolicySnapshotStore(
-        paths, FedPolicyProvider(transport, browser_only=True)
-    )
+    fed_policy_source = FedPolicySnapshotStore(paths, FedPolicyProvider(transport))
     fed_policy = FedPolicyEodOrchestrator(
         snapshots=fed_policy_source,
         settlements=FedPolicySettlementStore(paths),

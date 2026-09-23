@@ -6,12 +6,12 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-09-19, `main` and `origin/main` are aligned through the merged backlog
-sequence PR-80–PR-90 (GitHub PRs #81–#91), with required CI gates green. Production-like
+As of 2026-09-23, `main` and `origin/main` are aligned through the merged backlog
+sequence PR-80–PR-109 (GitHub PRs #81–#110), with required CI gates green. Production-like
 full-history and Sunday-cron acceptance are explicit, guarded commands and require the
 authorized deployment environment; this development workspace does not claim a live
-production run. FedWatch acquisition is restricted to
-`https://www.cmegroup.cn/fed-watch/`, and unavailable responses remain NULL-derived.
+production run. The browser-based CME export is QA-only; production uses the public
+transport path and unavailable responses remain NULL-derived.
 
 ## System Purpose
 
@@ -450,9 +450,9 @@ The fixed causal pairs are `(h, W) = (1, 60), (5, 60), (20, 120)`. Undefined val
 
 Cross-series ratios/spreads require same `timestamp_m1` values.
 
-The Fed policy family is computed from normalized end-of-day CME FedWatch
-probability exports obtained in production only from the Chinese CME page
-(`https://www.cmegroup.cn/fed-watch/`). For
+The Fed policy family is computed from normalized end-of-day public CME settlement,
+Federal Reserve calendar, and EFFR inputs. The browser-based CME export at
+(`https://www.cmegroup.cn/fed-watch/`) is restricted to explicit QA tooling. For
 observation date `t`, the next meeting is the first scheduled decision date
 strictly after `t`; `fed_path_slope_m3_bp` is the expected move at the third
 future meeting minus the expected move at the next meeting. The four canonical

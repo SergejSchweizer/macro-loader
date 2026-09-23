@@ -90,7 +90,7 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
     return (year + 1, 1) if month == 12 else (year, month + 1)
 
 
-def _outcomes(
+def _reconstructed_outcomes(
     settlements: dict[str, float], meeting: date, current_effr: float
 ) -> tuple[tuple[float, float], ...]:
     return tuple(
@@ -155,6 +155,8 @@ class FedPolicyProvider:
                                 )
                             )
         except ProviderHttpError:
+            if not self._browser_only:
+                raise
             return self._browser_fetch(start, end, effr, context)
         return pl.DataFrame(
             rows,
