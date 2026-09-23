@@ -91,11 +91,11 @@ Acceptance:
 ## PR-116: Verify Macro Raw Fed History And Data Quality
 
 PR name: `fed-policy-macro-raw-quality-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-116/fed-policy-macro-raw-quality-qa`
-Git status: `not-started (branch absent)`
+Git status: active-dirty: tests/integration/test_postgres_real.py
 Agent lane: Real PostgreSQL/history data-quality QA; one agent only
 Depends on: PR-115
 Commit: `test(pr-116): verify macro raw fed policy quality`
