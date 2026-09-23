@@ -27,6 +27,31 @@ def test_sunday_gold_sync_cron_template_has_explicit_vienna_timezone_and_dst() -
     assert datetime(2026, 7, 5, 10, tzinfo=vienna).utcoffset() == timedelta(hours=2)
 
 
+def test_fed_policy_daily_cron_template_has_exact_timezone_and_time() -> None:
+    template = Path("ops/macro-loader-fed-policy.cron")
+    text = template.read_text(encoding="utf-8")
+
+    assert "CRON_TZ=Europe/Vienna" in text
+    assert "15 10 * * * /home/dev_market/macro-loader/ops/run-fed-policy-eod.sh" in text
+
+
+def test_fed_policy_runner_has_exact_three_stage_order_and_lock() -> None:
+    runner = Path("ops/run-fed-policy-eod.sh").read_text(encoding="utf-8")
+
+    assert 'cd "$PROJECT_ROOT"' in runner
+    assert 'git -C "$PROJECT_ROOT" rev-parse --verify HEAD' in runner
+    assert 'LOCK_PATH="$LOCK_DIR/fed-policy-eod.lock"' in runner
+    assert "if ! flock -n 9; then" in runner
+    assert 'exec >>"$LOG_PATH" 2>&1' in runner
+    assert "run-fed-policy-eod" in runner
+    assert "fed-policy-sync-postgres" in runner
+    assert "postgres-verify" in runner
+    assert runner.index("run-fed-policy-eod") < runner.index("fed-policy-sync-postgres")
+    assert runner.index("fed-policy-sync-postgres") < runner.index("postgres-verify")
+    assert "postgres-migrate" not in runner
+    assert "reconcile" not in runner
+
+
 def test_sunday_gold_sync_cron_template_is_operational() -> None:
     job = _job_line()
     runner = CRON_RUNNER.read_text(encoding="utf-8")

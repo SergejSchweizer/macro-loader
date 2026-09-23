@@ -266,11 +266,11 @@ Acceptance:
 ## PR-104: Add Fed Policy Bootstrap Reconcile And EOD Update Commands
 
 PR name: `fed-policy-eod-orchestration`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #104
 Git branch: `pr-104/fed-policy-eod-orchestration`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: `merged`
 Agent lane: Application orchestration; one agent only
 Depends on: PR-103
 Commit: `feat(pr-104): orchestrate fed policy eod updates`
@@ -293,11 +293,11 @@ Acceptance:
 ## PR-105: Install Daily EOD Fed Policy Cron Chain
 
 PR name: `fed-policy-daily-cron`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-105/fed-policy-daily-cron`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Operations/crontab; one agent only
 Depends on: PR-104
 Commit: `feat(pr-105): install fed policy daily cron chain`
