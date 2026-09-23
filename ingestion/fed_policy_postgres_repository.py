@@ -18,6 +18,8 @@ from application.fed_policy_postgres import (
     plan_fed_policy_delta,
 )
 from application.postgres_sync import (
+    POSTGRES_CONSUMER_SCHEMA,
+    POSTGRES_CONSUMER_TABLE,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SYNC_SCHEMA,
     POSTGRES_SYNC_STATE_TABLE,
@@ -35,10 +37,12 @@ from ingestion.postgres_gold_repository import (
 )
 
 _TABLE = f'"{POSTGRES_SYNC_SCHEMA}"."{FED_POLICY_DATASET_ID}"'
+_RAW_TABLE = f'"{POSTGRES_CONSUMER_SCHEMA}"."{POSTGRES_CONSUMER_TABLE}"'
 _STATE = f'"{POSTGRES_SYNC_SCHEMA}"."{POSTGRES_SYNC_STATE_TABLE}"'
 _HASHES = f'"{POSTGRES_SYNC_SCHEMA}"."{POSTGRES_ROW_HASH_TABLE}"'
 _COLUMN_SQL = ", ".join(f'"{column}"' for column in FED_POLICY_COLUMNS)
 _UPDATE_SQL = ", ".join(f'"{column}" = %s' for column in FED_POLICY_COLUMNS[1:])
+_RAW_UPDATE_SQL = ", ".join(f'"{column}" = %s' for column in FED_POLICY_COLUMNS[1:-1])
 
 
 class FedPolicyPostgresRepository:
@@ -166,6 +170,18 @@ class FedPolicyPostgresRepository:
             cursor.execute(
                 f"DELETE FROM {_HASHES} WHERE dataset_id = %s AND timestamp_m1 = %s",
                 (FED_POLICY_DATASET_ID, timestamp),
+            )
+        for row in (*plan.inserts, *plan.updates):
+            cursor.execute(
+                f'UPDATE {_RAW_TABLE} SET {_RAW_UPDATE_SQL} WHERE "timestamp_m1" = %s',
+                (*row.values, row.timestamp_m1),
+            )
+        for timestamp in plan.deletes:
+            cursor.execute(
+                f"UPDATE {_RAW_TABLE} SET "
+                + ", ".join(f'"{column}" = NULL' for column in FED_POLICY_COLUMNS[1:-1])
+                + ' WHERE "timestamp_m1" = %s',
+                (timestamp,),
             )
 
     @staticmethod

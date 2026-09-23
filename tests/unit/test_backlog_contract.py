@@ -21,7 +21,7 @@ LEVEL2_RE = re.compile(r"^## .+$", re.MULTILINE)
 BRANCH_RE = re.compile(r"^(pr-\d{2,3})/[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2,3}})\): [a-z0-9].+$")
 ACTIVE_FIRST = 97
-ACTIVE_LAST = 110
+ACTIVE_LAST = 111
 REQUIRED_FIELDS = (
     "PR name",
     "Status",

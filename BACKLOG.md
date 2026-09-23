@@ -454,6 +454,35 @@ Acceptance:
 - A3 (verifies R3): all four sidecars/ops docs agree on source, formulas, point-in-time availability, 2010 coverage evidence, PostgreSQL publication, daily cron, and current versions with no unverified success claims.
 - A4 (verifies R4): reference/import/startup checks and `lint/type/unit/integration/coverage` are green and repository search identifies exactly one production probability/feature pipeline.
 
+## PR-111: Materialize Fed Origins And Signed Transformations
+
+PR name: `fed-policy-origin-transformations`
+Status: In Progress
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-111/fed-policy-origin-transformations`
+Git status: active-dirty: preserved user edit in tests/integration/test_postgres_real.py
+Agent lane: Materialized-view feature transformations; one agent only
+Depends on: PR-103, PR-110
+Commit: `feat(pr-111): transform fed policy origin features`
+Design patterns: Specification/Policy Object, Materialized View, Pure Transformation.
+
+Description:
+- R1: Store the four canonical Fed-policy basis-point origins in `macro_loader.macro_raw` and expose them unchanged in the downstream feature contract.
+- R2: Add exactly `delta_1obs`, `delta_5obs`, and `delta_20obs` for each origin using prior-valid-observation semantics; NULL observations do not count and no calendar-day lag/fill/interpolation/carry is allowed.
+- R3: Add one causal 60-valid-observation population z-score for each origin, NULL before warm-up or at zero variance.
+- R4: Add the existing positive momentum-autocorrelation family (`1/60`, `5/60`, `20/120`) for each origin using causal one-observation changes.
+- R5: Do not create Fed log-level, shifted-log, geometric-return, or ratio-return transformations because these origins may be negative or zero; preserve the private Fed lineage relation for availability and integrity.
+- R6: Advance the materialized-view contract version/fingerprint once, preserve one-refresh-per-semantic-sync behavior, and keep the raw Gold source columns and Fed lineage values synchronized atomically.
+
+Acceptance:
+- A1 (verifies R1): schema and view inspection show all four canonical origins in `macro_raw` and exactly once in `macro_features` with unchanged basis-point values.
+- A2 (verifies R2): sparse and NULL fixtures prove all 12 delta columns use the 1st/5th/20th previous valid origin observation.
+- A3 (verifies R3): each z-score is NULL through the 59th valid observation, matches `ddof=0` at the 60th, and is NULL at zero variance.
+- A4 (verifies R4): all 12 momentum columns match existing clipping/window semantics, remain NULL on insufficient or undefined windows, and never cross-fill missing origins.
+- A5 (verifies R5): signed-value fixtures remain valid and exact search proves no Fed log/geometric/shifted-log/ratio-return expression exists.
+- A6 (verifies R6): migration, synchronization, refresh, digest, and no-op replay tests prove deterministic 32-column Fed exposure and one refresh only for semantic mutation.
+
 
 ## Delivery Policy
 

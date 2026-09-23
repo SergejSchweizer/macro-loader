@@ -3,6 +3,7 @@ import pytest
 from application.macro_feature_catalog import (
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
+    FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     RAW_SERIES,
@@ -38,10 +39,20 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
     assert "vix9d_vix3m_log_ratio" in names
     assert "us_10y_minus_us_2y" in names
     assert "usd_broad_log_return_20obs" in names
+    for origin in FED_POLICY_ORIGIN_COLUMNS:
+        assert origin in names
+        for lag in (1, 5, 20):
+            assert f"{origin}_delta_{lag}obs" in names
+        assert f"{origin}_zscore_60obs" in names
+        for lag, window in MOMENTUM_POLICY.lag_windows:
+            assert f"{origin}_momentum_autocorr_{lag}_{window}obs" in names
+        assert not any(
+            name.startswith(f"{origin}_log_") or f"{origin}_return_" in name for name in names
+        )
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 2
+    assert MACRO_FEATURE_VIEW_VERSION == 3
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 

@@ -7,7 +7,8 @@ This document is the durable engineering contract for `macro-loader`.
 ## Current operational status
 
 As of 2026-09-23, `main` and `origin/main` are aligned through the merged backlog
-sequence PR-80–PR-109 (GitHub PRs #81–#110), with required CI gates green. Production-like
+sequence PR-80–PR-110 (GitHub PRs #81–#112), with required CI gates green. PR-111
+is the active Fed-origin transformation scope. Production-like
 full-history and Sunday-cron acceptance are explicit, guarded commands and require the
 authorized deployment environment; this development workspace does not claim a live
 production run. The browser-based CME export is QA-only; production uses the public
@@ -461,6 +462,14 @@ features are `fed_next_expected_move_bp`, `fed_path_slope_m3_bp`,
 previous valid observation, not five calendar days. Snapshot availability is
 carried as explicit lineage; missing free-history observations remain null
 rather than being fabricated or carried forward.
+
+In the PostgreSQL serving plane, these four signed basis-point origins are
+materialized in `macro_loader.macro_raw`. The `macro_features` view preserves
+the origins and adds exactly their valid-observation deltas at 1, 5, and 20
+observations, their causal 60-observation population z-scores, and the existing
+positive momentum-autocorrelation pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`.
+Fed log-level, shifted-log, geometric-return, and ratio-return transformations
+are forbidden because the origins may be zero or negative.
 
 Forbidden:
 

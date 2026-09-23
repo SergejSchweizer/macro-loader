@@ -136,7 +136,20 @@ def test_real_fed_policy_sync_reconciles_mutations_and_replay(
 def test_real_fed_policy_schema_exposes_exact_columns(
     fed_policy_repository: tuple[FedPolicyPostgresRepository, str, PostgresGoldSchemaMigrator],
 ) -> None:
-    _, dsn, _ = fed_policy_repository
+    repository, dsn, _ = fed_policy_repository
+    with psycopg.connect(dsn) as connection:
+        connection.execute(
+            'INSERT INTO macro_loader."macro_raw" ("timestamp_m1") VALUES (%s)',
+            (datetime(2026, 8, 1, tzinfo=UTC),),
+        )
+        connection.commit()
+    repository.sync(
+        _frame([1]),
+        source_build_id="build-schema",
+        schema_version=1,
+        feature_version=1,
+        synced_at_utc=datetime(2026, 8, 2, tzinfo=UTC),
+    )
     with psycopg.connect(dsn) as connection:
         columns = connection.execute(
             "SELECT column_name FROM information_schema.columns "
@@ -144,12 +157,24 @@ def test_real_fed_policy_schema_exposes_exact_columns(
             "ORDER BY ordinal_position"
         ).fetchall()
         assert tuple(row[0] for row in columns) == FED_POLICY_COLUMNS
+        raw_columns = connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw' "
+            "ORDER BY ordinal_position"
+        ).fetchall()
+        assert tuple(row[0] for row in raw_columns)[-4:] == FED_POLICY_FEATURE_COLUMNS
+        raw_values = connection.execute(
+            'SELECT "fed_next_expected_move_bp", "fed_path_slope_m3_bp", '
+            '"fed_next_uncertainty_bp", "fed_repricing_5obs_bp" '
+            'FROM macro_loader."macro_raw"'
+        ).fetchone()
+        assert raw_values == (1.0, None, 2.0, 0.0)
         view_columns = connection.execute(
             "SELECT attname FROM pg_attribute "
             "WHERE attrelid = 'macro_loader.macro_features'::regclass "
             "AND attnum > 0 AND NOT attisdropped ORDER BY attnum"
         ).fetchall()
-        assert tuple(row[0] for row in view_columns)[-4:] == FED_POLICY_FEATURE_COLUMNS
+        assert tuple(row[0] for row in view_columns)[-32::8] == FED_POLICY_FEATURE_COLUMNS
 
 
 def test_real_fed_policy_tamper_fails_closed(

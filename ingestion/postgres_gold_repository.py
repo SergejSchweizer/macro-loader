@@ -15,6 +15,7 @@ from application.fed_policy_postgres import FED_POLICY_DATASET_ID, FED_POLICY_FE
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
+    FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     RAW_SERIES,
@@ -377,11 +378,12 @@ _FEATURES_VIEW_COLUMNS: tuple[str, ...] = (
 # source-controlled catalog.  Keeping the old literal in this module eases
 # upgrade compatibility for consumers that import it, but migrations and
 # conformance use the catalog-derived contract from this point onward.
-_FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:] + FED_POLICY_FEATURE_COLUMNS
+_FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
+_CONSUMER_COLUMNS = (*_FEATURE_COLUMNS, *FED_POLICY_ORIGIN_COLUMNS)
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
-    {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _FEATURE_COLUMNS)}
+    {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _CONSUMER_COLUMNS)}
 )"""
 _FED_POLICY_DDL = f"""CREATE TABLE IF NOT EXISTS {_FED_POLICY_TABLE} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
@@ -451,14 +453,9 @@ _FED_POLICY_COLUMNS = tuple(
     for column in GOLD_COLUMNS
     if column.startswith("fed_") or column == "fomc_business_days_to_next"
 )
-_FED_POLICY_COLUMN_MIGRATION = (
-    f"ALTER TABLE {_CONSUMER} "
-    + ", ".join(
-        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
-        for column in _FED_POLICY_COLUMNS
-    )
-    if _FED_POLICY_COLUMNS
-    else "SELECT 1"
+_FED_POLICY_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
+    f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+    for column in FED_POLICY_ORIGIN_COLUMNS
 )
 _FED_POLICY_RENAME_MIGRATION = (
     "ALTER TABLE "
@@ -584,6 +581,64 @@ def _macro_features_view_query() -> str:
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
+    for origin in FED_POLICY_ORIGIN_COLUMNS:
+        level = _quote(origin)
+        source = _quote(f"{origin}_source")
+        changes = _quote(f"{origin}_changes")
+        features = _quote(f"{origin}_features")
+        lag_sql = ", ".join(
+            f"lag(level, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in (1, 5, 20)
+        )
+        delta_sql = ", ".join(
+            f"level - {_quote(f'lag_{lag}')} AS {_quote(f'delta_{lag}')}" for lag in (1, 5, 20)
+        )
+        change_lags = ", ".join(
+            f"lag(level - {_quote('lag_1')}, {lag}) OVER (ORDER BY timestamp_m1) "
+            f"AS {_quote(f'change_lag_{lag}')}"
+            for lag in (1, 5, 20)
+        )
+        source_ctes.append(
+            f"{source} AS (SELECT timestamp_m1, {level} AS level, {lag_sql} "
+            f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
+            "WINDOW ordered AS (ORDER BY timestamp_m1))"
+        )
+        source_ctes.append(
+            f"{changes} AS (SELECT *, {delta_sql}, level - {_quote('lag_1')} AS change, "
+            f"{change_lags} FROM {source})"
+        )
+        expressions = [
+            f"{_quote('delta_' + str(lag))} AS {_quote(f'{origin}_delta_{lag}obs')}"
+            for lag in (1, 5, 20)
+        ]
+        expressions.append(
+            f"CASE WHEN count(level) OVER window_60 = 60 "
+            f"AND stddev_pop(level) OVER window_60 <> 0 "
+            f"THEN (level - avg(level) OVER window_60) / stddev_pop(level) OVER window_60 "
+            f"END AS {_quote(f'{origin}_zscore_60obs')}"
+        )
+        for lag, window in MOMENTUM_POLICY.lag_windows:
+            expressions.append(
+                f"CASE WHEN count(change) OVER window_{window} = {window} "
+                f"AND count({_quote(f'change_lag_{lag}')}) OVER window_{window} = {window} "
+                f"THEN greatest(corr(change, {_quote(f'change_lag_{lag}')}) "
+                f"OVER window_{window}, 0.0) END AS "
+                f"{_quote(f'{origin}_momentum_autocorr_{lag}_{window}obs')}"
+            )
+        source_ctes.append(
+            f"{features} AS (SELECT timestamp_m1, {', '.join(expressions)} FROM {changes} "
+            "WINDOW window_60 AS (ORDER BY timestamp_m1 ROWS BETWEEN 59 PRECEDING "
+            "AND CURRENT ROW), "
+            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW))"
+        )
+        joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
+        for column in _FEATURES_VIEW_COLUMNS:
+            if (
+                column.startswith(f"{origin}_delta_")
+                or column.startswith(f"{origin}_zscore_")
+                or column.startswith(f"{origin}_momentum_")
+            ):
+                feature_select.append(f"{features}.{_quote(column)}")
+
     cross_expressions = {
         "vix9d_vix_ratio": (
             'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" '
@@ -607,7 +662,7 @@ def _macro_features_view_query() -> str:
         expression.rsplit(".", 1)[-1].strip('"'): expression for expression in feature_select
     }
     fed_expressions = {
-        column: f"fed.{_quote(column)} AS {_quote(column)}" for column in FED_POLICY_FEATURE_COLUMNS
+        column: f"raw.{_quote(column)} AS {_quote(column)}" for column in FED_POLICY_ORIGIN_COLUMNS
     }
     ordered_features = [
         feature_expressions.get(
@@ -626,9 +681,7 @@ def _macro_features_view_query() -> str:
     return (
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH {', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
-        f"FROM {_CONSUMER} raw LEFT JOIN {_FED_POLICY_TABLE} fed "
-        'ON fed."timestamp_m1" = raw."timestamp_m1" '
-        f"{' '.join(joins)} "
+        f"FROM {_CONSUMER} raw {' '.join(joins)} "
         "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"
     )
 
@@ -728,7 +781,7 @@ _SCHEMA_SPECIFICATION = (
         (_TIMESTAMPTZ6_NOT_NULL,)
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
-            for column in _FEATURE_COLUMNS
+            for column in (*_FEATURE_COLUMNS, *FED_POLICY_ORIGIN_COLUMNS)
         ),
         ("timestamp_m1",),
     ),
