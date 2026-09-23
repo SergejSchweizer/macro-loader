@@ -25,6 +25,7 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
+    POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldRowPayload,
@@ -272,7 +273,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         migrations = connection.execute(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
-    assert {column[0] for column in columns} == set(GOLD_COLUMNS)
+    assert {column[0] for column in columns} == set(POSTGRES_RAW_COLUMNS)
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
 
     timestamp = _timestamp(20)
