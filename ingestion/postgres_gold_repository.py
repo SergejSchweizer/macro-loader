@@ -781,7 +781,7 @@ _SCHEMA_SPECIFICATION = (
         (_TIMESTAMPTZ6_NOT_NULL,)
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
-            for column in (*_FEATURE_COLUMNS, *FED_POLICY_ORIGIN_COLUMNS)
+            for column in _FEATURE_COLUMNS
         ),
         ("timestamp_m1",),
     ),
