@@ -187,11 +187,11 @@ Acceptance:
 ## PR-101: Implement Versioned CME FedWatch Probability Reconstruction
 
 PR name: `fed-policy-probability-engine`
-Status: In Progress
+Status: Ready
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-101/fed-policy-probability-engine`
-Git status: `active-dirty: preserved user integration-test edit`
+Git status: `pushed-ci-green`
 Agent lane: Probability reconstruction; one agent only
 Depends on: PR-99, PR-100
 Commit: `feat(pr-101): reconstruct cme fedwatch probabilities`
