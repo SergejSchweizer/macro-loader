@@ -59,15 +59,17 @@ PR-97 contract
                                                           PR-102 four features
                                                             |             \
                                                             v              v
-                                                     PR-103 PostgreSQL   PR-106 differential QA
-                                                            |              |
-                                                            v              |
-                                                     PR-104 EOD app         |
-                                                            |              |
-                                                            v              |
-                                                     PR-105 cron            |
+                                                     PR-103 PostgreSQL   PR-106 CME differential QA
+                                                       |    |
+                                                       |    +--> PR-104 EOD app --> PR-105 cron
+                                                       |
+                                                       +--> PR-111 standard origin transforms
+                                                                  |
+                                                                  v
+                                                          PR-112 transform parity QA
                                                             \             /
-                                                             v           v
+                                                             \           /
+                                                              v         v
                                                           PR-107 real PostgreSQL QA
                                                                   |
                                                                   v
@@ -79,6 +81,31 @@ PR-97 contract
                                                                   v
                                                           PR-110 cleanup/docs
 ```
+
+## PR-113: Extend Fed Policy Program With Origin-Transformation Parity
+
+PR name: `fed-policy-transform-backlog`
+Status: In Progress
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-113/fed-policy-transform-backlog`
+Git status: `active-clean`
+Agent lane: Backlog/governance extension; one agent only
+Depends on: none
+Commit: `docs(pr-113): add fed policy origin transformation program`
+Design patterns: Specification/Policy Object.
+
+Description:
+- R1: Extend the active Fed-policy delivery program with one atomic implementation PR that treats the four canonical Fed-policy basis-point features as materialized-view origin features and applies every existing reusable transformation family that is mathematically valid for signed/zero basis-point series.
+- R2: Add a separate QA PR that independently proves the complete Fed transformation schema, formulas, valid-observation semantics, warm-up/NULL behavior, PostgreSQL materialization, version/fingerprint changes, and signed-value exclusions before real-PostgreSQL/full-history/cron acceptance can pass.
+- R3: Update the downstream dependency chain so real PostgreSQL QA, full-history acceptance, cron acceptance, and final cleanup cannot complete without the transformation implementation and its independent QA.
+- R4: Preserve semantic correctness over superficial symmetry: natural-log levels and geometric returns are explicitly forbidden for these signed/zero bp origins unless a future separately specified transformation defines mathematically valid signed semantics.
+
+Acceptance:
+- A1 (verifies R1): BACKLOG contains PR-111 with an exact closed-world list of four Fed origin features and all approved derived families/column counts.
+- A2 (verifies R2): BACKLOG contains PR-112 as an independent QA scope with exact reference-formula, PostgreSQL, warm-up/gap, schema/version, and negative/zero-value acceptance.
+- A3 (verifies R3): PR-107/108/109/110 dependencies and acceptance text require PR-112 evidence before downstream PASS.
+- A4 (verifies R4): neither PR-111 nor PR-112 permits `ln(fed_feature)`, shifted-log workarounds, or geometric return ratios for a feature that may be zero/negative.
 
 ## PR-97: Freeze Fed Policy EOD Contract And Delivery Program
 
@@ -344,6 +371,64 @@ Acceptance:
 - A4 (verifies R4): before-publication/before-announcement fixtures exclude unavailable information and become eligible only after the recorded availability boundary.
 - A5 (verifies R5): the parity artifact is deterministic/sanitized and can report PASS only if A1-A4 all pass.
 
+## PR-111: Apply Standard Origin Transformations To Fed Policy Features
+
+PR name: `fed-policy-origin-transformations`
+Status: Planned
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-111/fed-policy-origin-transformations`
+Git status: `not-started (branch absent)`
+Agent lane: Materialized-view feature transformations; one agent only
+Depends on: PR-103
+Commit: `feat(pr-111): transform fed policy origin features`
+Design patterns: Specification/Policy Object, Materialized View, Pure Transformation.
+
+Description:
+- R1: Register exactly the four canonical Fed-policy basis features — `fed_next_expected_move_bp`, `fed_path_slope_m3_bp`, `fed_next_uncertainty_bp`, and `fed_repricing_5obs_bp` — as explicit closed-world origin inputs to the PostgreSQL materialized feature catalog while retaining the four original columns unchanged.
+- R2: For each of the four origins, add exactly `delta_1obs`, `delta_5obs`, and `delta_20obs` using the same prior-valid-observation semantics as the existing source transformations; NULL source observations do not count and no calendar-day lag/fill/interpolation/carry is allowed.
+- R3: For each origin, add `zscore_60obs` using a 60-valid-observation causal population mean/stddev (`ddof=0`), NULL before full warm-up or at zero variance, with no future/centered window.
+- R4: For each origin, add the existing positive momentum-autocorrelation family `momentum_autocorr_1_60obs`, `momentum_autocorr_5_60obs`, and `momentum_autocorr_20_120obs`, computed from causal one-valid-observation changes with the same clipping/undefined-to-NULL semantics as current origin features.
+- R5: Do not create Fed `*_log_level`, shifted-log, percentage/geometric-return, or ratio-return transformations because these bp features may be negative or zero; transformation parity means applying every shared family with valid signed semantics, not forcing mathematically invalid transforms.
+- R6: Append exactly 28 derived Fed columns (7 per origin) to the explicit materialized-view catalog in deterministic order, advance the materialized-view contract version/fingerprint exactly once, keep raw Gold/`macro_raw` and the private four-column Fed source relation unchanged, and preserve the existing one-refresh-per-semantic-sync lifecycle.
+
+Acceptance:
+- A1 (verifies R1): catalog/schema inspection shows the four canonical Fed origins exactly once, with no renamed/implicit wildcard origin and unchanged basis-point values.
+- A2 (verifies R2): irregular-date/NULL fixtures prove all 12 Fed delta columns select the 1st/5th/20th previous valid value exactly and differ from calendar-row/calendar-day implementations.
+- A3 (verifies R3): all four z-score columns are NULL through the 59th valid observation, match hand-calculated population z-scores from the 60th valid observation onward, and remain NULL at zero variance.
+- A4 (verifies R4): all 12 Fed momentum-autocorrelation columns match the existing materialized-view formula/window semantics, clip negative finite correlation to zero, remain NULL on insufficient/undefined windows, and never cross-fill missing origin observations.
+- A5 (verifies R5): exact catalog/code search proves zero Fed log-level/geometric-return/shifted-log columns or SQL expressions exist; negative, zero, and sign-crossing fixtures remain valid inputs rather than being dropped or shifted for logarithms.
+- A6 (verifies R6): the view contains exactly 28 new derived Fed columns plus the four canonical origins (32 Fed columns total), deterministic order/types match the catalog, view version/fingerprint advance once, raw/private-source contracts remain unchanged, and no-op sync still causes zero refreshes.
+
+## PR-112: Prove Fed Origin Transformation Parity In PostgreSQL
+
+PR name: `fed-policy-origin-transformations-qa`
+Status: Planned
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-112/fed-policy-origin-transformations-qa`
+Git status: `not-started (branch absent)`
+Agent lane: Independent transformation QA; one agent only
+Depends on: PR-111
+Commit: `test(pr-112): prove fed policy transformation parity`
+Design patterns: Differential Testing, Golden Master, End-to-End Test, Fail-Closed Verification.
+
+Description:
+- R1: Build an independent reference calculator that consumes only the four canonical Fed origin series and reproduces all 28 PR-111 derived columns without importing/calling the production SQL-expression builder; compare every materialized-view value on deterministic fixtures.
+- R2: Cover exact valid-observation semantics for sparse/non-overlapping origin calendars, first-valid/warm-up boundaries, 1/5/20 lags, 60-observation z-scores, 60/120 momentum windows, zero variance, constant changes, negative correlation, and NaN/infinity rejection with no fill/interpolation/carry.
+- R3: Add signed-value fixtures spanning negative -> zero -> positive expectations and prove all approved delta/z-score/autocorrelation features remain defined according to their formulas while every Fed log-level/geometric-return/shifted-log column remains absent.
+- R4: Run real-PostgreSQL materialized-view QA that verifies exact 32-column Fed exposure (4 origins + 28 derived), deterministic order/types, catalog family metadata, view version/fingerprint, normalized view definition, grants/ownership, and exact equality/tolerance against the independent reference.
+- R5: Prove revision and refresh behavior: changing one historical canonical Fed origin recomputes the exact causal downstream lag/rolling windows after one materialized-view refresh; immediate unchanged replay causes zero source mutations and zero refreshes.
+- R6: Emit a deterministic sanitized `artifacts/acceptance/fed-policy-transform-parity-v1.json` listing all 32 Fed columns, formula-family coverage, tested boundaries, max numeric errors, PostgreSQL contract/version/fingerprint, refresh counts, signed-value exclusions, and PASS|FAIL.
+
+Acceptance:
+- A1 (verifies R1): all 28 derived Fed columns are independently recomputed and compared; missing/extra/renamed columns or a deliberately altered production formula makes QA fail.
+- A2 (verifies R2): every listed lag/window/warm-up/gap/undefined case has an exact assertion using per-origin valid-observation support and proves no calendar-day or carry semantics.
+- A3 (verifies R3): negative/zero/sign-crossing data produce valid approved transformations where mathematically defined, and QA fails if any logarithmic/geometric/shifted-log Fed transformation appears.
+- A4 (verifies R4): real PostgreSQL returns exactly 32 Fed columns with the expected formulas/order/types/version/fingerprint/grants and matches the independent reference within one declared source-controlled tolerance.
+- A5 (verifies R5): historical revision changes only the mathematically affected causal windows after exactly one refresh, while unchanged replay records exactly zero semantic mutations/refreshes and preserves the view fingerprint.
+- A6 (verifies R6): the committed artifact is deterministic/sanitized, covers 100% of the four origins and 28 derived columns, and cannot report PASS unless A1-A5 all pass.
+
 ## PR-107: Run Real-PostgreSQL Fed Policy Integration QA
 
 PR name: `fed-policy-real-postgres-qa`
@@ -353,20 +438,20 @@ PR: #108 (merged)
 Git branch: `pr-107/fed-policy-real-postgres-qa`
 Git status: merged
 Agent lane: Real PostgreSQL QA; one agent only
-Depends on: PR-103, PR-106
+Depends on: PR-106, PR-112
 Commit: `test(pr-107): validate fed policy postgres integration`
 Design patterns: End-to-End Test, Reconciliation, Fail-Closed Verification.
 
 Description:
 - R1: Add a real-PostgreSQL suite for clean bootstrap and upgrade from the current production-shaped schema through migrations, Fed-policy sync, materialized-view refresh, independent conformance verification, and migration rerun.
-- R2: Verify exact private-source and public `macro_features` schemas, ordered four-column exposure, view version/fingerprint, finite-or-NULL values, timestamp uniqueness, ownership/grants, and downstream read-only consumer compatibility.
+- R2: Verify exact private-source and public `macro_features` schemas, the four canonical Fed origins plus all 28 PR-111 derived columns (32 Fed columns total), view version/fingerprint, finite-or-NULL values, timestamp uniqueness, ownership/grants, and downstream read-only consumer compatibility.
 - R3: Exercise insert, historical revision/update, explicit source-row removal during reconcile, mixed delta, and immediate no-op replay; after each case source/consumer/hash/state/view reconciliation must be exact.
 - R4: Inject raw private-table tamper, view-definition/schema drift, owner/grant drift, digest/state drift, and refresh failure; every case must fail closed and preserve/recover through the documented migrate/sync path.
 - R5: Emit deterministic PostgreSQL QA evidence with mutation/refresh counts, normalized object definitions, schema/version/fingerprint, conformance result, and PASS|FAIL without credentials.
 
 Acceptance:
 - A1 (verifies R1): clean and upgrade paths converge to the same PostgreSQL contract, migration rerun is a no-op, and independent verification passes only after valid Fed synchronization/refresh.
-- A2 (verifies R2): exact introspection/query assertions cover every required column/type/grant/version property and a regime-engine-shaped read sees the four features through the supported macro feature plane.
+- A2 (verifies R2): exact introspection/query assertions cover every required column/type/grant/version property and a regime-engine-shaped read sees all 32 Fed origin/derived features through the supported macro feature plane.
 - A3 (verifies R3): all mutation classes reconcile exactly and the unchanged replay produces zero semantic row mutations and zero materialized-view refreshes.
 - A4 (verifies R4): every deliberate drift/failure prevents false success and the documented repair path restores exact conformance without touching unrelated schemas.
 - A5 (verifies R5): the QA evidence is deterministic/sanitized and PASS is impossible if any schema/data/refresh/reconciliation assertion fails.
@@ -380,23 +465,23 @@ PR: #109 (merged)
 Git branch: `pr-108/fed-policy-2010-full-history-acceptance`
 Git status: merged
 Agent lane: Production-like historical acceptance; one agent only
-Depends on: PR-99, PR-100, PR-102, PR-107
+Depends on: PR-99, PR-100, PR-102, PR-107, PR-112
 Commit: `test(pr-108): execute fed policy history acceptance`
 Design patterns: End-to-End Acceptance, Reconciliation, Fail-Closed Verification.
 
 Description:
 - R1: In an explicitly authorized environment, execute the real historical Fed-policy reconcile from requested start `2010-01-01` through the current completed source date using the persistent lake and real free/public provider configuration, then synchronize PostgreSQL and run independent conformance verification.
 - R2: Prove source coverage from the first eligible 2010 trading date (expected 2010-01-04, verified rather than assumed) through the present with exact settlement-curve/date counts and an explicit unexplained-gap report; unavailable public history must make this acceptance FAIL rather than create synthetic observations.
-- R3: Verify the four-feature history is unique, ordered, finite-or-NULL, causal, and populated whenever sufficient source/three-meeting support exists; perform exact/independent spot checks across at least 2010, the 2015 liftoff period, 2020 emergency policy, the 2022 hiking cycle, and a recent period.
-- R4: Query real PostgreSQL as the downstream consumer and verify min/max timestamps, exact four columns in `macro_features`, version/fingerprint, row/value parity with canonical local output, and no unintended changes to raw Gold/`macro_raw`.
+- R3: Verify the four canonical Fed-origin histories and all 28 materialized derived Fed histories are unique, ordered, finite-or-NULL, causal, and populated only after their exact valid-observation warm-up; perform exact/independent spot checks across at least 2010, the 2015 liftoff period, 2020 emergency policy, the 2022 hiking cycle, and a recent period.
+- R4: Query real PostgreSQL as the downstream consumer and verify min/max timestamps, exact 32 Fed columns in `macro_features`, version/fingerprint, canonical-origin parity plus independently recomputed derived-value parity, and no unintended changes to raw Gold/`macro_raw`.
 - R5: Immediately run normal EOD update and PostgreSQL sync unchanged; require bounded recent source requests, zero semantic data mutations, zero view refresh, and identical relevant fingerprints.
 - R6: Commit only a deterministic sanitized `artifacts/acceptance/fed-policy-history-v1.json` with source identities, min/max/count/gaps, methodology/version hashes, spot-check evidence, PostgreSQL parity, replay counts, and PASS|FAIL.
 
 Acceptance:
 - A1 (verifies R1): every declared real stage executes in order against the intended persistent lake/PostgreSQL endpoint and independent verification runs after sync.
 - A2 (verifies R2): the artifact proves the actual first eligible 2010 date and exact continuous/explicit-gap coverage; any unresolved required-history gap prevents PASS and is not filled.
-- A3 (verifies R3): all four feature semantics pass independent spot checks over the listed policy regimes with availability evidence and no NaN/infinity/look-ahead.
-- A4 (verifies R4): downstream PostgreSQL values/timestamps/version/fingerprint match canonical local output exactly within declared numeric tolerances while raw Gold/`macro_raw` remain unchanged.
+- A3 (verifies R3): all four canonical feature semantics plus every PR-111 derived family pass independent spot checks over the listed policy regimes with correct warm-up/availability and no NaN/infinity/look-ahead.
+- A4 (verifies R4): downstream PostgreSQL canonical origins match local output and all 28 derived values match the independent reference within declared tolerances; timestamps/version/fingerprint are exact while raw Gold/`macro_raw` remain unchanged.
 - A5 (verifies R5): immediate normal replay is demonstrably delta-bounded and records exactly zero semantic mutations/refreshes with stable fingerprints.
 - A6 (verifies R6): the committed artifact is deterministic/sanitized and PASS is impossible unless A1-A5 all pass.
 
@@ -409,13 +494,13 @@ PR: #110 (merged)
 Git branch: `pr-109/fed-policy-cron-acceptance`
 Git status: merged
 Agent lane: Operational cron acceptance QA; one agent only
-Depends on: PR-105, PR-107, PR-108
+Depends on: PR-105, PR-107, PR-108, PR-112
 Commit: `test(pr-109): execute fed policy cron acceptance`
 Design patterns: End-to-End Acceptance, Command, Single-Instance Lock, Failure Injection.
 
 Description:
 - R1: Execute the exact installed/source-controlled daily cron wrapper under the real scheduler/service-account configuration, working directory, timezone, lock, persistent lake, logs, and PostgreSQL roles; direct Python substitution is forbidden for this acceptance.
-- R2: Demonstrate a run with one or more newly available/revised ZQ observations produces the exact local feature delta, exact PostgreSQL mutations, exactly one materialized-view refresh, and conformant downstream output; an immediate rerun must produce zero semantic mutations and zero refreshes.
+- R2: Demonstrate a run with one or more newly available/revised ZQ observations produces the exact four-origin local feature delta, exact PostgreSQL mutations, exactly one materialized-view refresh, and conformant 32-column Fed origin/derived downstream output; an immediate rerun must produce zero semantic mutations and zero refreshes.
 - R3: Demonstrate recovery after intentionally skipping multiple scheduled runs and demonstrate weekend/holiday execution; catch-up must use bounded overlap/delta requests only and no-data runs must be successful no-ops.
 - R4: Inject CME/source unavailability before local publication and PostgreSQL/refresh failure after local publication separately; the first must prevent PostgreSQL mutation, the second must return non-zero and preserve the last committed PostgreSQL/view state for safe retry.
 - R5: Verify lock contention, cwd/Git identity, scheduler timezone/time, log path, exit-code propagation, runtime/admin privilege separation, and secret redaction using the installed execution path.
@@ -423,7 +508,7 @@ Description:
 
 Acceptance:
 - A1 (verifies R1): evidence identifies the exact cron wrapper/service identity/config/cwd/timezone/lock/log path used and proves no substitute execution path was used.
-- A2 (verifies R2): mutation run records the exact expected row changes plus one refresh and immediate rerun records exactly zero semantic changes/refreshes with identical downstream fingerprint.
+- A2 (verifies R2): mutation run records the exact expected origin changes, independently correct affected derived values, and one refresh; immediate rerun records exactly zero semantic changes/refreshes with identical downstream fingerprint.
 - A3 (verifies R3): missed-run recovery stays within bounded delta semantics and weekend/holiday invocation succeeds without fabricated observations or hidden reconcile.
 - A4 (verifies R4): both injected failures produce non-zero status with the required skip/rollback behavior and no false PASS or partially advanced PostgreSQL/view state.
 - A5 (verifies R5): all installed operational/privilege/redaction assertions pass and lock contention prevents concurrent execution.
@@ -438,20 +523,20 @@ PR: #111 (merged)
 Git branch: `pr-110/fed-policy-runtime-cleanup-docs`
 Git status: merged
 Agent lane: Cleanup/documentation; one agent only
-Depends on: PR-106, PR-107, PR-108, PR-109
+Depends on: PR-106, PR-107, PR-108, PR-109, PR-112
 Commit: `refactor(pr-110): retire legacy fedwatch runtime path`
 Design patterns: Single Source of Truth, Ports and Adapters.
 
 Description:
 - R1: Remove/deactivate legacy production wiring that can source model features directly from browser-only CME FedWatch exports or the simplified legacy `_outcomes` approximation; retain any browser export adapter only under an explicit QA boundary required by PR-106.
 - R2: Remove/rename stale `fed_m3_expected_move_bp` contracts/tests/docs and any dead Fed-policy pipeline injection left behind by the pre-PR-97 architecture, without deleting canonical historical snapshots/evidence needed for audit.
-- R3: Update README, ARCHITECTURE, BACKLOG status, operational instructions, data-source/availability semantics, semantic/view versions, and cron documentation to the verified post-PR-109 state; do not claim historical/production PASS beyond the committed acceptance artifacts.
+- R3: Update README, ARCHITECTURE, BACKLOG status, operational instructions, data-source/availability semantics, the four origin plus 28 derived Fed transformation contract, semantic/view versions, and cron documentation to the verified post-PR-109/PR-112 state; do not claim historical/production PASS beyond the committed acceptance artifacts.
 - R4: Add repository-wide reference/import/startup checks proving one authoritative Fed-policy runtime path, all required QA paths remain available, no stale browser production dependency survives, and the complete required quality gate remains green.
 
 Acceptance:
 - A1 (verifies R1): production call-path/code search finds no browser FedWatch or simplified `_outcomes` feature source, while PR-106 QA fixtures/tools remain explicitly isolated and functional.
 - A2 (verifies R2): `fed_m3_expected_move_bp` is absent from the public/runtime contract, no dead injected Fed-policy source remains in daily orchestration, and audit evidence/history is preserved.
-- A3 (verifies R3): all four sidecars/ops docs agree on source, formulas, point-in-time availability, 2010 coverage evidence, PostgreSQL publication, daily cron, and current versions with no unverified success claims.
+- A3 (verifies R3): all four sidecars/ops docs agree on source, canonical formulas, 28 derived transformation formulas/exclusions, point-in-time availability, 2010 coverage evidence, PostgreSQL publication, daily cron, and current versions with no unverified success claims.
 - A4 (verifies R4): reference/import/startup checks and `lint/type/unit/integration/coverage` are green and repository search identifies exactly one production probability/feature pipeline.
 
 ## PR-111: Materialize Fed Origins And Signed Transformations
@@ -857,6 +942,7 @@ because replacement/cleanup PRs were occasionally opened under the same backlog 
 - PR-86–88: Python-vs-SQL formula parity was proven, duplicate Python feature runtime was removed, and the feature library was validated on real PostgreSQL.
 - PR-89–90: Full-history and installed Sunday-cron acceptance harnesses/artifacts for the materialized macro feature library were delivered.
 - PR-96: Raw source exposure in `macro_features` was changed to explicit logarithmic `*_log_level` columns; GitHub PRs #93–#95 were superseded/closed attempts of the same scope and #96 is the merged implementation.
+- PR-97–105: Fed-policy EOD contract, ZQ persistence/acquisition, point-in-time Fed references, probability reconstruction, four canonical features, PostgreSQL publication, delta orchestration, and installed daily cron were delivered; PR-106+ continue QA/acceptance and PR-111/112 extend origin-transform parity.
 
 The active delivery program now begins with PR-97 above. Completed scopes remain historical context and
 must not be reopened or silently rewritten to implement PR-97+ work.
