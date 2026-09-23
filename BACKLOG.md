@@ -39,7 +39,7 @@ Status: In Progress
 Updated: 2026-09-23
 PR: #117
 Git branch: `pr-114/fed-policy-macro-raw-contract`
-Git status: `pushed-ci-failing: integration schema contract mismatch fixed in b9d9678; checks rerunning`
+Git status: `pushed-ci-failing`
 Agent lane: Serving schema/migration; one agent only
 Depends on: PR-113
 Commit: `feat(pr-114): add fed policy origins to macro raw contract`
