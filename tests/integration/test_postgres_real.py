@@ -14,6 +14,7 @@ import pytest
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
+from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
@@ -425,7 +426,10 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
                WHERE attrelid = 'macro_loader.macro_features'::regclass
                  AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
         ).fetchall()
-        assert tuple(row[0] for row in columns) == FEATURE_COLUMNS
+        assert tuple(row[0] for row in columns) == (
+            *FEATURE_COLUMNS,
+            *FED_POLICY_FEATURE_COLUMNS,
+        )
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()

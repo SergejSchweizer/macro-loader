@@ -782,8 +782,7 @@ _SCHEMA_SPECIFICATION = (
     ),
 )
 _MIGRATIONS = (
-    (_CONSUMER_DDL,),
-    (_FED_POLICY_DDL,),
+    (_CONSUMER_DDL, _FED_POLICY_DDL),
     (_SYNC_STATE_DDL,),
     (_ROW_HASH_DDL,),
     (_MOMENTUM_COLUMN_MIGRATION,),
@@ -799,6 +798,8 @@ _MIGRATIONS = (
     # The view now publishes explicit *_log_level columns instead of levels.
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Rebuild again for the explicit *_log_level column-name contract.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
+    (_FED_POLICY_DDL,),
     _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
@@ -1566,6 +1567,7 @@ class PostgresGoldSchemaReconstructor:
                 cursor.execute("RESET ROLE")
                 for schema, table in (
                     (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
+                    (POSTGRES_SYNC_SCHEMA, FED_POLICY_DATASET_ID),
                     (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
                     (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
                 ):
