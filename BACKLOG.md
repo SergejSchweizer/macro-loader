@@ -403,11 +403,11 @@ Acceptance:
 ## PR-109: Execute Installed Daily Cron Acceptance
 
 PR name: `fed-policy-cron-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #110 (merged)
 Git branch: `pr-109/fed-policy-cron-acceptance`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: merged
 Agent lane: Operational cron acceptance QA; one agent only
 Depends on: PR-105, PR-107, PR-108
 Commit: `test(pr-109): execute fed policy cron acceptance`
@@ -432,11 +432,11 @@ Acceptance:
 ## PR-110: Retire Legacy FedWatch Runtime And Finalize Documentation
 
 PR name: `fed-policy-runtime-cleanup-docs`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-110/fed-policy-runtime-cleanup-docs`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Cleanup/documentation; one agent only
 Depends on: PR-106, PR-107, PR-108, PR-109
 Commit: `refactor(pr-110): retire legacy fedwatch runtime path`
