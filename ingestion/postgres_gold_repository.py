@@ -1322,11 +1322,7 @@ class PostgresGoldSyncRepository:
         )
         expected_tables = tuple(sorted((spec.schema, spec.name) for spec in _SCHEMA_SPECIFICATION))
         if actual_tables != expected_tables:
-            raise ValueError(
-                "PostgreSQL owned table contract does not match specification: "
-                f"actual_only={tuple(set(actual_tables) - set(expected_tables))!r}; "
-                f"expected_only={tuple(set(expected_tables) - set(actual_tables))!r}"
-            )
+            raise ValueError("PostgreSQL owned table contract does not match specification")
 
         cursor.execute(_OWNED_COLUMNS_SQL, schemas)
         actual_columns: dict[tuple[str, str], list[PostgresColumnSpecification]] = {}
@@ -1508,6 +1504,7 @@ class PostgresGoldSchemaMigrator:
                         "VALUES (%s, CURRENT_TIMESTAMP)",
                         (version,),
                     )
+                cursor.execute(_FED_POLICY_DDL)
                 for statement in _OWNERSHIP_MIGRATIONS:
                     cursor.execute(statement)
                 PostgresGoldSyncRepository._assert_schema_contract(cursor)
