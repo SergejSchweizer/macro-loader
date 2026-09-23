@@ -251,7 +251,7 @@ def test_real_postgres_independent_conformance_verifier_passes(
             "consumer_row_count": 1,
             "digest_row_count": 1,
             "role_count": 3,
-            "schema_table_count": 4,
+            "schema_table_count": 5,
             "temporal_probe_count": 2,
         },
     )
