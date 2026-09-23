@@ -22,6 +22,7 @@ import polars as pl
 from application.contracts import Provider
 from application.errors import ProviderHttpError
 from application.fed_policy_features import EOD_UTC, FED_POLICY_SNAPSHOT_COLUMNS
+from application.fed_policy_probability import reconstruct_meeting_distribution
 from application.fed_policy_settlements import empty_zq_settlements, validate_zq_settlements
 from application.ports.http import HttpRequest, HttpTransport, RequestContext
 
@@ -92,28 +93,10 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
 def _outcomes(
     settlements: dict[str, float], meeting: date, current_effr: float
 ) -> tuple[tuple[float, float], ...]:
-    month_key = _month_key(meeting.year, meeting.month)
-    if month_key not in settlements:
-        return ()
-    implied = 100.0 - settlements[month_key]
-    py, pm = _previous_month(meeting.year, meeting.month)
-    pre = (
-        100.0 - settlements[_month_key(py, pm)]
-        if _month_key(py, pm) in settlements
-        else current_effr
+    return tuple(
+        (outcome.move_bp, outcome.probability)
+        for outcome in reconstruct_meeting_distribution(settlements, meeting, current_effr)
     )
-    days = calendar.monthrange(meeting.year, meeting.month)[1]
-    after = days - meeting.day + 1
-    ny, nm = _next_month(meeting.year, meeting.month)
-    next_key = _month_key(ny, nm)
-    if after <= 3 and next_key in settlements:
-        post = 100.0 - settlements[next_key]
-    else:
-        post = (implied * days - pre * (meeting.day - 1)) / after
-    expected_quarters = (post - pre) * 100.0 / 25.0
-    lower = int(expected_quarters // 1)
-    remainder = max(0.0, min(1.0, expected_quarters - lower))
-    return ((lower * 25.0, 1.0 - remainder), ((lower + 1) * 25.0, remainder))
 
 
 class FedPolicyProvider:
@@ -162,9 +145,15 @@ class FedPolicyProvider:
                 for meeting in meetings:
                     if meeting <= trade_date:
                         continue
-                    for move, probability in _outcomes(settlements, meeting, effr[trade_date]):
-                        if probability > 0:
-                            rows.append(self._snapshot_row(trade_date, meeting, move, probability))
+                    for outcome in reconstruct_meeting_distribution(
+                        settlements, meeting, effr[trade_date]
+                    ):
+                        if outcome.probability > 0:
+                            rows.append(
+                                self._snapshot_row(
+                                    trade_date, meeting, outcome.move_bp, outcome.probability
+                                )
+                            )
         except ProviderHttpError:
             return self._browser_fetch(start, end, effr, context)
         return pl.DataFrame(

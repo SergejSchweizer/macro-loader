@@ -160,11 +160,11 @@ Acceptance:
 ## PR-100: Add Point-In-Time Fed Reference Inputs
 
 PR name: `fed-policy-point-in-time-references`
-Status: Ready
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #100
 Git branch: `pr-100/fed-policy-point-in-time-references`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: Fed reference-data causality; one agent only
 Depends on: PR-97
 Commit: `feat(pr-100): persist point in time fed references`
@@ -187,11 +187,11 @@ Acceptance:
 ## PR-101: Implement Versioned CME FedWatch Probability Reconstruction
 
 PR name: `fed-policy-probability-engine`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-101/fed-policy-probability-engine`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user integration-test edit`
 Agent lane: Probability reconstruction; one agent only
 Depends on: PR-99, PR-100
 Commit: `feat(pr-101): reconstruct cme fedwatch probabilities`
