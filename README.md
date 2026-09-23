@@ -355,6 +355,11 @@ uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   postgres-verify
 
+# Execute the explicitly authorized Fed-policy history acceptance.
+uv run python scripts/fed_policy_history_acceptance.py \
+  --lake-root /srv/market-regime/lake \
+  --execute
+
 # Rebuild and print the local inventory.
 uv run macro-loader \
   --lake-root /srv/market-regime/lake \

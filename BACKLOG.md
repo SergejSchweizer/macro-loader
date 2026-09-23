@@ -378,7 +378,7 @@ Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-108/fed-policy-2010-full-history-acceptance`
-Git status: active
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Production-like historical acceptance; one agent only
 Depends on: PR-99, PR-100, PR-102, PR-107
 Commit: `test(pr-108): execute fed policy history acceptance`
