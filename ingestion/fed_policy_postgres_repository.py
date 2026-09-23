@@ -44,6 +44,9 @@ _HASHES = f'"{POSTGRES_SYNC_SCHEMA}"."{POSTGRES_ROW_HASH_TABLE}"'
 _COLUMN_SQL = ", ".join(f'"{column}"' for column in FED_POLICY_COLUMNS)
 _UPDATE_SQL = ", ".join(f'"{column}" = %s' for column in FED_POLICY_COLUMNS[1:])
 _RAW_UPDATE_SQL = ", ".join(f'"{column}" = %s' for column in FED_POLICY_COLUMNS[1:-1])
+_RAW_CONFLICT_UPDATE_SQL = ", ".join(
+    f'"{column}" = EXCLUDED."{column}"' for column in FED_POLICY_COLUMNS[1:-1]
+)
 _RAW_INSERT_COLUMNS = (
     "timestamp_m1",
     *POSTGRES_RAW_COLUMNS[1:],
@@ -51,7 +54,7 @@ _RAW_INSERT_COLUMNS = (
 _RAW_INSERT_SQL = (
     f"INSERT INTO {_RAW_TABLE} ({', '.join(f'"{column}"' for column in _RAW_INSERT_COLUMNS)}) "
     f"VALUES ({', '.join('%s' for _ in _RAW_INSERT_COLUMNS)}) "
-    f'ON CONFLICT ("timestamp_m1") DO UPDATE SET {_RAW_UPDATE_SQL}'
+    f'ON CONFLICT ("timestamp_m1") DO UPDATE SET {_RAW_CONFLICT_UPDATE_SQL}'
 )
 
 
