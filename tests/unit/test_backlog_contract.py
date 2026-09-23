@@ -16,12 +16,12 @@ ALLOWED_GIT = {
     "merged",
 }
 ALLOWED_TYPES = "feat|fix|docs|test|refactor|perf|build|ci|chore"
-HEADER_RE = re.compile(r"^## (PR-\d{2}): .+$", re.MULTILINE)
+HEADER_RE = re.compile(r"^## (PR-\d{2,3}): .+$", re.MULTILINE)
 LEVEL2_RE = re.compile(r"^## .+$", re.MULTILINE)
-BRANCH_RE = re.compile(r"^(pr-\d{2})/[a-z0-9]+(?:-[a-z0-9]+)*$")
-COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2}})\): [a-z0-9].+$")
-ACTIVE_FIRST = 80
-ACTIVE_LAST = 90
+BRANCH_RE = re.compile(r"^(pr-\d{2,3})/[a-z0-9]+(?:-[a-z0-9]+)*$")
+COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2,3}})\): [a-z0-9].+$")
+ACTIVE_FIRST = 97
+ACTIVE_LAST = 110
 REQUIRED_FIELDS = (
     "PR name",
     "Status",

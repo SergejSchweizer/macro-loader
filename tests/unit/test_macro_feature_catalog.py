@@ -1,3 +1,5 @@
+import pytest
+
 from application.macro_feature_catalog import (
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
@@ -42,6 +44,11 @@ def test_catalog_fingerprint_is_stable_and_versioned() -> None:
     assert MACRO_FEATURE_VIEW_VERSION == 2
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
+
+
+def test_catalog_rejects_duplicate_columns() -> None:
+    with pytest.raises(ValueError, match="duplicate columns"):
+        validate_feature_catalog(FEATURE_CATALOG[:-1] + (FEATURE_CATALOG[0],))
 
 
 def test_postgres_view_migration_is_populated_and_versioned() -> None:
