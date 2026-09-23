@@ -241,7 +241,7 @@ Acceptance:
 PR name: `fed-policy-postgres-integration`
 Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #103
 Git branch: `pr-103/fed-policy-postgres-integration`
 Git status: `merged`
 Agent lane: PostgreSQL feature integration; one agent only
