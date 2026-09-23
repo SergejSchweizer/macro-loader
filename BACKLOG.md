@@ -64,9 +64,9 @@ Acceptance:
 PR name: `fed-policy-macro-raw-population`
 Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #118
 Git branch: `pr-115/fed-policy-macro-raw-population`
-Git status: `active-dirty: BACKLOG.md, ingestion/fed_policy_postgres_repository.py`
+Git status: `active-clean`
 Agent lane: Historical/delta synchronization; one agent only
 Depends on: PR-114
 Commit: `feat(pr-115): populate macro raw fed policy origins`
