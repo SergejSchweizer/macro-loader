@@ -1322,7 +1322,10 @@ class PostgresGoldSyncRepository:
         )
         expected_tables = tuple(sorted((spec.schema, spec.name) for spec in _SCHEMA_SPECIFICATION))
         if actual_tables != expected_tables:
-            raise ValueError("PostgreSQL owned table contract does not match specification")
+            raise ValueError(
+                "PostgreSQL owned table contract does not match specification: "
+                f"actual={actual_tables!r}; expected={expected_tables!r}"
+            )
 
         cursor.execute(_OWNED_COLUMNS_SQL, schemas)
         actual_columns: dict[tuple[str, str], list[PostgresColumnSpecification]] = {}
