@@ -379,7 +379,7 @@ _FEATURES_VIEW_COLUMNS: tuple[str, ...] = (
 # upgrade compatibility for consumers that import it, but migrations and
 # conformance use the catalog-derived contract from this point onward.
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
-_CONSUMER_COLUMNS = (*_FEATURE_COLUMNS, *FED_POLICY_ORIGIN_COLUMNS)
+_CONSUMER_COLUMNS = _FEATURE_COLUMNS
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
@@ -781,7 +781,7 @@ _SCHEMA_SPECIFICATION = (
         (_TIMESTAMPTZ6_NOT_NULL,)
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
-            for column in (*_FEATURE_COLUMNS, *FED_POLICY_ORIGIN_COLUMNS)
+            for column in _FEATURE_COLUMNS
         ),
         ("timestamp_m1",),
     ),

@@ -125,7 +125,12 @@ def _gold_frame(timestamp: datetime) -> pl.DataFrame:
     data: dict[str, list[object]] = {"timestamp_m1": [timestamp]}
     for column in GOLD_COLUMNS[1:]:
         data[column] = [1.0]
-    return pl.DataFrame(data).with_columns(pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")))
+    for column in POSTGRES_FED_RAW_COLUMNS[1:]:
+        data[column] = [None]
+    return pl.DataFrame(data).with_columns(
+        pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")),
+        *(pl.col(column).cast(pl.Float64) for column in POSTGRES_FED_RAW_COLUMNS[1:]),
+    )
 
 
 def _record(timestamp: datetime) -> GoldCatalogRecord:
@@ -281,7 +286,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
 
     timestamp = _timestamp(20)
-    row = GoldRowPayload(timestamp, tuple(1.0 for _ in GOLD_COLUMNS[1:]))
+    row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
     digest = GoldRowDigest(timestamp, postgres_module.gold_row_sha256(row))
     repository.apply_delta(
         POSTGRES_DATASET_ID, GoldDeltaPlan((row,), (), (), (), (digest,)), _state(timestamp)
@@ -359,7 +364,7 @@ def test_real_postgres_second_locked_transaction_reads_committed_state(
 ) -> None:
     migrator.migrate()
     timestamp = _timestamp(21)
-    row = GoldRowPayload(timestamp, tuple(1.0 for _ in GOLD_COLUMNS[1:]))
+    row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
     digest = GoldRowDigest(timestamp, postgres_module.gold_row_sha256(row))
     state = _state(timestamp)
     first_locked = Event()

@@ -72,8 +72,15 @@ def test_database_evidence_rejects_negative_counts() -> None:
 def test_verifier_reports_independent_evidence_for_matching_serving_state() -> None:
     timestamp = datetime(2026, 8, 20, tzinfo=UTC)
     frame = pl.DataFrame(
-        {"timestamp_m1": [timestamp], **{column: [1.0] for column in GOLD_COLUMNS[1:]}}
-    ).with_columns(pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")))
+        {
+            "timestamp_m1": [timestamp],
+            **{column: [1.0] for column in GOLD_COLUMNS[1:]},
+            **{column: [None] for column in POSTGRES_RAW_COLUMNS[1:] if column not in GOLD_COLUMNS},
+        }
+    ).with_columns(
+        pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")),
+        *(pl.col(column).cast(pl.Float64) for column in POSTGRES_RAW_COLUMNS[1:]),
+    )
     _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     record = GoldCatalogRecord(
         dataset_id=POSTGRES_DATASET_ID,
@@ -173,8 +180,15 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
 def test_agreement_requires_identical_source_consumer_index_summary_and_state() -> None:
     timestamp = datetime(2026, 8, 20, tzinfo=UTC)
     frame = pl.DataFrame(
-        {"timestamp_m1": [timestamp], **{column: [1.0] for column in GOLD_COLUMNS[1:]}}
-    ).with_columns(pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")))
+        {
+            "timestamp_m1": [timestamp],
+            **{column: [1.0] for column in GOLD_COLUMNS[1:]},
+            **{column: [None] for column in POSTGRES_RAW_COLUMNS[1:] if column not in GOLD_COLUMNS},
+        }
+    ).with_columns(
+        pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")),
+        *(pl.col(column).cast(pl.Float64) for column in POSTGRES_RAW_COLUMNS[1:]),
+    )
     _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     record = GoldCatalogRecord(
         dataset_id=POSTGRES_DATASET_ID,

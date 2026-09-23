@@ -35,11 +35,11 @@ than filled, interpolated, carried, or synthesized.
 ## PR-114: Extend Canonical Origin And Macro Raw Schema With Four Fed Features
 
 PR name: `fed-policy-macro-raw-contract`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #117
 Git branch: `pr-114/fed-policy-macro-raw-contract`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-failing`
 Agent lane: Serving schema/migration; one agent only
 Depends on: PR-113
 Commit: `feat(pr-114): add fed policy origins to macro raw contract`
