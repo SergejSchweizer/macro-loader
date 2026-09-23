@@ -374,11 +374,11 @@ Acceptance:
 ## PR-108: Execute Full Fed Policy History Acceptance From 2010
 
 PR name: `fed-policy-2010-full-history-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #109 (merged)
 Git branch: `pr-108/fed-policy-2010-full-history-acceptance`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: merged
 Agent lane: Production-like historical acceptance; one agent only
 Depends on: PR-99, PR-100, PR-102, PR-107
 Commit: `test(pr-108): execute fed policy history acceptance`
@@ -403,11 +403,11 @@ Acceptance:
 ## PR-109: Execute Installed Daily Cron Acceptance
 
 PR name: `fed-policy-cron-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-109/fed-policy-cron-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Operational cron acceptance QA; one agent only
 Depends on: PR-105, PR-107, PR-108
 Commit: `test(pr-109): execute fed policy cron acceptance`
