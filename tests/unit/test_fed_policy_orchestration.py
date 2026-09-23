@@ -4,8 +4,10 @@ from datetime import UTC, date, datetime
 
 import polars as pl
 
-from application.fed_policy_features import FED_POLICY_SNAPSHOT_COLUMNS
+from application.fed_policy_features import FED_POLICY_SNAPSHOT_COLUMNS, build_fed_policy_features
 from application.fed_policy_orchestration import FedPolicyEodOrchestrator, FedPolicyMode
+from application.paths import LakePaths
+from ingestion.fed_policy_feature_store import FedPolicyFeatureStore
 
 
 def _snapshots(observation_date: date) -> pl.DataFrame:
@@ -100,3 +102,37 @@ def test_eod_mode_is_update_and_publishes_before_postgres_sync() -> None:
 
     assert len(features.published) == 1
     assert len(postgres.synced) == 1
+
+
+def test_bootstrap_and_reconcile_use_configured_history_start() -> None:
+    snapshots = Snapshots(_snapshots(date(2026, 8, 19)))
+    orchestrator = FedPolicyEodOrchestrator(
+        snapshots=snapshots,
+        settlements=Settlements(date(2026, 8, 18)),
+        features=Features(),
+        start_date=lambda: date(2010, 1, 1),
+    )
+
+    orchestrator.bootstrap(today=date(2026, 8, 19))
+    orchestrator.reconcile(today=date(2026, 8, 19))
+
+    assert snapshots.calls == [
+        (date(2010, 1, 1), date(2026, 8, 19)),
+        (date(2010, 1, 1), date(2026, 8, 19)),
+    ]
+
+
+def test_feature_store_round_trips_and_rejects_wrong_schema(tmp_path) -> None:
+    store = FedPolicyFeatureStore(LakePaths(tmp_path))
+    frame = _snapshots(date(2026, 8, 19))
+    features = build_fed_policy_features(frame)
+
+    store.publish(features)
+
+    assert store.read().equals(features)
+    try:
+        store.publish(pl.DataFrame({"wrong": [1]}))
+    except ValueError as error:
+        assert "schema/order drift" in str(error)
+    else:
+        raise AssertionError("feature schema drift must be rejected")
