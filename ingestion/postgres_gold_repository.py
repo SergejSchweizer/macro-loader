@@ -1324,7 +1324,8 @@ class PostgresGoldSyncRepository:
         if actual_tables != expected_tables:
             raise ValueError(
                 "PostgreSQL owned table contract does not match specification: "
-                f"actual={actual_tables!r}; expected={expected_tables!r}"
+                f"actual_only={tuple(set(actual_tables) - set(expected_tables))!r}; "
+                f"expected_only={tuple(set(expected_tables) - set(actual_tables))!r}"
             )
 
         cursor.execute(_OWNED_COLUMNS_SQL, schemas)
