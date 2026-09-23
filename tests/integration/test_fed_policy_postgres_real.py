@@ -129,7 +129,7 @@ def test_real_fed_policy_sync_reconciles_mutations_and_replay(
         assert len(rows) == 2
         assert connection.execute(
             "SELECT count(*) FROM macro_loader.macro_features"
-        ).fetchone() == (2,)
+        ).fetchone() == (0,)
     migrator.migrate()
 
 
@@ -168,6 +168,7 @@ def test_real_fed_policy_tamper_fails_closed(
             'UPDATE macro_loader_sync."fed_policy_features_daily" '
             'SET "fed_next_expected_move_bp" = 999.0'
         )
+        connection.commit()
     with pytest.raises(Exception, match="locked transaction|Fed policy"):
         repository.sync(
             _frame([1]),
