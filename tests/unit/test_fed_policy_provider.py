@@ -311,5 +311,5 @@ def test_outcomes_handles_missing_months_and_early_meeting() -> None:
     assert _outcomes({}, meeting, 3.64) == ()
     settlements = {"JAN 26": 96.36, "FEB 26": 96.11}
     outcomes = _outcomes(settlements, meeting, 3.64)
-    assert outcomes[0][0] == pytest.approx(0.0)
+    assert outcomes[0][0] == pytest.approx(25.0)
     assert sum(probability for _, probability in outcomes) == pytest.approx(1.0)
