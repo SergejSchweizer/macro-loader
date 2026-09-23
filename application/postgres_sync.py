@@ -26,6 +26,10 @@ POSTGRES_SESSION_TIMEZONE = "UTC"
 POSTGRES_RAW_COLUMNS = (
     "timestamp_m1",
     *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
+    "fed_next_expected_move_bp",
+    "fed_path_slope_m3_bp",
+    "fed_next_uncertainty_bp",
+    "fed_repricing_5obs_bp",
 )
 POSTGRES_FED_RAW_COLUMNS = (
     "timestamp_m1",

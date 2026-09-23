@@ -101,6 +101,11 @@ class GoldPostgresDeltaSync:
 
         frame = self.source.read_path(data_path)
         self._validate_frame_metadata(frame, record)
+        missing_fed = [column for column in POSTGRES_RAW_COLUMNS[1:] if column not in frame.columns]
+        if missing_fed:
+            frame = frame.with_columns(
+                [pl.lit(None, dtype=pl.Float64).alias(column) for column in missing_fed]
+            )
         plan = plan_gold_delta(
             frame.select(list(POSTGRES_RAW_COLUMNS)), target_digests, prior_state
         )
