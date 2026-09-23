@@ -360,6 +360,11 @@ uv run python scripts/fed_policy_history_acceptance.py \
   --lake-root /srv/market-regime/lake \
   --execute
 
+# Execute the installed Fed-policy EOD wrapper twice for cron acceptance.
+uv run python scripts/fed_policy_cron_acceptance.py \
+  --project-root /srv/market-regime \
+  --execute
+
 # Rebuild and print the local inventory.
 uv run macro-loader \
   --lake-root /srv/market-regime/lake \
