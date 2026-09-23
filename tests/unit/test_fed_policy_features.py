@@ -54,10 +54,10 @@ def _snapshots(observations: list[date], *, second_meeting: bool = True) -> pl.D
 def test_exact_fed_policy_formulas_and_three_month_selection() -> None:
     frame = build_fed_policy_features(_snapshots([date(2026, 1, 2)]))
     row = frame.row(0, named=True)
-    assert tuple(frame.columns[1:]) == FED_POLICY_FEATURE_COLUMNS
+    assert tuple(frame.columns[1:5]) == FED_POLICY_FEATURE_COLUMNS
     assert row["fed_next_expected_move_bp"] == pytest.approx(5.0)
     assert row["fed_next_uncertainty_bp"] == pytest.approx(10.0)
-    assert row["fed_m3_expected_move_bp"] == pytest.approx(11.25)
+    assert row["fed_path_slope_m3_bp"] == pytest.approx(13.75)
     assert row["fed_repricing_5obs_bp"] is None
 
 
@@ -65,6 +65,27 @@ def test_only_prior_observation_is_used_for_five_observation_delta() -> None:
     observations = [date(2026, 1, 2) + timedelta(days=index) for index in range(6)]
     frame = build_fed_policy_features(_snapshots(observations))
     assert frame[-1, "fed_repricing_5obs_bp"] == pytest.approx(0.0)
+
+
+def test_fifth_valid_observation_ignores_unavailable_dates() -> None:
+    observations = [date(2026, 1, 2) + timedelta(days=index) for index in range(7)]
+    frame = _snapshots(observations).filter(pl.col("observation_date") != date(2026, 1, 4))
+    result = build_fed_policy_features(frame)
+    assert result[-1, "fed_repricing_5obs_bp"] == pytest.approx(0.0)
+
+
+def test_missing_third_meeting_leaves_path_slope_null() -> None:
+    result = build_fed_policy_features(_snapshots([date(2026, 1, 2)], second_meeting=False))
+    assert result[0, "fed_path_slope_m3_bp"] is None
+
+
+def test_observation_after_all_meetings_has_null_features() -> None:
+    result = build_fed_policy_features(_snapshots([date(2027, 1, 2)]))
+    row = result.row(0, named=True)
+    assert row["fed_next_expected_move_bp"] is None
+    assert row["fed_path_slope_m3_bp"] is None
+    assert row["fed_next_uncertainty_bp"] is None
+    assert row["fed_repricing_5obs_bp"] is None
 
 
 def test_eod_boundary_and_invalid_probabilities_fail_closed() -> None:
@@ -85,4 +106,4 @@ def test_eod_boundary_and_invalid_probabilities_fail_closed() -> None:
 
 def test_empty_snapshot_has_exact_schema() -> None:
     result = build_fed_policy_features(pl.DataFrame())
-    assert result.columns == ["timestamp_m1", *FED_POLICY_FEATURE_COLUMNS]
+    assert result.columns == ["timestamp_m1", *FED_POLICY_FEATURE_COLUMNS, "available_at_utc"]
