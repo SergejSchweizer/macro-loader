@@ -129,7 +129,7 @@ def test_real_fed_policy_sync_reconciles_mutations_and_replay(
         assert len(rows) == 2
         assert connection.execute(
             "SELECT count(*) FROM macro_loader.macro_features"
-        ).fetchone() == (0,)
+        ).fetchone() == (3,)
     migrator.migrate()
 
 

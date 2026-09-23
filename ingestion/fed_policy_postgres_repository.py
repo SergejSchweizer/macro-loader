@@ -50,7 +50,8 @@ _RAW_INSERT_COLUMNS = (
 )
 _RAW_INSERT_SQL = (
     f"INSERT INTO {_RAW_TABLE} ({', '.join(f'"{column}"' for column in _RAW_INSERT_COLUMNS)}) "
-    f"VALUES ({', '.join('%s' for _ in _RAW_INSERT_COLUMNS)})"
+    f"VALUES ({', '.join('%s' for _ in _RAW_INSERT_COLUMNS)}) "
+    f'ON CONFLICT ("timestamp_m1") DO UPDATE SET {_RAW_UPDATE_SQL}'
 )
 
 
