@@ -432,11 +432,11 @@ Acceptance:
 ## PR-110: Retire Legacy FedWatch Runtime And Finalize Documentation
 
 PR name: `fed-policy-runtime-cleanup-docs`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #111 (merged)
 Git branch: `pr-110/fed-policy-runtime-cleanup-docs`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: merged
 Agent lane: Cleanup/documentation; one agent only
 Depends on: PR-106, PR-107, PR-108, PR-109
 Commit: `refactor(pr-110): retire legacy fedwatch runtime path`
