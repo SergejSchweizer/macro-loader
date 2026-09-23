@@ -293,11 +293,11 @@ Acceptance:
 ## PR-105: Install Daily EOD Fed Policy Cron Chain
 
 PR name: `fed-policy-daily-cron`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #105 (merged)
 Git branch: `pr-105/fed-policy-daily-cron`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: `merged`
 Agent lane: Operations/crontab; one agent only
 Depends on: PR-104
 Commit: `feat(pr-105): install fed policy daily cron chain`
@@ -320,11 +320,11 @@ Acceptance:
 ## PR-106: Differentially Validate Reconstruction Against Official CME FedWatch
 
 PR name: `fed-policy-cme-differential-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-106/fed-policy-cme-differential-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Formula/differential QA; one agent only
 Depends on: PR-102
 Commit: `test(pr-106): validate fed policy reconstruction against cme`
