@@ -108,11 +108,11 @@ Acceptance:
 ## PR-98: Add Canonical ZQ Settlement-Curve Store
 
 PR name: `fed-policy-zq-settlement-store`
-Status: In Progress
+Status: Ready
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-98/fed-policy-zq-settlement-store`
-Git status: `active-dirty: preserved user integration-test edit`
+Git status: `pushed-ci-green`
 Agent lane: Fed-funds-futures persistence; one agent only
 Depends on: PR-97
 Commit: `feat(pr-98): persist canonical zq settlement curves`
