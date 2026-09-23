@@ -17,6 +17,7 @@ from api.inventory import render_json, render_text
 from application.bronze_orchestration import BronzeOrchestrator
 from application.contracts import Provider
 from application.daily_pipeline import DailyMedallionPipeline, ProviderBatchError
+from application.fed_policy_orchestration import FedPolicyEodOrchestrator
 from application.gold_publication import GoldPublisher
 from application.gold_retention import GoldRetentionService
 from application.gold_sidecars import GoldSidecarBuilder
@@ -32,7 +33,9 @@ from application.registry import SERIES_REGISTRY
 from ingestion.bronze_uow import FilesystemBronzeUnitOfWork
 from ingestion.cboe_provider import CboeProvider
 from ingestion.ecb_provider import EcbProvider
+from ingestion.fed_policy_feature_store import FedPolicyFeatureStore
 from ingestion.fed_policy_provider import FedPolicyProvider
+from ingestion.fed_policy_settlement_store import FedPolicySettlementStore
 from ingestion.fed_policy_store import FedPolicySnapshotStore
 from ingestion.fred_provider import FredProvider
 from ingestion.gold_build_store import GoldBuildStore
@@ -101,6 +104,7 @@ class Runtime:
     pipeline: DailyMedallionPipeline
     transport: HttpxTransport
     paths: LakePaths
+    fed_policy: FedPolicyEodOrchestrator
 
     def close(self) -> None:
         self.transport.close()
@@ -137,6 +141,13 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("bootstrap", "update", "reconcile", "silver-build", "run-daily"):
         child = subparsers.add_parser(command)
         child.add_argument("--series", action="append", default=[])
+    for command in (
+        "fed-policy-bootstrap",
+        "fed-policy-update",
+        "fed-policy-reconcile",
+        "run-fed-policy-eod",
+    ):
+        subparsers.add_parser(command)
     subparsers.add_parser("gold-build")
     subparsers.add_parser(_POSTGRES_SYNC_COMMAND)
     subparsers.add_parser(_POSTGRES_MIGRATE_COMMAND)
@@ -240,6 +251,11 @@ def build_runtime(
     fed_policy_source = FedPolicySnapshotStore(
         paths, FedPolicyProvider(transport, browser_only=True)
     )
+    fed_policy = FedPolicyEodOrchestrator(
+        snapshots=fed_policy_source,
+        settlements=FedPolicySettlementStore(paths),
+        features=FedPolicyFeatureStore(paths),
+    )
 
     git_hash = _git_commit_hash() if command in _GOLD_COMMANDS else _UNUSED_GIT_IDENTITY
     build_store = GoldBuildStore(paths)
@@ -266,7 +282,7 @@ def build_runtime(
         fed_policy_source=fed_policy_source,
         event_sink=event_sink,
     )
-    return Runtime(pipeline=pipeline, transport=transport, paths=paths)
+    return Runtime(pipeline=pipeline, transport=transport, paths=paths, fed_policy=fed_policy)
 
 
 def build_postgres_sync_runtime(*, lake_root: Path, stderr: TextIO) -> PostgresSyncRuntime:
@@ -368,7 +384,13 @@ def _dispatch(
     command = str(args.command)
     series = tuple(getattr(args, "series", []))
     today = _today(args.today)
-    if command == "bootstrap":
+    if command == "fed-policy-bootstrap":
+        runtime.fed_policy.bootstrap(today=today)
+    elif command in {"fed-policy-update", "run-fed-policy-eod"}:
+        runtime.fed_policy.update(today=today)
+    elif command == "fed-policy-reconcile":
+        runtime.fed_policy.reconcile(today=today)
+    elif command == "bootstrap":
         runtime.pipeline.bootstrap(series, today=today)
     elif command == "update":
         runtime.pipeline.update(series, today=today)

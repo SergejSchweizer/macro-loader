@@ -239,11 +239,11 @@ Acceptance:
 ## PR-103: Integrate Fed Policy Features Into PostgreSQL Macro Library
 
 PR name: `fed-policy-postgres-integration`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-103/fed-policy-postgres-integration`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: `merged`
 Agent lane: PostgreSQL feature integration; one agent only
 Depends on: PR-102
 Commit: `feat(pr-103): publish fed policy features to postgres`
@@ -266,11 +266,11 @@ Acceptance:
 ## PR-104: Add Fed Policy Bootstrap Reconcile And EOD Update Commands
 
 PR name: `fed-policy-eod-orchestration`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-104/fed-policy-eod-orchestration`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
 Agent lane: Application orchestration; one agent only
 Depends on: PR-103
 Commit: `feat(pr-104): orchestrate fed policy eod updates`

@@ -310,6 +310,10 @@ postgres-verify
 postgres-reconstruct
 inventory
 run-daily
+fed-policy-bootstrap
+fed-policy-update
+fed-policy-reconcile
+run-fed-policy-eod
 ```
 
 Global options such as `--lake-root`, `--today`, and `--overlap-days` precede the subcommand. `--series` follows commands that accept a series restriction.
@@ -331,6 +335,11 @@ uv run macro-loader \
 uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   run-daily
+
+# Fed-policy EOD workflow. This command always selects bounded update mode.
+uv run macro-loader \
+  --lake-root /srv/market-regime/lake \
+  run-fed-policy-eod
 
 # Synchronize the currently catalog-selected Gold build only.
 uv run macro-loader \

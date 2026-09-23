@@ -78,6 +78,9 @@ class LakePaths:
     def fed_policy_snapshots(self) -> Path:
         return self.root / "fed_policy" / "snapshots.parquet"
 
+    def fed_policy_features(self) -> Path:
+        return self.root / "fed_policy" / "features.parquet"
+
     def fed_policy_settlement_root(self) -> Path:
         return self.root / "fed_policy" / "zq_settlements"
 
