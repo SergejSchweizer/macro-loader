@@ -347,11 +347,11 @@ Acceptance:
 ## PR-107: Run Real-PostgreSQL Fed Policy Integration QA
 
 PR name: `fed-policy-real-postgres-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #108 (merged)
 Git branch: `pr-107/fed-policy-real-postgres-qa`
-Git status: `active-dirty: preserved user edit in tests/integration/test_postgres_real.py`
+Git status: merged
 Agent lane: Real PostgreSQL QA; one agent only
 Depends on: PR-103, PR-106
 Commit: `test(pr-107): validate fed policy postgres integration`
@@ -374,11 +374,11 @@ Acceptance:
 ## PR-108: Execute Full Fed Policy History Acceptance From 2010
 
 PR name: `fed-policy-2010-full-history-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-108/fed-policy-2010-full-history-acceptance`
-Git status: `not-started (branch absent)`
+Git status: active
 Agent lane: Production-like historical acceptance; one agent only
 Depends on: PR-99, PR-100, PR-102, PR-107
 Commit: `test(pr-108): execute fed policy history acceptance`
