@@ -7,10 +7,10 @@ import re
 import subprocess
 from collections.abc import Sequence
 
-BRANCH_RE = re.compile(r"^pr-(?P<number>\d{2})/[a-z0-9][a-z0-9-]*$")
+BRANCH_RE = re.compile(r"^pr-(?P<number>\d{2,3})/[a-z0-9][a-z0-9-]*$")
 SUBJECT_RE = re.compile(
     r"^(?P<type>feat|fix|docs|test|refactor|perf|build|ci|chore)"
-    r"\(pr-(?P<number>\d{2})\): (?P<description>[a-z0-9].+)$"
+    r"\(pr-(?P<number>\d{2,3})\): (?P<description>[a-z0-9].+)$"
 )
 SYNTHETIC_PR_MERGE_RE = re.compile(r"^Merge [0-9a-f]{40} into [0-9a-f]{40}$")
 
