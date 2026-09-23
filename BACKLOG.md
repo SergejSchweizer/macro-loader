@@ -98,7 +98,7 @@ passes the PR-122 coverage contract. This is intentional fail-closed behavior.
 PR name: `fed-history-source-gate`
 Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #122
 Git branch: `pr-120/fed-history-source-gate`
 Git status: `active-clean`
 Agent lane: Architecture/data-provenance correction; one agent only
