@@ -371,6 +371,11 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert ("commit", None, None) in connection.events
 
 
+def test_latest_migration_adds_fed_raw_columns_before_rebuilding_the_view() -> None:
+    assert module._MIGRATIONS[-2] == (module._FED_POLICY_COLUMN_MIGRATION,)
+    assert module._MIGRATIONS[-1] == module._FEATURES_VIEW_REBUILD_MIGRATION
+
+
 def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:
     ddl = module._FEATURES_VIEW_DDL
 

@@ -120,11 +120,11 @@ Acceptance:
 ## PR-117: Build Fed Materialized Features Exclusively From Macro Raw
 
 PR name: `fed-policy-macro-features-from-raw`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
 PR: #120
 Git branch: `pr-117/fed-policy-macro-features-from-raw`
-Git status: active-dirty: tests/integration/test_postgres_real.py
+Git status: merged
 Agent lane: Materialized-view transformations; one agent only
 Depends on: PR-116
 Commit: `feat(pr-117): derive fed policy features from macro raw`
@@ -149,11 +149,11 @@ Acceptance:
 ## PR-118: Verify Macro Features Fed Transformations And Historical Quality
 
 PR name: `fed-policy-macro-features-quality-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-118/fed-policy-macro-features-quality-qa`
-Git status: `not-started (branch absent)`
+Git status: active-dirty: tests/integration/test_postgres_real.py
 Agent lane: Independent materialized-view QA; one agent only
 Depends on: PR-117
 Commit: `test(pr-118): verify fed policy materialized feature quality`
