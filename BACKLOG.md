@@ -87,7 +87,7 @@ PR-97 contract
 PR name: `fed-policy-transform-backlog`
 Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #107
 Git branch: `pr-113/fed-policy-transform-backlog`
 Git status: `active-clean`
 Agent lane: Backlog/governance extension; one agent only
