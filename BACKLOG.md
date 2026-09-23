@@ -151,7 +151,7 @@ Acceptance:
 PR name: `fed-policy-macro-features-quality-qa`
 Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #121
 Git branch: `pr-118/fed-policy-macro-features-quality-qa`
 Git status: active-dirty: tests/integration/test_postgres_real.py
 Agent lane: Independent materialized-view QA; one agent only
