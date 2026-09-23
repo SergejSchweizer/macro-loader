@@ -34,6 +34,7 @@ from ingestion.bronze_uow import FilesystemBronzeUnitOfWork
 from ingestion.cboe_provider import CboeProvider
 from ingestion.ecb_provider import EcbProvider
 from ingestion.fed_policy_feature_store import FedPolicyFeatureStore
+from ingestion.fed_policy_postgres_repository import FedPolicyPostgresRepository
 from ingestion.fed_policy_provider import FedPolicyProvider
 from ingestion.fed_policy_settlement_store import FedPolicySettlementStore
 from ingestion.fed_policy_store import FedPolicySnapshotStore
@@ -114,6 +115,13 @@ class Runtime:
 @dataclass(frozen=True, slots=True)
 class PostgresSyncRuntime:
     sync: GoldPostgresDeltaSync
+    event_sink: JsonEventSink
+
+
+@dataclass(frozen=True, slots=True)
+class FedPolicyPostgresSyncRuntime:
+    features: FedPolicyFeatureStore
+    sync: FedPolicyPostgresRepository
     event_sink: JsonEventSink
 
 
@@ -303,6 +311,20 @@ def build_postgres_sync_runtime(*, lake_root: Path, stderr: TextIO) -> PostgresS
     return PostgresSyncRuntime(sync=sync, event_sink=event_sink)
 
 
+def build_fed_policy_postgres_sync_runtime(
+    *, lake_root: Path, stderr: TextIO
+) -> FedPolicyPostgresSyncRuntime:
+    config = PostgresSyncConfig.from_env()
+    paths = LakePaths(lake_root)
+    repository = FedPolicyPostgresRepository(config)
+    event_sink = JsonEventSink(_logger(stderr), secrets=(config.password,))
+    return FedPolicyPostgresSyncRuntime(
+        features=FedPolicyFeatureStore(paths),
+        sync=repository,
+        event_sink=event_sink,
+    )
+
+
 def build_postgres_migration_runtime(*, stderr: TextIO) -> PostgresMigrationRuntime:
     config = PostgresAdminConfig.from_env()
     migrator = PostgresGoldSchemaMigrator(config)
@@ -438,6 +460,29 @@ def _dispatch_postgres_sync(runtime: PostgresSyncRuntime) -> int:
     return EXIT_SUCCESS
 
 
+def _dispatch_fed_policy_postgres_sync(runtime: FedPolicyPostgresSyncRuntime) -> int:
+    result = runtime.sync.sync(
+        runtime.features.read(),
+        source_build_id=_git_commit_hash(),
+        schema_version=1,
+        feature_version=1,
+        synced_at_utc=datetime.now(UTC),
+    )
+    runtime.event_sink(
+        {
+            "command": _FED_POLICY_POSTGRES_SYNC_COMMAND,
+            "stage": "fed_policy_postgres_sync",
+            "status": "success",
+            "dataset_id": "fed_policy_features_daily",
+            "inserted": len(result.inserts),
+            "updated": len(result.updates),
+            "deleted": len(result.deletes),
+            "unchanged": len(result.unchanged),
+        }
+    )
+    return EXIT_SUCCESS
+
+
 def _dispatch_postgres_migration(runtime: PostgresMigrationRuntime) -> int:
     runtime.migrator.migrate()
     runtime.event_sink(
@@ -513,9 +558,13 @@ def main(
     series = tuple(getattr(args, "series", []))
     runtime: Runtime | None = None
     try:
-        if command in {_POSTGRES_SYNC_COMMAND, _FED_POLICY_POSTGRES_SYNC_COMMAND}:
+        if command == _POSTGRES_SYNC_COMMAND:
             return _dispatch_postgres_sync(
                 build_postgres_sync_runtime(lake_root=args.lake_root, stderr=error)
+            )
+        if command == _FED_POLICY_POSTGRES_SYNC_COMMAND:
+            return _dispatch_fed_policy_postgres_sync(
+                build_fed_policy_postgres_sync_runtime(lake_root=args.lake_root, stderr=error)
             )
         if command == _POSTGRES_MIGRATE_COMMAND:
             return _dispatch_postgres_migration(build_postgres_migration_runtime(stderr=error))

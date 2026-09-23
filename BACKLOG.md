@@ -459,7 +459,7 @@ Acceptance:
 PR name: `fed-policy-origin-transformations`
 Status: In Progress
 Updated: 2026-09-23
-PR: not opened
+PR: #113 (open)
 Git branch: `pr-111/fed-policy-origin-transformations`
 Git status: active-dirty: preserved user edit in tests/integration/test_postgres_real.py
 Agent lane: Materialized-view feature transformations; one agent only

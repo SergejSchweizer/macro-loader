@@ -587,7 +587,7 @@ def _macro_features_view_query() -> str:
         changes = _quote(f"{origin}_changes")
         features = _quote(f"{origin}_features")
         lag_sql = ", ".join(
-            f"lag(level, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in (1, 5, 20)
+            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in (1, 5, 20)
         )
         delta_sql = ", ".join(
             f"level - {_quote(f'lag_{lag}')} AS {_quote(f'delta_{lag}')}" for lag in (1, 5, 20)
