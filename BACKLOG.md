@@ -457,11 +457,11 @@ Acceptance:
 ## PR-111: Materialize Fed Origins And Signed Transformations
 
 PR name: `fed-policy-origin-transformations`
-Status: In Progress
+Status: Ready
 Updated: 2026-09-23
 PR: #113 (open)
 Git branch: `pr-111/fed-policy-origin-transformations`
-Git status: active-dirty: preserved user edit in tests/integration/test_postgres_real.py
+Git status: pushed-ci-green
 Agent lane: Materialized-view feature transformations; one agent only
 Depends on: PR-103, PR-110
 Commit: `feat(pr-111): transform fed policy origin features`
