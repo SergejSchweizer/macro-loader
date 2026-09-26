@@ -26,6 +26,13 @@ if [[ "${MACRO_LOADER_SUNDAY_VERIFY_ONLY:-}" == "true" ]]; then
 	exit 0
 fi
 
+for required_executable in "$PYTHON" "$CLI"; do
+	if [[ ! -x "$required_executable" ]]; then
+		printf 'Required cron executable is missing or not executable: %s\n' "$required_executable" >&2
+		exit 2
+	fi
+done
+
 mkdir -p "$LOG_DIR"
 mkdir -p "$LOCK_DIR"
 exec 9>"$LOCK_PATH"

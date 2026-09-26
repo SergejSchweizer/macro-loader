@@ -282,3 +282,21 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
         f"{project_root}|fixture-sha|--lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
+
+
+def test_sunday_runner_fails_before_config_export_when_runtime_is_missing(tmp_path: Path) -> None:
+    project_root, bin_dir = _runner_fixture(tmp_path)
+    (project_root / ".venv" / "bin" / "python").unlink()
+
+    completed = subprocess.run(
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        cwd=tmp_path,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "Required cron executable is missing or not executable" in completed.stderr
+    assert not (project_root / ".logs" / "macro-loader.log").exists()

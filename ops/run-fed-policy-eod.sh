@@ -9,6 +9,12 @@ CONFIG_FILE="$PROJECT_ROOT/config.yaml"
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
 CLI="$PROJECT_ROOT/.venv/bin/macro-loader"
 export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
+for required_executable in "$PYTHON" "$CLI"; do
+	if [[ ! -x "$required_executable" ]]; then
+		printf 'Required cron executable is missing or not executable: %s\n' "$required_executable" >&2
+		exit 2
+	fi
+done
 LOG_DIR="$PROJECT_ROOT/.logs"
 LOG_PATH="$LOG_DIR/fed-policy-eod.log"
 LOCK_DIR="$PROJECT_ROOT/.locks"
