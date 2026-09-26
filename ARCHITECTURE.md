@@ -6,13 +6,14 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-09-23, `main` and `origin/main` are aligned through the merged backlog
-sequence PR-80–PR-110 (GitHub PRs #81–#112), with required CI gates green. PR-111
-is the active Fed-origin transformation scope. Production-like
-full-history and Sunday-cron acceptance are explicit, guarded commands and require the
-authorized deployment environment; this development workspace does not claim a live
-production run. The browser-based CME export is QA-only; production uses the public
-transport path and unavailable responses remain NULL-derived.
+As of 2026-09-26, `main` and `origin/main` are aligned through the current Fed-policy
+serving/runtime work. Required CI gates are green. Production FedWatch ingestion is
+browser-only and uses the approved Chinese CME public page
+(`https://www.cmegroup.cn/fed-watch/`); the blocked direct CME transport endpoint is
+not a production fallback. Browser session state is kept in the configured cache
+directory and missing free-history observations remain NULL-derived. Production-like
+full-history and Sunday-cron acceptance are explicit, guarded commands and require
+the authorized deployment environment.
 
 ## System Purpose
 
@@ -452,8 +453,10 @@ The fixed causal pairs are `(h, W) = (1, 60), (5, 60), (20, 120)`. Undefined val
 Cross-series ratios/spreads require same `timestamp_m1` values.
 
 The Fed policy family is computed from normalized end-of-day public CME settlement,
-Federal Reserve calendar, and EFFR inputs. The browser-based CME export at
-(`https://www.cmegroup.cn/fed-watch/`) is restricted to explicit QA tooling. For
+Federal Reserve calendar, and EFFR inputs. CME FedWatch production acquisition uses
+the browser-based Chinese CME page at
+(`https://www.cmegroup.cn/fed-watch/`). FedWatch information is treated as available
+only at the observation-day EOD boundary (`23:59:59.999999Z`). For
 observation date `t`, the next meeting is the first scheduled decision date
 strictly after `t`; `fed_path_slope_m3_bp` is the expected move at the third
 future meeting minus the expected move at the next meeting. The four canonical

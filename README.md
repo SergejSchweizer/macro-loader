@@ -10,13 +10,13 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-Operational status (2026-09-23): `main` is synchronized with `origin/main` through the
-merged backlog sequence PR-80–PR-110 (GitHub PRs #81–#112). PR-111 is the active Fed-origin
-transformation scope. Required CI gates pass on the merged sequence. Production-like full-history and Sunday-cron acceptance runners are
-available, but are intentionally not executed from this development workspace; run them
-with their explicit `--execute` guard on the authorized deployment host. The browser-based
-CME export remains an explicit QA-only path; production uses the public transport path and
-preserves unavailable observations as NULL.
+Operational status (2026-09-26): `main` is synchronized with `origin/main` and the
+required CI gates pass. FedWatch production acquisition is browser-only and uses the
+approved Chinese CME page at `https://www.cmegroup.cn/fed-watch/`; the blocked direct
+CME transport endpoint is not used as a fallback. FedWatch observations are available
+only at the EOD boundary (`23:59:59.999999Z`), and unavailable free-history values remain
+`NULL`. Production-like full-history and Sunday-cron acceptance runners are available,
+but require their explicit `--execute` guard on the authorized deployment host.
 
 Before implementing a backlog PR, coding agents must read `AGENTS.md`, `BACKLOG.md`, and `ARCHITECTURE.md`.
 
