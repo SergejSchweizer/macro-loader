@@ -21,7 +21,7 @@ LEVEL2_RE = re.compile(r"^## .+$", re.MULTILINE)
 BRANCH_RE = re.compile(r"^(pr-\d{2,3})/[a-z0-9]+(?:-[a-z0-9]+)*$")
 COMMIT_RE = re.compile(rf"^({ALLOWED_TYPES})\((pr-\d{{2,3}})\): [a-z0-9].+$")
 EXPECTED_DETAILED = [
-    *[f"PR-{index:02d}" for index in range(114, 119)],
+    *[f"PR-{index:02d}" for index in range(114, 120)],
     "PR-113",
     *[f"PR-{index:02d}" for index in range(106, 111)],
 ]

@@ -188,7 +188,7 @@ Feature semantics are fixed and causal:
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level also includes rolling geometric-mean simple returns over 10, 25, 60, 120, and 240 observations, expressed as percentages;
 - the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
-- FedWatch snapshots use only CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/` in production, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
+- FedWatch snapshots use public CME ZQ settlements, the Federal Reserve current calendar plus official historical year pages for 2010-2020, and EFFR; they are marked available at `23:59:59.999999Z`, while the browser FedWatch export remains QA-only and free-source gaps remain null;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
 - cross-series ratios/spreads require the same `timestamp_m1`;
@@ -363,7 +363,7 @@ uv run python scripts/fed_policy_history_acceptance.py \
   --lake-root /srv/market-regime/lake \
   --execute
 
-# Execute the installed Fed-policy EOD wrapper twice for cron acceptance.
+# Execute the installed unified daily wrapper twice for cron acceptance.
 uv run python scripts/fed_policy_cron_acceptance.py \
   --project-root /srv/market-regime \
   --execute
@@ -456,14 +456,14 @@ The optional Gold mirror still runs only as part of local publication; a Postgre
 
 ### Scheduling
 
-The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs every **Sunday at 10:00 in the deployment host's local time zone**. It loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
+The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs **daily at 10:00 in the deployment host's local time zone**. It loads protected configuration, updates Fed policy, publishes local Gold, and synchronizes PostgreSQL:
 
 ```cron
 CRON_TZ=Europe/Vienna
-0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh
+0 10 * * * /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh
 ```
 
-The one Sunday job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. The PostgreSQL sync runs only after `run-daily` succeeds.
+The one daily job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends all command streams to `macro-loader.log`. Fed policy update and sync run before `run-daily`; Gold synchronization runs only after `run-daily` succeeds.
 
 Install it for the service account after reviewing the absolute project path:
 
@@ -473,11 +473,11 @@ crontab ops/macro-loader.cron
 
 Operational semantics are explicit:
 
-- `run-daily` failure prevents PostgreSQL synchronization;
+- Fed-policy or `run-daily` failure prevents later PostgreSQL synchronization;
 - `gold-sync-postgres` failure makes the cron job non-zero but does **not** roll back or invalidate the already published local Gold build;
 - after a database-only failure, retry only `uv run macro-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
-- the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed weekly runs;
-- source maximum-history reconciliation remains a separate explicit schedule/command and is never part of the Sunday main chain;
+- the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed daily runs;
+- source maximum-history reconciliation remains a separate explicit schedule/command and is never part of the daily main chain;
 - both main commands append stdout/stderr to the same `${PROJECT_ROOT}/.logs/macro-loader.log` through `LOG_PATH`.
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
@@ -498,7 +498,7 @@ uv run python scripts/macro_feature_cron_acceptance.py \
 
 The first runner plans maximum-history reconciliation for every registered series,
 then Silver/Gold publication, PostgreSQL migration/sync/verification, and an
-unchanged replay. The second executes the installed Sunday wrapper twice. Both write
+unchanged replay. The second executes the installed daily wrapper twice. Both write
 only a sanitized JSON report under `artifacts/acceptance/`; no credentials or raw
 provider payloads are recorded. A report is `PASS` only when every stage exits zero.
 

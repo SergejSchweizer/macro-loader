@@ -10,6 +10,10 @@ from math import isfinite
 
 import polars as pl
 
+from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS as FRAME_FEATURE_COLUMNS
+
+__all__ = ["FED_POLICY_FEATURE_COLUMNS"]
+
 FED_POLICY_DATASET_ID = "fed_policy_features_daily"
 FED_POLICY_FEATURE_COLUMNS = (
     "fed_next_expected_move_bp",
@@ -55,13 +59,14 @@ class FedPolicyFeatureRow:
 
 def fed_policy_rows(frame: pl.DataFrame) -> tuple[FedPolicyFeatureRow, ...]:
     """Validate and convert the canonical local feature frame to immutable rows."""
-    if frame.columns != list(FED_POLICY_COLUMNS):
+    expected_frame_columns = ("timestamp_m1", *FRAME_FEATURE_COLUMNS, FED_POLICY_LINEAGE_COLUMN)
+    if frame.columns != list(expected_frame_columns):
         raise ValueError("Fed policy feature schema/order drift")
     if frame.schema["timestamp_m1"] != pl.Datetime("us", "UTC"):
         raise TypeError("Fed policy timestamp_m1 must be UTC microsecond datetime")
     if frame.schema["available_at_utc"] != pl.Datetime("us", "UTC"):
         raise TypeError("Fed policy available_at_utc must be UTC microsecond datetime")
-    for column in FED_POLICY_FEATURE_COLUMNS:
+    for column in FRAME_FEATURE_COLUMNS:
         if frame.schema[column] != pl.Float64:
             raise TypeError(f"{column} must be Float64")
     if frame.height and frame.get_column("timestamp_m1").n_unique() != frame.height:

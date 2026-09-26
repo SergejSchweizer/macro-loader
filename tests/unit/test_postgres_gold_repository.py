@@ -372,8 +372,11 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
 
 
 def test_latest_migration_adds_fed_raw_columns_before_rebuilding_the_view() -> None:
-    assert module._MIGRATIONS[-2] == (module._FED_POLICY_COLUMN_MIGRATION,)
-    assert module._MIGRATIONS[-1] == module._FEATURES_VIEW_REBUILD_MIGRATION
+    assert module._MIGRATIONS[-7] == (module._FED_POLICY_COLUMN_MIGRATION,)
+    assert module._MIGRATIONS[-6] == module._FEATURES_VIEW_REBUILD_MIGRATION
+    assert any("gold_row_hashes" in migration[0] for migration in module._MIGRATIONS[-4:])
+    assert any("GRANT EXECUTE ON FUNCTION" in migration[0] for migration in module._MIGRATIONS[-4:])
+    assert "macro_raw" in module._MIGRATIONS[-1][0]
 
 
 def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:

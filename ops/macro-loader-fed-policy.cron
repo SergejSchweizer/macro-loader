@@ -1,5 +1,0 @@
-# Install with: crontab ops/macro-loader-fed-policy.cron
-# Daily at 10:15 Europe/Vienna, after the U.S. futures EOD settlement window.
-CRON_TZ=Europe/Vienna
-
-15 10 * * * /home/dev_market/macro-loader/ops/run-fed-policy-eod.sh
