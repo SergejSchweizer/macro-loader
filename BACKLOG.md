@@ -4,16 +4,17 @@ This backlog is the implementation source of truth for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-09-23
+Last reviewed: 2026-09-26
 
 ## Current repository and production status
 
-As of 2026-09-23, PR-97 through PR-105 are merged: the repository has the causal
-ZQ-based Fed-policy reconstruction, the four canonical Fed-policy features, PostgreSQL
-Fed synchronization, EOD orchestration, and the installed daily cron path. The remaining
-serving-layout gap is structural: the four Fed origins are synchronized to the private
-Fed-policy relation and `macro_features` currently joins that relation directly, while
-`macro_raw` still contains only the pre-existing market-source columns.
+As of 2026-09-26, the Fed-policy reconstruction, four canonical Fed origins,
+PostgreSQL synchronization, EOD orchestration, raw-to-feature serving lineage, and the
+installed cron path are merged. The production FedWatch acquisition path is browser-only
+and uses `https://www.cmegroup.cn/fed-watch/`; the direct CME transport endpoint is not
+a fallback because it returns HTTP 403 in this environment. The CBOE CDN endpoints are
+also currently unavailable with HTTP 403; this is an external provider-access issue,
+not a parser failure, and failed CBOE observations remain `NULL`.
 
 The delivery wave below changes the serving lineage to one consistent path:
 
@@ -285,14 +286,17 @@ Design patterns: Differential Testing, Golden Master, Test Fixture.
 Description:
 - R1: Capture a small sanitized set of official public CME FedWatch meeting-export fixtures for overlapping dates/meetings and compare reconstructed target/move probability distributions to the official distributions using one source-controlled numeric tolerance and explicit bucket-alignment rules.
 - R2: From the same official fixtures, independently calculate/compare all four canonical features, including three-meeting path slope and five-valid-observation repricing, and report exact per-feature error statistics.
-- R3: Keep the existing browser/MeetingExport adapter only as a QA acquisition/oracle boundary if still needed; it must not remain a required production/backfill/cron source.
+- R3: Historical criterion. The browser/MeetingExport adapter was originally intended
+  as a QA-only boundary; the current production contract instead uses the browser-only
+  Chinese CME page and does not use the blocked direct transport endpoint.
 - R4: Add explicit anti-look-ahead differential fixtures proving EFFR publication lag and FOMC schedule/emergency-meeting first-known times change historical eligibility exactly when they should.
 - R5: Emit a deterministic sanitized `artifacts/acceptance/fed-policy-cme-parity-v1.json` listing fixture identities/hashes, methodology version, tolerances, compared meetings/features, max errors, causal checks, and PASS|FAIL.
 
 Acceptance:
 - A1 (verifies R1): every captured official meeting distribution is matched within the declared tolerance, probability buckets/mass align deterministically, and a deliberately altered reconstruction formula fails.
 - A2 (verifies R2): all four feature comparisons are present with finite error metrics and the path-slope/repricing checks use the PR-97 semantics rather than the legacy M3 cumulative sum.
-- A3 (verifies R3): repository call-path tests prove browser FedWatch is QA-only and production commands succeed without browser dependencies/profile state.
+- A3 (verifies R3): historical repository call-path tests proved the then-planned QA-only boundary;
+  this criterion is superseded by the current browser-only Chinese CME production path.
 - A4 (verifies R4): before-publication/before-announcement fixtures exclude unavailable information and become eligible only after the recorded availability boundary.
 - A5 (verifies R5): the parity artifact is deterministic/sanitized and can report PASS only if A1-A4 all pass.
 
