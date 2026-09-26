@@ -273,7 +273,7 @@ Acceptance:
 ## PR-106: Differentially Validate Reconstruction Against Official CME FedWatch
 
 PR name: `fed-policy-cme-differential-qa`
-Status: Historical QA scope (superseded for production acquisition)
+Status: Planned
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-106/fed-policy-cme-differential-qa`
@@ -390,7 +390,7 @@ Acceptance:
 ## PR-110: Retire Legacy FedWatch Runtime And Finalize Documentation
 
 PR name: `fed-policy-runtime-cleanup-docs`
-Status: Historical cleanup scope (documentation/runtime status superseded)
+Status: Planned
 Updated: 2026-09-23
 PR: not opened
 Git branch: `pr-110/fed-policy-runtime-cleanup-docs`
