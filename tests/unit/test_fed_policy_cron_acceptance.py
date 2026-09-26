@@ -25,9 +25,9 @@ def test_cron_acceptance_invokes_installed_wrapper_twice(tmp_path: Path, monkeyp
     assert main(["--project-root", "/srv/macro-loader", "--report", str(report), "--execute"]) == 0
     payload = json.loads(report.read_text())
     assert payload["result"] == "PASS"
-    assert payload["wrapper"] == "ops/run-fed-policy-eod.sh"
+    assert payload["wrapper"] == "ops/run-macro-loader-sunday.sh"
     assert len(calls) == 2
-    assert all(call[0] == "/srv/macro-loader/ops/run-fed-policy-eod.sh" for call in calls)
+    assert all(call[0] == "/srv/macro-loader/ops/run-macro-loader-sunday.sh" for call in calls)
 
 
 def test_cron_acceptance_stops_after_failed_run(tmp_path: Path, monkeypatch) -> None:

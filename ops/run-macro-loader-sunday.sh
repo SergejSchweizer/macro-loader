@@ -12,7 +12,7 @@ export PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 LOG_DIR="$PROJECT_ROOT/.logs"
 LOG_PATH="$LOG_DIR/macro-loader.log"
 LOCK_DIR="$PROJECT_ROOT/.locks"
-LOCK_PATH="$LOCK_DIR/macro-loader-sunday.lock"
+LOCK_PATH="$LOCK_DIR/macro-loader.lock"
 MAINTENANCE_PATH="$PROJECT_ROOT/.maintenance/macro-loader-reconstruction"
 
 if ! MACRO_LOADER_GIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD); then
@@ -35,7 +35,7 @@ if ! flock -n 9; then
 fi
 exec >>"$LOG_PATH" 2>&1
 
-printf '\n[%s] Starting Sunday macro-loader job\n' "$(date --iso-8601=seconds)"
+printf '\n[%s] Starting macro-loader daily job\n' "$(date --iso-8601=seconds)"
 
 if [[ -e "$MAINTENANCE_PATH" ]]; then
 	printf 'Sunday macro-loader job is disabled for production reconstruction\n' >&2
@@ -43,6 +43,12 @@ if [[ -e "$MAINTENANCE_PATH" ]]; then
 fi
 
 eval "$("$PYTHON" "$PROJECT_ROOT/scripts/export_cron_config.py" "$CONFIG_FILE")"
+
+printf '[%s] Running Fed-policy bounded update\n' "$(date --iso-8601=seconds)"
+"$CLI" --lake-root "$LAKE_ROOT" run-fed-policy-eod
+
+printf '[%s] Synchronizing Fed-policy PostgreSQL state\n' "$(date --iso-8601=seconds)"
+"$CLI" --lake-root "$LAKE_ROOT" fed-policy-sync-postgres
 
 printf '[%s] Running delta-only daily pipeline\n' "$(date --iso-8601=seconds)"
 "$CLI" --lake-root "$LAKE_ROOT" run-daily
@@ -52,4 +58,4 @@ PGUSER="${PGSYNCUSER:-macro-loader-sync}" \
 PGPASSWORD="${PGSYNCPASSWORD:-${PGPASSWORD:-}}" \
 	"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres
 
-printf '[%s] Sunday macro-loader job completed\n' "$(date --iso-8601=seconds)"
+printf '[%s] Macro-loader daily job completed\n' "$(date --iso-8601=seconds)"

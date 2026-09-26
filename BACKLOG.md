@@ -244,6 +244,30 @@ PR-106 CME differential QA   PR-107 real PostgreSQL QA
                           PR-110 cleanup/docs
 ```
 
+## PR-119: Unify Fed Feature Column Contract
+
+PR name: `fed-policy-column-contract`
+Status: In Progress
+Updated: 2026-09-23
+PR: not opened
+Git branch: `pr-119/fed-policy-column-contract`
+Git status: active-dirty: tests/integration/test_postgres_real.py
+Agent lane: Fed producer and PostgreSQL contract consistency; one agent only
+Depends on: PR-118
+Commit: `fix(pr-119): unify fed feature column order`
+Design patterns: Specification/Policy Object, Dependency Injection baseline.
+
+Description:
+- R1: Unify the canonical Fed feature column order across feature publication, PostgreSQL synchronization, and serving projections.
+- R2: Prove the shared contract with focused producer and PostgreSQL tests without changing Fed values or NULL semantics.
+
+Acceptance:
+- A1 (verifies R1): the feature builder and PostgreSQL sync use the same ordered four-column contract.
+- A2 (verifies R2): focused and full quality gates pass with the established serving projection order unchanged.
+
+- Use the feature builder's canonical Fed feature order in the PostgreSQL sync contract so local publication and database synchronization cannot drift.
+- Preserve exact four-origin parity through `macro_raw`, `macro_features`, and the private synchronization relation.
+
 ## PR-113: Reframe Fed Policy Serving Through Macro Raw
 
 PR name: `fed-policy-transform-backlog`

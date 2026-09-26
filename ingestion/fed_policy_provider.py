@@ -1,8 +1,9 @@
 """Official public-source FedWatch snapshot adapter.
 
 This adapter intentionally uses only the public CME 30-Day Fed Funds
-settlement endpoint, the public Federal Reserve FOMC calendar, and the public
-Federal Reserve EFFR CSV.  It does not call CME's paid FedWatch API/DataMine.
+settlement endpoint, the public Federal Reserve FOMC calendar and historical
+year pages, and the public Federal Reserve EFFR CSV. It does not call CME's
+paid FedWatch API/DataMine.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from application.ports.http import HttpRequest, HttpTransport, RequestContext
 _CME_SETTLEMENTS_URL = "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/305/FUT"
 _EFFR_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 _FOMC_URL = "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm"
+_FOMC_HISTORICAL_URL = "https://www.federalreserve.gov/monetarypolicy/fomchistorical{year}.htm"
 _CME_FEDWATCH_URL = "https://www.cmegroup.cn/fed-watch/"
 _MONTHS = {name: index for index, name in enumerate(calendar.month_abbr) if name}
 _MONTH_CODES = {
@@ -78,6 +80,36 @@ def _fomc_decision_dates(html: str) -> tuple[date, ...]:
     return tuple(sorted(set(dates)))
 
 
+def _fomc_historical_decision_dates(html: str, year: int) -> tuple[date, ...]:
+    """Parse decision dates from one Federal Reserve historical year page."""
+    text = re.sub(r"<[^>]+>", "\n", html)
+    text = re.sub(r"\s+", " ", text)
+    dates: list[date] = []
+    for match in re.finditer(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:\s*[-–]\s*(\d{1,2}))?(?P<status>\s*\([^)]*\))?\s+Meeting\b",
+        text,
+    ):
+        if any(
+            status in (match.group("status") or "").lower()
+            for status in ("unscheduled", "cancelled")
+        ):
+            continue
+        month = list(calendar.month_name).index(match.group(1).capitalize())
+        day = int(match.group(3) or match.group(2))
+        dates.append(date(year, month, day))
+    return tuple(sorted(set(dates)))
+
+
+def _fomc_urls_for_range(start: date, end: date, current_url: str) -> tuple[str, ...]:
+    urls = [
+        _FOMC_HISTORICAL_URL.format(year=year)
+        for year in range(max(1989, start.year), min(2020, end.year) + 1)
+    ]
+    if end.year >= 2021:
+        urls.append(current_url)
+    return tuple(urls)
+
+
 def _month_key(year: int, month: int) -> str:
     return f"{calendar.month_abbr[month].upper()} {year % 100:02d}"
 
@@ -119,12 +151,19 @@ class FedPolicyProvider:
         context = RequestContext(Provider.FEDWATCH, "fed_policy", "cme-fedwatch-eod")
         if self._browser_only:
             return self._browser_fetch(start, end, {}, context)
-        calendar_response = self._transport.send(
-            HttpRequest("GET", self._fomc_url), context=context
-        )
-        if calendar_response.status_code != 200:
-            raise ValueError("official Federal Reserve FOMC calendar unavailable")
-        meetings = _fomc_decision_dates(calendar_response.content.decode("utf-8", errors="replace"))
+        meetings: set[date] = set()
+        for calendar_url in _fomc_urls_for_range(start, end, self._fomc_url):
+            calendar_response = self._transport.send(
+                HttpRequest("GET", calendar_url), context=context
+            )
+            if calendar_response.status_code != 200:
+                raise ValueError("official Federal Reserve FOMC calendar unavailable")
+            calendar_html = calendar_response.content.decode("utf-8", errors="replace")
+            if "fomchistorical" in calendar_url:
+                year = int(calendar_url.rsplit("fomchistorical", 1)[1].split(".", 1)[0])
+                meetings.update(_fomc_historical_decision_dates(calendar_html, year))
+            else:
+                meetings.update(_fomc_decision_dates(calendar_html))
         effr = self._effr(start, end, context)
         rows: list[dict[str, object]] = []
         try:
@@ -142,7 +181,7 @@ class FedPolicyProvider:
                 settlements = self._settlement_map(response.content)
                 if not settlements or trade_date not in effr:
                     continue
-                for meeting in meetings:
+                for meeting in sorted(meetings):
                     if meeting <= trade_date:
                         continue
                     for outcome in reconstruct_meeting_distribution(

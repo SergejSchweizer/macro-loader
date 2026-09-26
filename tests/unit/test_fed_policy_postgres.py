@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 import polars as pl
 import pytest
 
+from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS as FRAME_FEATURE_COLUMNS
 from application.fed_policy_postgres import (
     FED_POLICY_COLUMNS,
-    FED_POLICY_FEATURE_COLUMNS,
     fed_policy_rows,
     plan_fed_policy_delta,
 )
@@ -20,13 +20,13 @@ def _frame(days: list[int], value: float = 1.0) -> pl.DataFrame:
     for day in days:
         timestamp = datetime(2026, 8, day, tzinfo=UTC)
         rows.append(
-            (timestamp, value, None, 2.0, value - 1.0, timestamp + timedelta(hours=23, minutes=59))
+            (timestamp, value, value - 1.0, 2.0, None, timestamp + timedelta(hours=23, minutes=59))
         )
     return pl.DataFrame(
         rows,
         schema={
             "timestamp_m1": pl.Datetime("us", "UTC"),
-            **{column: pl.Float64 for column in FED_POLICY_FEATURE_COLUMNS},
+            **{column: pl.Float64 for column in FRAME_FEATURE_COLUMNS},
             "available_at_utc": pl.Datetime("us", "UTC"),
         },
         orient="row",

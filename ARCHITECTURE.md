@@ -452,7 +452,8 @@ The fixed causal pairs are `(h, W) = (1, 60), (5, 60), (20, 120)`. Undefined val
 Cross-series ratios/spreads require same `timestamp_m1` values.
 
 The Fed policy family is computed from normalized end-of-day public CME settlement,
-Federal Reserve calendar, and EFFR inputs. The browser-based CME export at
+the Federal Reserve current calendar plus official historical year pages for
+2010-2020, and EFFR inputs. The browser-based CME export at
 (`https://www.cmegroup.cn/fed-watch/`) is restricted to explicit QA tooling. For
 observation date `t`, the next meeting is the first scheduled decision date
 strictly after `t`; `fed_path_slope_m3_bp` is the expected move at the third

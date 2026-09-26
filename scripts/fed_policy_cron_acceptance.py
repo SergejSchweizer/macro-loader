@@ -20,7 +20,7 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    runner = args.project_root / "ops" / "run-fed-policy-eod.sh"
+    runner = args.project_root / "ops" / "run-macro-loader-sunday.sh"
     if not args.execute:
         print(f"Refusing to execute without --execute: {runner}")
         return 2
@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema": "fed-policy-cron-v1",
         "result": "PASS" if passed else "FAIL",
         "authorization": "explicit-execute",
-        "wrapper": "ops/run-fed-policy-eod.sh",
+        "wrapper": "ops/run-macro-loader-sunday.sh",
         "stages": stages,
     }
     args.report.parent.mkdir(parents=True, exist_ok=True)

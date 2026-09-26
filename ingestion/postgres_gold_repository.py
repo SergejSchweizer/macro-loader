@@ -856,6 +856,24 @@ _MIGRATIONS = (
     # Older layout migrations could recreate macro_raw before the Fed columns existed.
     (_FED_POLICY_COLUMN_MIGRATION,),
     _FEATURES_VIEW_REBUILD_MIGRATION,
+    (
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_FED_POLICY_TABLE} "
+        f"TO {_quote(POSTGRES_SYNC_USER)}",
+    ),
+    (
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_SYNC_STATE}, {_ROW_HASHES}, "
+        f"{_FED_POLICY_TABLE} "
+        f"TO {_quote(POSTGRES_USER)}",
+    ),
+    (
+        "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
+        f"TO {_quote(POSTGRES_USER)}",
+    ),
+    (
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_SYNC_STATE}, {_ROW_HASHES} "
+        f"TO {_quote(POSTGRES_USER)}",
+    ),
+    (f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_CONSUMER} TO {_quote(POSTGRES_USER)}",),
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

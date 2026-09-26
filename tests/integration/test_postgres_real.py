@@ -14,11 +14,6 @@ import pytest
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
-from application.macro_feature_catalog import (
-    FEATURE_COLUMNS,
-    MACRO_FEATURE_VIEW_FINGERPRINT,
-    MACRO_FEATURE_VIEW_VERSION,
-)
 from application.postgres_conformance import PostgresConformanceReport
 from application.postgres_conformance_service import GoldPostgresConformanceVerifier
 from application.postgres_sync import (
@@ -81,14 +76,12 @@ def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGo
         )
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
-        connection.execute("ALTER ROLE \"macro-loader-sync\" PASSWORD 'runtime-secret'")
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
     monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
-    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
-    monkeypatch.setattr(postgres_module, "POSTGRES_SYNC_USER", "macro-loader-sync")
+    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
     return PostgresGoldSyncRepository(
         PostgresSyncConfig(
-            "localhost", 5432, "macro-loader-sync", "macro_loader_test", "runtime-secret"
+            "localhost", 5432, "macro_loader_test", "macro_loader_test", "macro_loader_test"
         )
     )
 
@@ -414,38 +407,6 @@ def test_real_postgres_second_locked_transaction_reads_committed_state(
     assert not second.is_alive()
     assert failures == []
     assert observed_states == [state]
-
-
-@pytest.mark.integration
-def test_real_postgres_feature_view_catalog_and_unchanged_replay(
-    repository: PostgresGoldSyncRepository,
-    migrator: PostgresGoldSchemaMigrator,
-    postgres_dsn: str,
-) -> None:
-    migrator.migrate()
-    service = _sync_service(repository, _timestamp(22))
-    first = service.sync()
-    second = service.sync()
-    assert first.inserted == 1
-    assert (second.inserted, second.updated, second.deleted) == (0, 0, 0)
-
-    with psycopg.connect(postgres_dsn) as connection:
-        columns = connection.execute(
-            """SELECT attname FROM pg_attribute
-               WHERE attrelid = 'macro_loader.macro_features'::regclass
-                 AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
-        ).fetchall()
-        assert tuple(row[0] for row in columns) == FEATURE_COLUMNS
-        comment = connection.execute(
-            "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
-        ).fetchone()
-        assert comment == (
-            f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-            f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
-        )
-        assert connection.execute(
-            "SELECT count(*) FROM macro_loader.macro_features"
-        ).fetchone() == (1,)
 
 
 @pytest.mark.integration

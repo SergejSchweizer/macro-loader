@@ -15,6 +15,8 @@ from ingestion.fed_policy_provider import (
     CmeZqSettlementProvider,
     FedPolicyProvider,
     _fomc_decision_dates,
+    _fomc_historical_decision_dates,
+    _fomc_urls_for_range,
     _reconstructed_outcomes,
 )
 
@@ -63,6 +65,26 @@ class FakeTransport:
 
 def test_official_calendar_parser_uses_decision_day() -> None:
     assert _fomc_decision_dates("#### 2026 FOMC Meetings\nJanuary\n27-28\n") == (date(2026, 1, 28),)
+
+
+def test_historical_calendar_parser_uses_meeting_decision_day_only() -> None:
+    html = """
+    January 26-27 Meeting - materials
+    May 9 Conference Call - 2010
+    March 15 (unscheduled) Meeting - emergency
+    March 16 Meeting - materials
+    """
+    assert _fomc_historical_decision_dates(html, 2010) == (
+        date(2010, 1, 27),
+        date(2010, 3, 16),
+    )
+
+
+def test_fomc_urls_use_historical_pages_before_current_calendar() -> None:
+    urls = _fomc_urls_for_range(date(2010, 1, 1), date(2023, 9, 20), "current")
+    assert urls[0].endswith("fomchistorical2010.htm")
+    assert urls[-2].endswith("fomchistorical2020.htm")
+    assert urls[-1] == "current"
 
 
 def test_provider_normalizes_public_inputs_to_eod_outcomes() -> None:
