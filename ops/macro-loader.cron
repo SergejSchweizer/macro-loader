@@ -5,4 +5,4 @@
 CRON_TZ=Europe/Vienna
 
 # Sunday at 10:00: publish local Gold, then synchronize PostgreSQL on success.
-0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh
+0 10 * * 0 /home/dev_macro/macro-loader/ops/run-macro-loader-sunday.sh
