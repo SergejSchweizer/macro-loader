@@ -258,7 +258,11 @@ def build_runtime(
     )
     silver = SilverSeriesRepository(paths)
     inventory = InventoryRefreshService(paths)
-    fed_policy_source = FedPolicySnapshotStore(paths, FedPolicyProvider(transport))
+    # Production FedWatch ingestion is browser-only and uses the approved
+    # Chinese CME public page; never fall back to the blocked direct endpoint.
+    fed_policy_source = FedPolicySnapshotStore(
+        paths, FedPolicyProvider(transport, browser_only=True)
+    )
     fed_policy = FedPolicyEodOrchestrator(
         snapshots=fed_policy_source,
         settlements=FedPolicySettlementStore(paths),
