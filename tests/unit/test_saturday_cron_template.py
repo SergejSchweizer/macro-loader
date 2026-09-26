@@ -32,7 +32,7 @@ def test_fed_policy_daily_cron_template_has_exact_timezone_and_time() -> None:
     text = template.read_text(encoding="utf-8")
 
     assert "CRON_TZ=Europe/Vienna" in text
-    assert "15 10 * * * /home/dev_market/macro-loader/ops/run-fed-policy-eod.sh" in text
+    assert "15 10 * * * /home/dev_macro/macro-loader/ops/run-fed-policy-eod.sh" in text
 
 
 def test_fed_policy_runner_has_exact_three_stage_order_and_lock() -> None:
@@ -57,7 +57,7 @@ def test_sunday_gold_sync_cron_template_is_operational() -> None:
     runner = CRON_RUNNER.read_text(encoding="utf-8")
 
     assert job.startswith("0 10 * * 0 ")
-    assert job == "0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh"
+    assert job == "0 10 * * 0 /home/dev_macro/macro-loader/ops/run-macro-loader-sunday.sh"
     assert '"$PROJECT_ROOT/scripts/export_cron_config.py" "$CONFIG_FILE"' in runner
     assert 'cd "$PROJECT_ROOT"' in runner
     assert 'git -C "$PROJECT_ROOT" rev-parse --verify HEAD' in runner

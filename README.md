@@ -460,7 +460,7 @@ The data lake is intended to run on the deployment host/NAS, not as scheduled Gi
 
 ```cron
 CRON_TZ=Europe/Vienna
-0 10 * * 0 /home/dev_market/macro-loader/ops/run-macro-loader-sunday.sh
+0 10 * * 0 /home/dev_macro/macro-loader/ops/run-macro-loader-sunday.sh
 ```
 
 The one Sunday job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. The PostgreSQL sync runs only after `run-daily` succeeds.
@@ -491,9 +491,9 @@ runtime configuration already exported. They are dry-run by default:
 uv run python scripts/macro_feature_acceptance.py --lake-root /srv/market-regime/lake
 uv run python scripts/macro_feature_acceptance.py \
   --lake-root /srv/market-regime/lake --execute
-uv run python scripts/macro_feature_cron_acceptance.py --project-root /home/dev_market/macro-loader
+uv run python scripts/macro_feature_cron_acceptance.py --project-root /home/dev_macro/macro-loader
 uv run python scripts/macro_feature_cron_acceptance.py \
-  --project-root /home/dev_market/macro-loader --execute
+  --project-root /home/dev_macro/macro-loader --execute
 ```
 
 The first runner plans maximum-history reconciliation for every registered series,
