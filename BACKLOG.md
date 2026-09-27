@@ -31,6 +31,252 @@ where point-in-time source support is genuinely unavailable or a transformation 
 completed its causal warm-up; every such gap must be measured and explained by QA rather
 than filled, interpolated, carried, or synthesized.
 
+## Audit Remediation Wave — Mathematical And Contract Correctness
+
+This wave was added after a repository-wide review of the current Fed-policy and
+PostgreSQL feature paths. The review found issues that are not cosmetic: one command-path
+contract mismatch can reject the canonical Fed frame, the production browser FedWatch path
+changes the economic baseline when EFFR is absent, several feature formulas do not fully
+honor the documented NULL/domain semantics, and documentation versions have drifted from
+the executable contracts. These findings must be repaired before treating the current
+acceptance artifacts as proof of end-to-end mathematical correctness.
+
+### PR-146: Record Audit Findings And Remediation Plan
+
+PR name: `audit-remediation-plan`
+Status: In Progress
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-146/audit-remediation-plan`
+Git status: `pushed-ci-running`
+Agent lane: Mathematical/contract audit governance; one agent only
+Depends on: PR-145
+Commit: `docs(pr-146): add audit remediation backlog`
+Design patterns: Single Source of Truth, Closed-World Register, Fail-Closed Verification.
+
+Description:
+- R1: Record the Fed feature-order mismatch between the canonical local feature frame and
+  the PostgreSQL contract and require an end-to-end contract test that crosses that boundary.
+- R2: Record the production browser FedWatch baseline defect and the divergence between the
+  current futures reconstruction shortcut and CME's documented month/anchor methodology.
+- R3: Record XETRA-family domain ambiguity for signed source levels, especially eSTR, and
+  require one explicit eligibility/domain policy instead of mixed per-formula behavior.
+- R4: Record RSI NULL-propagation/numerical-stability risks and PostgreSQL
+  `GREATEST(corr(...), 0)` NULL semantics for undefined momentum correlation.
+- R5: Record documentation/version drift: executable Gold semantic versions are 7/6 while
+  README/ARCHITECTURE still state 6/5; AGENTS delivery status and the Fed provider module
+  description are also stale.
+- R6: Split repairs into independently testable PR-147 through PR-152 rather than combining
+  unrelated production, formula, and documentation changes.
+
+Acceptance:
+- A1: every finding above maps to a concrete follow-up PR with an observable regression test.
+- A2: no finding is marked fixed by this planning PR; implementation status remains explicit.
+- A3: the remediation sequence includes independent mathematical parity tests and one final
+  source-to-PostgreSQL acceptance path.
+
+### PR-147: Unify Fed Feature Column Contract End To End
+
+PR name: `fed-feature-column-contract`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-147/fed-feature-column-contract`
+Git status: `not-started (branch absent)`
+Agent lane: Fed schema/serving contract; one agent only
+Depends on: PR-146
+Commit: `fix(pr-147): unify fed feature column contract`
+Design patterns: Single Source of Truth, Contract Test, Repository.
+
+Description:
+- R1: Define the four Fed feature names/order exactly once and consume that contract from
+  feature construction, local Parquet publication, PostgreSQL row conversion, SQL DML, and
+  serving-catalog code.
+- R2: Remove the current order split where the local frame is
+  `next_expected, next_uncertainty, path_slope, repricing` while the PostgreSQL contract is
+  `next_expected, path_slope, next_uncertainty, repricing`.
+- R3: Preserve values by semantic column name during upgrade; never silently swap path slope
+  and uncertainty by positional tuple conversion.
+- R4: Add a full in-process regression:
+  `build_fed_policy_features -> FedPolicyFeatureStore -> fed_policy_rows -> repository.sync`.
+
+Acceptance:
+- A1: one canonical tuple owns the order and repository search finds no competing order.
+- A2: the real frame produced by `build_fed_policy_features` is accepted unchanged by the
+  PostgreSQL sync boundary and values arrive in the correctly named database columns.
+- A3: a deliberately reordered frame fails closed; a semantic value swap is detected.
+- A4: unchanged replay remains a zero-mutation sync.
+
+### PR-148: Correct FedWatch Economic Baseline And CME Reconstruction
+
+PR name: `fedwatch-methodology-correction`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-148/fedwatch-methodology-correction`
+Git status: `not-started (branch absent)`
+Agent lane: Fed Funds futures mathematics; one agent only
+Depends on: PR-147
+Commit: `fix(pr-148): correct fedwatch reconstruction methodology`
+Design patterns: Pure Transformation, Versioned Methodology, Differential Testing.
+
+Description:
+- R1: In browser-only production acquisition, derive rate moves from the point-in-time
+  current policy/EFFR baseline. Do not pass an empty EFFR map and do not substitute the
+  modal FedWatch bucket as the economic baseline.
+- R2: Replace the per-meeting previous-month shortcut with the documented CME FedWatch
+  propagation from full non-FOMC anchor months through meeting months, including consistent
+  EFFR start/average/end relationships and 25bp outcome decomposition.
+- R3: Correct day weighting using the actual pre/post-meeting day counts. A shortcut keyed
+  only on `meeting.day <= 3` must not stand in for whether a neighboring full month is the
+  required anchor.
+- R4: Treat later-meeting distributions consistently with the probability-tree semantics
+  needed by the four canonical features; define whether `move_bp` is incremental per
+  meeting or cumulative-to-meeting and enforce that definition everywhere.
+- R5: Bump the methodology version/fingerprint whenever formula semantics change and bind
+  the fingerprint to the declared methodology payload, not merely an unchanged label.
+
+Acceptance:
+- A1: historical official CME MeetingExport fixtures across early-, middle-, and late-month
+  meetings, hikes and cuts, and multiple consecutive meetings match within a declared
+  tolerance.
+- A2: the production browser path and the reconstruction/reference path produce the same
+  feature semantics from equivalent point-in-time inputs.
+- A3: tests demonstrate that changing the baseline from current policy/EFFR to the modal
+  bucket changes expected move and is rejected.
+- A4: missing anchor inputs fail closed to NULL/unavailable rather than inventing a baseline.
+
+### PR-149: Define Signed-Series Eligibility For XETRA Feature Families
+
+PR name: `xetra-feature-domain-contract`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-149/xetra-feature-domain-contract`
+Git status: `not-started (branch absent)`
+Agent lane: Feature-domain specification; one agent only
+Depends on: PR-146
+Commit: `fix(pr-149): define xetra feature domains`
+Design patterns: Specification/Policy Object, Closed-World Catalog.
+
+Description:
+- R1: Replace the ambiguous phrase "every eligible positive level series" with an explicit
+  source/family eligibility matrix.
+- R2: Resolve signed-rate inputs such as eSTR consistently. Today log levels, log returns,
+  ROC and RSI guard on positivity while SMA ratios and drawdowns can still emit values for
+  the same negative series.
+- R3: Either exclude signed/non-price series from price-only transformations or define
+  mathematically appropriate signed-safe alternatives with distinct names; do not mix the
+  two semantics under one 26-column contract.
+- R4: Make catalog metadata state domain restrictions and NULL behavior exactly.
+
+Acceptance:
+- A1: zero/negative/sign-changing fixtures have one documented result per feature family.
+- A2: eSTR and every other registered series are explicitly classified; no eligibility is
+  inferred accidentally from SQL `CASE` expressions.
+- A3: catalog, SQL, README and ARCHITECTURE agree on feature count and domain.
+
+### PR-150: Make RSI And Momentum Numerically Stable And NULL-Correct
+
+PR name: `rsi-momentum-numerical-correctness`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-150/rsi-momentum-numerical-correctness`
+Git status: `not-started (branch absent)`
+Agent lane: Indicator mathematics; one agent only
+Depends on: PR-149
+Commit: `fix(pr-150): stabilize rsi and momentum null semantics`
+Design patterns: Pure Transformation, Differential Testing, Fail-Closed Verification.
+
+Description:
+- R1: Replace the closed-form Wilder implementation that contains
+  `power((p-1)/p, -observation_number)` with a numerically stable causal recurrence or
+  equivalent bounded formulation. In IEEE-754 double precision the inverse-power term first
+  exceeds the finite range at observation 4605 for RSI-7 and 9578 for RSI-14.
+- R2: Require a complete valid seed and explicit invalid-input semantics. Do not let
+  `avg()` silently seed from fewer valid gains/losses or `coalesce(gain, 0)` turn an
+  invalid change into a zero change unless that is the declared policy.
+- R3: Preserve undefined momentum correlation as NULL. PostgreSQL ignores NULL arguments in
+  `GREATEST`, so `GREATEST(corr(...), 0.0)` can turn an undefined correlation into 0;
+  guard the correlation result explicitly before clipping negative finite values.
+- R4: Keep causal observation-based windows and existing all-gain/all-loss edge semantics
+  only where mathematically defined.
+
+Acceptance:
+- A1: independent recursive Wilder references match PostgreSQL for RSI-7/14 on ordinary,
+  constant, invalid, sparse, and sign-boundary fixtures.
+- A2: a >5,000-observation regression remains finite/NULL as specified and cannot overflow
+  in RSI-7 intermediate arithmetic.
+- A3: constant-change windows produce NULL correlation while finite negative correlation is
+  clipped to zero and positive correlation is preserved.
+- A4: truncation tests prove no future-row dependency.
+
+### PR-151: Reconcile Executable Versions And Documentation Contracts
+
+PR name: `contract-version-doc-reconciliation`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-151/contract-version-doc-reconciliation`
+Git status: `not-started (branch absent)`
+Agent lane: Documentation/schema governance; one agent only
+Depends on: PR-147, PR-148, PR-149, PR-150
+Commit: `docs(pr-151): reconcile executable and documented contracts`
+Design patterns: Single Source of Truth, Executable Specification.
+
+Description:
+- R1: Reconcile README/ARCHITECTURE Gold semantic versions with executable
+  `GOLD_SCHEMA_VERSION=7` and `GOLD_FEATURE_VERSION=6`, including any further version
+  increments required by PR-147 through PR-150.
+- R2: Refresh AGENTS current-delivery status, which still reports PR-80 through PR-90, and
+  remove stale operational statements.
+- R3: Reconcile the Fed provider module description with the browser-only production
+  composition root and document direct-transport code as non-production/explicit tooling if
+  it remains.
+- R4: Add tests or generated checks that prevent version/order statements from drifting from
+  executable constants again.
+
+Acceptance:
+- A1: repository search finds one authoritative current semantic version pair and no stale
+  6/5 operational claim.
+- A2: README, ARCHITECTURE, AGENTS, provider documentation, and runtime composition describe
+  one production path.
+- A3: a deliberate future version/order drift causes CI failure.
+
+### PR-152: Independent End-To-End Mathematical And Serving Acceptance
+
+PR name: `post-audit-mathematical-acceptance`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-152/post-audit-mathematical-acceptance`
+Git status: `not-started (branch absent)`
+Agent lane: Independent final QA; one agent only
+Depends on: PR-151
+Commit: `test(pr-152): accept corrected mathematical serving path`
+Design patterns: Differential Testing, Golden Master, End-to-End Acceptance, Fail-Closed Verification.
+
+Description:
+- R1: Build independent calculators that do not import production formula builders for Fed
+  expected move/uncertainty/path/repricing and the corrected RSI/momentum families.
+- R2: Execute the canonical path from point-in-time Fed input and source levels through local
+  feature publication, PostgreSQL origin synchronization, materialized-view refresh, and
+  final named-column queries.
+- R3: Re-run historical/edge fixtures that specifically exposed PR-147 through PR-150 and
+  emit a deterministic sanitized acceptance artifact.
+- R4: Make PASS impossible if feature order, economic baseline, domain eligibility, NULL
+  semantics, numerical stability, version/fingerprint, or final column identity drifts.
+
+Acceptance:
+- A1: official CME differential fixtures and independent feature references match within
+  declared tolerances.
+- A2: named PostgreSQL values equal the canonical local values without positional swaps.
+- A3: signed/invalid/constant/long-history fixtures satisfy the corrected domain and NULL
+  contracts.
+- A4: unchanged replay yields zero semantic mutation and the acceptance artifact is
+  deterministic and sanitized.
+
 ## New Delivery Wave — XETRA-Compatible Price Transformations In `macro_features`
 
 This wave adopts the calculation semantics from the current
