@@ -122,9 +122,9 @@ Acceptance:
 PR name: `xetra-compatible-returns-volatility-qa`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #134
 Git branch: `pr-134/xetra-compatible-returns-volatility-qa`
-Git status: `active-dirty: BACKLOG.md, tests/integration/test_postgres_real.py, tests/unit/test_xetra_returns_volatility_qa.py`
+Git status: `pushed-ci-running`
 Agent lane: Independent formula QA; one agent only
 Depends on: PR-132
 Commit: `test(pr-134): verify xetra-compatible returns volatility`
