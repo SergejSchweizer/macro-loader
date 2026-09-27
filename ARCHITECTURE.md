@@ -452,6 +452,12 @@ The fixed causal pairs are `(h, W) = (1, 60), (5, 60), (20, 120)`. Undefined val
 
 Cross-series ratios/spreads require same `timestamp_m1` values.
 
+The feature catalog uses an explicit domain policy: positive-level XETRA families
+(log levels, returns, volatility, SMA ratios, RSI, ROC, and drawdown) are emitted only
+for `PRICE_FEATURE_SERIES`. Signed/non-price levels such as `estr` remain raw inputs and
+may receive source-unit delta/momentum features, but never silently enter a logarithmic
+or price-domain formula.
+
 The Fed policy family is computed from normalized end-of-day public CME settlement,
 Federal Reserve calendar, and EFFR inputs. CME FedWatch production acquisition uses
 the browser-based Chinese CME page at

@@ -32,7 +32,24 @@ from application.volatility_features import VOLATILITY_SERIES
 MACRO_FEATURE_VIEW_VERSION = 6
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
-RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in RAW_SERIES)
+SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
+PRICE_FEATURE_SERIES: tuple[str, ...] = tuple(
+    series for series in RAW_SERIES if series not in SIGNED_LEVEL_SERIES
+)
+PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
+    "raw_log",
+    "log_return",
+    "geometric_return",
+    "return_mean",
+    "volatility",
+    "sma_ratio",
+    "wilder_rsi",
+    "roc",
+    "drawdown",
+)
+RAW_COLUMNS: tuple[str, ...] = tuple(
+    f"{series}_log_level" for series in PRICE_FEATURE_SERIES
+)
 FED_POLICY_ORIGIN_COLUMNS = FED_POLICY_FEATURE_COLUMNS
 FED_POLICY_DERIVED_COLUMNS = tuple(
     column
@@ -73,7 +90,7 @@ class MacroFeatureSpec:
 
 def _source_specs() -> tuple[MacroFeatureSpec, ...]:
     specs: list[MacroFeatureSpec] = []
-    for series in RAW_SERIES:
+    for series in PRICE_FEATURE_SERIES:
         # The serving view exposes the natural-log transform of each raw
         # source; the untransformed values remain in ``macro_raw``.
         specs.append(
@@ -123,7 +140,7 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             MacroFeatureSpec("us_10y_minus_us_2y", "cross_series", None, "us_10y-us_2y"),
         )
     )
-    for series in RAW_SERIES:
+    for series in PRICE_FEATURE_SERIES:
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_sma_ratio_{short}_{long}",
@@ -197,7 +214,7 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
             for lag, window in MOMENTUM_POLICY.lag_windows
         )
-    for series in RAW_SERIES:
+    for series in PRICE_FEATURE_SERIES:
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_return_geom_{window}obs_pct",
@@ -207,6 +224,16 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 f"{window} valid observations)-1; decimal fraction",
             )
             for window in RETURN_WINDOWS
+        )
+    for series in SIGNED_LEVEL_SERIES:
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_momentum_autocorr_{lag}_{window}obs",
+                "momentum_autocorrelation",
+                series,
+                f"positive autocorrelation of one-observation changes, lag={lag}, window={window}",
+            )
+            for lag, window in MOMENTUM_POLICY.lag_windows
         )
     for origin in FED_POLICY_ORIGIN_COLUMNS:
         specs.append(
@@ -259,8 +286,15 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog contains incomplete metadata")
     if tuple(spec.name for spec in catalog if spec.family == "raw_log") != RAW_COLUMNS:
         raise ValueError("macro feature catalog raw-log order/coverage mismatch")
-    if set(spec.series for spec in catalog if spec.family == "raw_log") != set(RAW_SERIES):
-        raise ValueError("macro feature catalog does not cover all registered raw series")
+    for family in PRICE_FEATURE_FAMILIES:
+        family_series = {spec.series for spec in catalog if spec.family == family}
+        if family_series != set(PRICE_FEATURE_SERIES):
+            raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
+    momentum_series = {
+        spec.series for spec in catalog if spec.family == "momentum_autocorrelation"
+    }
+    if momentum_series != set(RAW_SERIES):
+        raise ValueError("macro feature catalog momentum domain/coverage mismatch")
     if "foo_log_level" in names:
         raise ValueError("unapproved wildcard feature in macro feature catalog")
     fed_columns = tuple(

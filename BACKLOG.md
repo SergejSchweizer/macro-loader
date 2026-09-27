@@ -149,11 +149,11 @@ Acceptance:
 ### PR-149: Define Signed-Series Eligibility For XETRA Feature Families
 
 PR name: `xetra-feature-domain-contract`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: pending
 Git branch: `pr-149/xetra-feature-domain-contract`
-Git status: `not-started (branch absent)`
+Git status: `in-progress`
 Agent lane: Feature-domain specification; one agent only
 Depends on: PR-146
 Commit: `fix(pr-149): define xetra feature domains`
