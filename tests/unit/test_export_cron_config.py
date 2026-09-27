@@ -90,6 +90,16 @@ def test_export_rejects_noncanonical_log_path(tmp_path: Path) -> None:
         export(config)
 
 
+def test_export_rejects_config_for_a_different_installed_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(_config(), encoding="utf-8")
+    monkeypatch.setenv("MACRO_LOADER_PROJECT_ROOT", "/installed/project")
+    with pytest.raises(ValueError, match="installed project root"):
+        export(config)
+
+
 def test_repository_ignores_protected_config_and_logs() -> None:
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
     assert "config.yaml" in gitignore

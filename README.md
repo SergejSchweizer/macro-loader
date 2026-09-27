@@ -444,7 +444,7 @@ Schema migration is an explicit, separately authorized `postgres-migrate` operat
 
 The `macro-loader` runtime role is a non-owning LOGIN principal with schema `USAGE` and read-only access to the loader-owned consumer and sync tables; it cannot create schemas or objects, change grants, or access unrelated schemas. The dedicated `macro-loader-sync` LOGIN role performs Gold synchronization with DML on the consumer and sync tables, while the admin-managed `macro-loader-owner` role owns loader schemas and tables without LOGIN capability.
 
-Do not commit either credential set as a connection string. Deployment configuration lives in ignored `config.yaml`. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and role and exports shell-safe runtime `PG*`, lake, project, mirror, FRED, and logging variables only.
+Do not commit either credential set as a connection string. Deployment configuration lives in ignored `config.yaml`. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and role and exports shell-safe runtime `PG*`, lake, project, mirror, FRED, and logging variables only. The installed cron wrapper also rejects a configuration whose `runtime.project_root` does not match its resolved checkout, preventing stale paths from an older project rename.
 
 The canonical main log is enforced as:
 

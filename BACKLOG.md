@@ -65,6 +65,43 @@ retained with the new XETRA-compatible 10-observation semantics; the obsolete
 `25/60/120/240obs` columns and their old values are removed. No breadth/dispersion column
 is added.
 
+### PR-145: Repair Installed Cron Runtime Path And Fail-Closed Configuration
+
+PR name: `repair-installed-cron-runtime-path`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-145/repair-installed-cron-runtime-path`
+Git status: in-progress
+Agent lane: Cron runtime repair and acceptance; one agent only
+Depends on: PR-144
+Commit: pending
+Design patterns: Adapter, Command, Fail-Closed Verification
+
+Description:
+- R1: Make the installed Sunday runner export its resolved project root to the
+  configuration adapter and reject a deployment config that still points at a
+  different historical checkout.
+- R2: Repair the local ignored deployment configuration to use the current
+  `/home/dev_macro/macro-loader` checkout and its local lake/log paths.
+- R3: Add deterministic unit coverage for stale-project-root rejection and run
+  the installed wrapper through its real lock/log/CLI path.
+
+Acceptance:
+- A1: `scripts/export_cron_config.py` rejects a configured `runtime.project_root`
+  that differs from `MACRO_LOADER_PROJECT_ROOT` without exposing any secret.
+- A2: `ops/run-macro-loader-sunday.sh` exports the resolved checkout root before
+  configuration export, preserves lock contention and maintenance-marker exits,
+  and uses only the resolved root for the installed executables.
+- A3: Unit tests prove matching configuration remains accepted and stale
+  `/home/dev_market` configuration is rejected when the installed root is
+  `/home/dev_macro/macro-loader`.
+- A4: The real Sunday wrapper starts with the repaired venv, reaches `run-daily`,
+  leaves no held lock or process after termination, and records a sanitized
+  terminal result in `.logs/macro-loader.log`.
+- A5: The branch is rebased onto `origin/main`, required checks are run, and the
+  branch is pushed without changing or committing protected credentials.
+
 ### PR-141: Finalize Merged Backlog Status And Branch Cleanup
 
 PR name: `final-backlog-merged-status`
