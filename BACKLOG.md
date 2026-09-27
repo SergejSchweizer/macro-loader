@@ -68,11 +68,11 @@ is added.
 ### PR-141: Finalize Merged Backlog Status And Branch Cleanup
 
 PR name: `final-backlog-merged-status`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #141
 Git branch: `pr-141/final-backlog-merged-status`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Backlog governance and repository cleanup; one agent only
 Depends on: PR-140
 Commit: `docs(pr-141): finalize merged backlog status`
@@ -1097,7 +1097,7 @@ available as a compact historical record. No old Fed-policy PR may absorb PR-132
 | PR-138 | Complete pipeline/PostgreSQL acceptance | Merged (#138) | Offline-safe ordered end-to-end acceptance contract |
 | PR-139 | Installed cron/failure-recovery acceptance | Merged (#139) | Offline wrapper/lock/exit/report QA; production run guarded |
 | PR-140 | Consolidate final XETRA delivery backlog status | Merged (#140) | Detailed contracts retained at beginning; compact register at end |
-| PR-141 | Finalize merged backlog status and branch cleanup | In Progress | Final metadata and sole-main branch inventory |
+| PR-141 | Finalize merged backlog status and branch cleanup | Merged (#141) | Final metadata and sole-main branch inventory |
 
 The new dependency chain is:
 
