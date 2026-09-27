@@ -191,9 +191,9 @@ Acceptance:
 PR name: `xetra-compatible-historical-quality-qa`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #137
 Git branch: `pr-137/xetra-compatible-historical-quality-qa`
-Git status: `active-dirty: BACKLOG.md, tests/unit/test_xetra_historical_quality_qa.py`
+Git status: `pushed-ci-running`
 Agent lane: Historical PostgreSQL/data-quality QA; one agent only
 Depends on: PR-136
 Commit: `test(pr-137): verify xetra-compatible historical quality`
