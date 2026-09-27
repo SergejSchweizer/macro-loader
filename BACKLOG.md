@@ -68,14 +68,14 @@ is added.
 ### PR-145: Repair Installed Cron Runtime Path And Fail-Closed Configuration
 
 PR name: `repair-installed-cron-runtime-path`
-Status: In Progress
+Status: Pushed
 Updated: 2026-09-27
-PR: pending
+PR: #145
 Git branch: `pr-145/repair-installed-cron-runtime-path`
-Git status: in-progress
+Git status: pushed-ci-pending
 Agent lane: Cron runtime repair and acceptance; one agent only
 Depends on: PR-144
-Commit: pending
+Commit: `d98620c fix(pr-145): reject stale cron project paths`
 Design patterns: Adapter, Command, Fail-Closed Verification
 
 Description:
