@@ -8,7 +8,7 @@ Last reviewed: 2026-09-27
 
 ## Current repository and production status
 
-As of 2026-09-26, the Fed-policy reconstruction, four canonical Fed origins,
+As of 2026-09-27, the Fed-policy reconstruction, four canonical Fed origins,
 PostgreSQL synchronization, EOD orchestration, raw-to-feature serving lineage, and the
 installed cron path are merged. The production FedWatch acquisition path is browser-only
 and uses `https://www.cmegroup.cn/fed-watch/`; the direct CME transport endpoint is not
@@ -78,11 +78,11 @@ Acceptance:
 ### PR-147: Unify Fed Feature Column Contract End To End
 
 PR name: `fed-feature-column-contract`
-Status: Pushed
+Status: Merged
 Updated: 2026-09-27
 PR: #147
 Git branch: `pr-147/fed-feature-column-contract`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: Fed schema/serving contract; one agent only
 Depends on: PR-146
 Commit: `fix(pr-147): unify fed feature column contract`; `fix(pr-147): export canonical fed contract`
@@ -110,11 +110,11 @@ Acceptance:
 ### PR-148: Correct FedWatch Economic Baseline And CME Reconstruction
 
 PR name: `fedwatch-methodology-correction`
-Status: Pushed
+Status: Merged
 Updated: 2026-09-27
 PR: #148
 Git branch: `pr-148/fedwatch-methodology-correction`
-Git status: `pushed-ci-green`
+Git status: `merged`
 Agent lane: Fed Funds futures mathematics; one agent only
 Depends on: PR-147
 Commit: `fix(pr-148): correct fedwatch reconstruction methodology`; `chore(pr-148): format methodology implementation`
@@ -215,11 +215,11 @@ Acceptance:
 ### PR-151: Reconcile Executable Versions And Documentation Contracts
 
 PR name: `contract-version-doc-reconciliation`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #151
 Git branch: `pr-151/contract-version-doc-reconciliation`
-Git status: `in-progress`
+Git status: `merged`
 Agent lane: Documentation/schema governance; one agent only
 Depends on: PR-147, PR-148, PR-149, PR-150
 Commit: `docs(pr-151): reconcile executable and documented contracts`
@@ -247,14 +247,14 @@ Acceptance:
 ### PR-152: Independent End-To-End Mathematical And Serving Acceptance
 
 PR name: `post-audit-mathematical-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #152
 Git branch: `pr-152/post-audit-mathematical-acceptance`
-Git status: `in-progress`
+Git status: `merged`
 Agent lane: Independent final QA; one agent only
 Depends on: PR-151
-Commit: `test(pr-152): accept corrected mathematical serving path`
+Commit: `test(pr-152): accept populated mathematical serving path`; `fix(pr-152): correct independent history reference`; `fix(pr-152): inspect serving view columns as postgres metadata`
 Design patterns: Differential Testing, Golden Master, End-to-End Acceptance, Fail-Closed Verification.
 
 Description:
