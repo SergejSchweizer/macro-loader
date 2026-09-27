@@ -17,7 +17,6 @@ import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
-    FEATURE_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
 )
@@ -467,7 +466,11 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
                WHERE attrelid = 'macro_loader.macro_features'::regclass
                  AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
         ).fetchall()
-        assert tuple(row[0] for row in columns) == FEATURE_COLUMNS
+        assert tuple(row[0] for row in columns) == postgres_module._FEATURES_VIEW_COLUMNS_EXPECTED
+        assert connection.execute(
+            "SELECT parent->>'vix_log_level', parent->'vix9d_vix_ratio' "
+            "FROM macro_loader.macro_features"
+        ).fetchone() == ("vix_level", '["vix9d_level", "vix_level"]')
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
@@ -644,9 +647,10 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
             "SELECT pg_get_viewdef('macro_loader.macro_features'::regclass, true)"
         ).fetchone()
 
-    assert tuple(column[1] for column in columns) == FEATURE_COLUMNS
+    assert tuple(column[1] for column in columns) == postgres_module._FEATURES_VIEW_COLUMNS_EXPECTED
     assert columns[0][2] == "timestamp(6) with time zone"
-    assert all(column[2] == "double precision" for column in columns[1:])
+    assert columns[1][2] == "jsonb"
+    assert all(column[2] == "double precision" for column in columns[2:])
     assert comment == (
         f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
         f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
