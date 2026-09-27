@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS
+from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 from application.paths import LakePaths
 from ingestion.parquet_repository import atomic_write_parquet
 

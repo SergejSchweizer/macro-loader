@@ -78,11 +78,11 @@ Acceptance:
 ### PR-147: Unify Fed Feature Column Contract End To End
 
 PR name: `fed-feature-column-contract`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: pending
 Git branch: `pr-147/fed-feature-column-contract`
-Git status: `not-started (branch absent)`
+Git status: `in-progress`
 Agent lane: Fed schema/serving contract; one agent only
 Depends on: PR-146
 Commit: `fix(pr-147): unify fed feature column contract`

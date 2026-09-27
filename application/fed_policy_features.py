@@ -14,12 +14,8 @@ from math import sqrt
 
 import polars as pl
 
-FED_POLICY_FEATURE_COLUMNS = (
-    "fed_next_expected_move_bp",
-    "fed_next_uncertainty_bp",
-    "fed_path_slope_m3_bp",
-    "fed_repricing_5obs_bp",
-)
+from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
+
 FED_POLICY_SNAPSHOT_COLUMNS = (
     "observation_date",
     "meeting_date",

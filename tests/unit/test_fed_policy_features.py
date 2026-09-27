@@ -9,6 +9,7 @@ from application.fed_policy_features import (
     FED_POLICY_FEATURE_COLUMNS,
     build_fed_policy_features,
 )
+from application.fed_policy_postgres import fed_policy_rows
 
 
 def _snapshots(observations: list[date], *, second_meeting: bool = True) -> pl.DataFrame:
@@ -59,6 +60,9 @@ def test_exact_fed_policy_formulas_and_three_month_selection() -> None:
     assert row["fed_next_uncertainty_bp"] == pytest.approx(10.0)
     assert row["fed_path_slope_m3_bp"] == pytest.approx(13.75)
     assert row["fed_repricing_5obs_bp"] is None
+    synced = fed_policy_rows(frame)
+    assert synced[0].values[:3] == pytest.approx((5.0, 13.75, 10.0))
+    assert synced[0].values[3] is None
 
 
 def test_only_prior_observation_is_used_for_five_observation_delta() -> None:

@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from math import isfinite
 from typing import Any
 
-from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
+from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 
 
 @dataclass(frozen=True, slots=True)

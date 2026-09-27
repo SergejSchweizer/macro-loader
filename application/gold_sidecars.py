@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import polars as pl
 
-from application.fed_policy_features import FED_POLICY_FEATURE_COLUMNS
+from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 from application.gold_frame import (
     GOLD_COLUMNS,
     GOLD_FEATURE_VERSION,
