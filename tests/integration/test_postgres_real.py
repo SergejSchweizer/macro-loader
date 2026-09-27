@@ -109,6 +109,36 @@ def _timestamp(day: int) -> datetime:
     return datetime(2026, 8, day, 12, 34, 56, 123456, tzinfo=UTC)
 
 
+def _independent_wilder_rsi(levels: list[float], period: int) -> float | None:
+    """Small reference implementation independent of the SQL view builder."""
+    average_gain: float | None = None
+    average_loss: float | None = None
+    gains: list[float] = []
+    losses: list[float] = []
+    for previous, current in zip(levels, levels[1:], strict=True):
+        if previous <= 0 or current <= 0:
+            average_gain = average_loss = None
+            gains.clear()
+            losses.clear()
+            continue
+        gain = max(current - previous, 0.0)
+        loss = max(previous - current, 0.0)
+        if average_gain is None or average_loss is None:
+            gains.append(gain)
+            losses.append(loss)
+            if len(gains) == period:
+                average_gain = sum(gains) / period
+                average_loss = sum(losses) / period
+        else:
+            average_gain = ((period - 1) * average_gain + gain) / period
+            average_loss = ((period - 1) * average_loss + loss) / period
+    if average_gain is None or average_loss is None:
+        return None
+    if average_loss == 0:
+        return 100.0
+    return 100.0 - 100.0 / (1.0 + average_gain / average_loss)
+
+
 def _state(timestamp: datetime) -> GoldSyncState:
     return GoldSyncState(
         dataset_id=POSTGRES_DATASET_ID,
@@ -527,6 +557,63 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
     for actual, expected_value in zip(row, expected_values, strict=True):
         assert actual is not None
         assert math.isclose(actual, expected_value)
+
+
+@pytest.mark.integration
+def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    levels = [100.0 + index for index in range(5_005)]
+    levels[30] = 0.0
+    timestamps = [
+        datetime(2010, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(5_005)
+    ]
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                "INSERT INTO macro_loader.macro_raw "
+                '("timestamp_m1", "vix_level", "estr_level") VALUES (%s, %s, %s)',
+                (
+                    (timestamp, level, -1.0)
+                    for timestamp, level in zip(timestamps, levels, strict=True)
+                ),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        counts = connection.execute(
+            "SELECT (SELECT count(*) FROM macro_loader.macro_raw), "
+            "(SELECT count(*) FROM macro_loader.macro_features)"
+        ).fetchone()
+        row = connection.execute(
+            'SELECT "vix_rsi_7obs", "vix_rsi_14obs", '
+            '"vix_momentum_autocorr_1_60obs", "vix_roc_20obs" '
+            "FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+            (timestamps[-1],),
+        ).fetchone()
+        columns = tuple(
+            result[0]
+            for result in connection.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'macro_loader' AND table_name = 'macro_features'"
+            ).fetchall()
+        )
+
+    assert counts == (5_005, 5_005)
+    assert row is not None
+    expected_7 = _independent_wilder_rsi(levels, 7)
+    expected_14 = _independent_wilder_rsi(levels, 14)
+    assert expected_7 is not None and expected_14 is not None
+    assert row[0] is not None and row[1] is not None
+    assert math.isclose(row[0], expected_7)
+    assert math.isclose(row[1], expected_14)
+    assert row[2] is None
+    assert math.isclose(row[3], levels[-1] / levels[-21] - 1.0)
+    assert "estr_level" not in columns
+    assert "estr_delta_1obs" in columns
+    assert "estr_rsi_7obs" not in columns
 
 
 @pytest.mark.integration

@@ -247,11 +247,11 @@ Acceptance:
 ### PR-152: Independent End-To-End Mathematical And Serving Acceptance
 
 PR name: `post-audit-mathematical-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: pending
 Git branch: `pr-152/post-audit-mathematical-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `in-progress`
 Agent lane: Independent final QA; one agent only
 Depends on: PR-151
 Commit: `test(pr-152): accept corrected mathematical serving path`
