@@ -72,7 +72,7 @@ Status: In Progress
 Updated: 2026-09-27
 PR: not opened
 Git branch: `pr-132/xetra-compatible-returns-volatility`
-Git status: `active-dirty: ingestion/postgres_gold_repository.py`
+Git status: `active-clean`
 Agent lane: PostgreSQL return/volatility implementation; one agent only
 Depends on: PR-131
 Commit: `feat(pr-132): implement xetra-compatible returns and volatility`
