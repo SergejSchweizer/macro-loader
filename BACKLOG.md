@@ -149,11 +149,11 @@ Acceptance:
 ### PR-149: Define Signed-Series Eligibility For XETRA Feature Families
 
 PR name: `xetra-feature-domain-contract`
-Status: Pushed
+Status: Merged
 Updated: 2026-09-27
 PR: #149
 Git branch: `pr-149/xetra-feature-domain-contract`
-Git status: `pushed-ci-pending`
+Git status: `merged`
 Agent lane: Feature-domain specification; one agent only
 Depends on: PR-146
 Commit: `fix(pr-149): define xetra feature domains`; `chore(pr-149): format domain policy implementation`
@@ -181,7 +181,7 @@ Acceptance:
 PR name: `rsi-momentum-numerical-correctness`
 Status: Pushed
 Updated: 2026-09-27
-PR: pending
+PR: #150
 Git branch: `pr-150/rsi-momentum-numerical-correctness`
 Git status: `pushed-ci-pending`
 Agent lane: Indicator mathematics; one agent only
