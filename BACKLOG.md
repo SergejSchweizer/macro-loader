@@ -70,9 +70,9 @@ is added.
 PR name: `backlog-final-status`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #140
 Git branch: `pr-140/backlog-final-status`
-Git status: `active-dirty: BACKLOG.md`
+Git status: `pushed-ci-running`
 Agent lane: Backlog governance; one agent only
 Depends on: PR-139
 Commit: `docs(pr-140): finalize xetra delivery backlog statuses`
