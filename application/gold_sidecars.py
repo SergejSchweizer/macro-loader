@@ -68,7 +68,7 @@ def gold_formula_parameters(
         "rolling_geometric_returns": {
             "windows_observations": list(RETURN_WINDOWS),
             "input": "one-observation simple returns derived from strictly positive levels",
-            "output": "geometric mean return in percent",
+            "output": "cumulative geometric return as a decimal fraction",
             "invalid_transition": "null",
         },
         "fed_policy_expectations": {

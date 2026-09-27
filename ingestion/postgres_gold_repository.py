@@ -39,7 +39,12 @@ from application.postgres_sync import (
     GoldSyncTransaction,
     GoldTargetSummary,
 )
-from application.return_features import RETURN_WINDOWS
+from application.return_features import (
+    LOG_RETURN_WINDOWS,
+    RETURN_MEAN_WINDOWS,
+    RETURN_WINDOWS,
+    VOLATILITY_WINDOWS,
+)
 from application.volatility_features import VOLATILITY_SERIES
 
 POSTGRES_HOST = "10.10.1.3"
@@ -232,152 +237,6 @@ _POSTGRES_OWNER_ROLE = "macro-loader-owner"
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _FED_POLICY_TABLE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(FED_POLICY_DATASET_ID)}"
-_FEATURES_VIEW_COLUMNS: tuple[str, ...] = (
-    "vix_delta_1obs",
-    "vix_delta_5obs",
-    "vix_delta_20obs",
-    "vix_zscore_60obs",
-    "vix9d_delta_1obs",
-    "vix9d_delta_5obs",
-    "vix9d_delta_20obs",
-    "vix9d_zscore_60obs",
-    "vix9d_momentum_autocorr_1_60obs",
-    "vix9d_momentum_autocorr_5_60obs",
-    "vix9d_momentum_autocorr_20_120obs",
-    "vix9d_return_geom_10obs_pct",
-    "vix9d_return_geom_25obs_pct",
-    "vix9d_return_geom_60obs_pct",
-    "vix9d_return_geom_120obs_pct",
-    "vix9d_return_geom_240obs_pct",
-    "vix3m_delta_1obs",
-    "vix3m_delta_5obs",
-    "vix3m_delta_20obs",
-    "vix3m_zscore_60obs",
-    "vix6m_delta_1obs",
-    "vix6m_delta_5obs",
-    "vix6m_delta_20obs",
-    "vix6m_zscore_60obs",
-    "vix1y_delta_1obs",
-    "vix1y_delta_5obs",
-    "vix1y_delta_20obs",
-    "vix1y_zscore_60obs",
-    "vstoxx_delta_1obs",
-    "vstoxx_delta_5obs",
-    "vstoxx_delta_20obs",
-    "vstoxx_zscore_60obs",
-    "move_delta_1obs",
-    "move_delta_5obs",
-    "move_delta_20obs",
-    "vix9d_vix_ratio",
-    "move_zscore_60obs",
-    "vix_vix3m_ratio",
-    "vix3m_minus_vix",
-    "vix6m_minus_vix",
-    "vix1y_minus_vix",
-    "ciss_delta_1obs",
-    "ciss_delta_5obs",
-    "ciss_delta_20obs",
-    "euro_hy_oas_delta_1obs",
-    "euro_hy_oas_delta_5obs",
-    "euro_hy_oas_delta_20obs",
-    "us_2y_delta_1obs",
-    "us_2y_delta_20obs",
-    "us_10y_delta_1obs",
-    "us_10y_delta_20obs",
-    "usd_broad_delta_1obs",
-    "usd_broad_delta_20obs",
-    "us_10y_minus_us_2y",
-    "vix_momentum_autocorr_1_60obs",
-    "vix_momentum_autocorr_5_60obs",
-    "vix_momentum_autocorr_20_120obs",
-    "vix3m_momentum_autocorr_1_60obs",
-    "vix3m_momentum_autocorr_5_60obs",
-    "vix6m_momentum_autocorr_1_60obs",
-    "vix6m_momentum_autocorr_5_60obs",
-    "vix6m_momentum_autocorr_20_120obs",
-    "vix1y_momentum_autocorr_1_60obs",
-    "vix1y_momentum_autocorr_5_60obs",
-    "vix1y_momentum_autocorr_20_120obs",
-    "vstoxx_momentum_autocorr_1_60obs",
-    "vstoxx_momentum_autocorr_5_60obs",
-    "vstoxx_momentum_autocorr_20_120obs",
-    "move_momentum_autocorr_1_60obs",
-    "move_momentum_autocorr_5_60obs",
-    "move_momentum_autocorr_20_120obs",
-    "ciss_momentum_autocorr_1_60obs",
-    "ciss_momentum_autocorr_5_60obs",
-    "ciss_momentum_autocorr_20_120obs",
-    "euro_hy_oas_momentum_autocorr_1_60obs",
-    "euro_hy_oas_momentum_autocorr_5_60obs",
-    "euro_hy_oas_momentum_autocorr_20_120obs",
-    "us_2y_momentum_autocorr_1_60obs",
-    "us_2y_momentum_autocorr_5_60obs",
-    "us_2y_momentum_autocorr_20_120obs",
-    "us_10y_momentum_autocorr_1_60obs",
-    "us_10y_momentum_autocorr_5_60obs",
-    "us_10y_momentum_autocorr_20_120obs",
-    "usd_broad_momentum_autocorr_1_60obs",
-    "usd_broad_momentum_autocorr_5_60obs",
-    "usd_broad_momentum_autocorr_20_120obs",
-    "vix_return_geom_10obs_pct",
-    "vix_return_geom_25obs_pct",
-    "vix_return_geom_60obs_pct",
-    "vix_return_geom_120obs_pct",
-    "vix_return_geom_240obs_pct",
-    "vix3m_return_geom_10obs_pct",
-    "vix3m_return_geom_25obs_pct",
-    "vix3m_return_geom_60obs_pct",
-    "vix6m_return_geom_10obs_pct",
-    "vix6m_return_geom_25obs_pct",
-    "vix6m_return_geom_60obs_pct",
-    "vix6m_return_geom_120obs_pct",
-    "vix6m_return_geom_240obs_pct",
-    "vix1y_return_geom_10obs_pct",
-    "vix1y_return_geom_25obs_pct",
-    "vix1y_return_geom_60obs_pct",
-    "vix1y_return_geom_120obs_pct",
-    "vix1y_return_geom_240obs_pct",
-    "vstoxx_return_geom_10obs_pct",
-    "vstoxx_return_geom_25obs_pct",
-    "vstoxx_return_geom_60obs_pct",
-    "vstoxx_return_geom_120obs_pct",
-    "vstoxx_return_geom_240obs_pct",
-    "move_return_geom_10obs_pct",
-    "move_return_geom_25obs_pct",
-    "move_return_geom_60obs_pct",
-    "move_return_geom_120obs_pct",
-    "move_return_geom_240obs_pct",
-    "ciss_return_geom_10obs_pct",
-    "ciss_return_geom_25obs_pct",
-    "ciss_return_geom_60obs_pct",
-    "ciss_return_geom_120obs_pct",
-    "ciss_return_geom_240obs_pct",
-    "euro_hy_oas_return_geom_10obs_pct",
-    "euro_hy_oas_return_geom_25obs_pct",
-    "euro_hy_oas_return_geom_60obs_pct",
-    "euro_hy_oas_return_geom_120obs_pct",
-    "euro_hy_oas_return_geom_240obs_pct",
-    "us_2y_return_geom_10obs_pct",
-    "us_2y_return_geom_25obs_pct",
-    "us_2y_return_geom_60obs_pct",
-    "us_2y_return_geom_120obs_pct",
-    "us_2y_return_geom_240obs_pct",
-    "us_10y_return_geom_10obs_pct",
-    "us_10y_return_geom_25obs_pct",
-    "us_10y_return_geom_60obs_pct",
-    "us_10y_return_geom_120obs_pct",
-    "us_10y_return_geom_240obs_pct",
-    "usd_broad_return_geom_10obs_pct",
-    "usd_broad_return_geom_25obs_pct",
-    "usd_broad_return_geom_60obs_pct",
-    "usd_broad_return_geom_120obs_pct",
-    "usd_broad_return_geom_240obs_pct",
-)
-
-# PR-81 replaces the historical hand-maintained list above with the explicit
-# source-controlled catalog.  Keeping the old literal in this module eases
-# upgrade compatibility for consumers that import it, but migrations and
-# conformance use the catalog-derived contract from this point onward.
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
 _CONSUMER_COLUMNS = _FEATURE_COLUMNS
 
@@ -511,7 +370,8 @@ def _macro_features_view_query() -> str:
         features = _quote(f"{series}_features")
         lags = macro_lags.get(series, (1, 5, 20))
         lag_sql = ", ".join(
-            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in (1, 5, 20)
+            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}"
+            for lag in (1, 3, 5, 10, 20)
         )
         delta_sql = ", ".join(
             f"level - {_quote(f'lag_{lag}')} AS {_quote(f'delta_{lag}')}" for lag in (1, 5, 20)
@@ -526,12 +386,21 @@ def _macro_features_view_query() -> str:
             f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
             "WINDOW ordered AS (ORDER BY timestamp_m1))"
         )
+        log_return_sql = ", ".join(
+            f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
+            f"THEN ln(level / {_quote(f'lag_{window}')}) END AS "
+            f"{_quote(f'log_return_{window}')}"
+            for window in LOG_RETURN_WINDOWS
+        )
         source_ctes.append(
             f"{changes} AS (SELECT *, {delta_sql}, level - {_quote('lag_1')} AS change, "
-            f"{change_lags}, CASE WHEN level > 0 AND {_quote('lag_1')} > 0 "
-            f"THEN ln(level / {_quote('lag_1')}) END AS log_return FROM {source})"
+            f"{change_lags}, {log_return_sql} FROM {source})"
         )
         expressions: list[str] = []
+        for window in LOG_RETURN_WINDOWS:
+            expressions.append(
+                f"{_quote(f'log_return_{window}')} AS {_quote(f'{series}_log_return_{window}obs')}"
+            )
         for lag in lags:
             expressions.append(
                 f"{_quote('delta_' + str(lag))} AS {_quote(f'{series}_delta_{lag}obs')}"
@@ -553,22 +422,30 @@ def _macro_features_view_query() -> str:
             )
         for window in RETURN_WINDOWS:
             expressions.append(
-                f"CASE WHEN count(log_return) OVER window_{window} = {window} "
-                f"THEN (exp(avg(log_return) OVER window_{window}) - 1.0) * 100.0 "
+                f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
+                f"THEN exp(sum({_quote('log_return_1')}) OVER window_{window}) - 1.0 "
                 f"END AS {_quote(f'{series}_return_geom_{window}obs_pct')}"
             )
-        if series == "usd_broad":
+        for window in RETURN_MEAN_WINDOWS:
             expressions.append(
-                'CASE WHEN level > 0 AND "lag_20" > 0 '
-                'THEN ln(level / "lag_20") END AS "usd_broad_log_return_20obs"'
+                f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
+                f"THEN avg({_quote('log_return_1')}) OVER window_{window} "
+                f"END AS {_quote(f'{series}_return_mean_{window}obs')}"
+            )
+        for window in VOLATILITY_WINDOWS:
+            expressions.append(
+                f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
+                f"THEN stddev_samp({_quote('log_return_1')}) OVER window_{window} "
+                f"END AS {_quote(f'{series}_volatility_{window}obs')}"
             )
         source_ctes.append(
             f"{features} AS (SELECT timestamp_m1, {', '.join(expressions)} FROM {changes} "
-            "WINDOW window_10 AS (ORDER BY timestamp_m1 ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), "
-            "window_25 AS (ORDER BY timestamp_m1 ROWS BETWEEN 24 PRECEDING AND CURRENT ROW), "
+            "WINDOW window_5 AS (ORDER BY timestamp_m1 ROWS BETWEEN 4 PRECEDING AND CURRENT ROW), "
+            "window_10 AS (ORDER BY timestamp_m1 ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), "
+            "window_20 AS (ORDER BY timestamp_m1 ROWS BETWEEN 19 PRECEDING AND CURRENT ROW), "
+            "window_40 AS (ORDER BY timestamp_m1 ROWS BETWEEN 39 PRECEDING AND CURRENT ROW), "
             "window_60 AS (ORDER BY timestamp_m1 ROWS BETWEEN 59 PRECEDING AND CURRENT ROW), "
-            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW), "
-            "window_240 AS (ORDER BY timestamp_m1 ROWS BETWEEN 239 PRECEDING AND CURRENT ROW))"
+            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW))"
         )
         joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
         for column in _FEATURES_VIEW_COLUMNS:
@@ -576,8 +453,9 @@ def _macro_features_view_query() -> str:
                 column.startswith(f"{series}_delta_")
                 or column.startswith(f"{series}_zscore_")
                 or column.startswith(f"{series}_momentum_")
+                or column.startswith(f"{series}_log_return_")
                 or column.startswith(f"{series}_return_")
-                or (series == "usd_broad" and column == "usd_broad_log_return_20obs")
+                or column.startswith(f"{series}_volatility_")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
