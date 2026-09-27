@@ -920,7 +920,9 @@ _CONSUMER_ROWS_SQL = (
 )
 _TARGET_SUMMARY_SQL = (
     f"SELECT COUNT(*), MIN({_quote('timestamp_m1')}), MAX({_quote('timestamp_m1')}) "
-    f"FROM {_CONSUMER}"
+    f"FROM {_CONSUMER} WHERE ("
+    + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _MARKET_FEATURE_COLUMNS)
+    + ")"
 )
 _UPSERT_STATE_SQL = f"""INSERT INTO {_SYNC_STATE} (
     dataset_id, source_build_id, data_sha256, schema_version, feature_version,
