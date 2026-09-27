@@ -21,9 +21,15 @@ from application.return_features import (
     RETURN_WINDOWS,
     VOLATILITY_WINDOWS,
 )
+from application.trend_features import (
+    DRAWDOWN_WINDOWS,
+    ROC_WINDOWS,
+    RSI_WINDOWS,
+    SMA_RATIO_WINDOWS,
+)
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 5
+MACRO_FEATURE_VIEW_VERSION = 6
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in RAW_SERIES)
@@ -118,6 +124,42 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
         )
     )
     for series in RAW_SERIES:
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_sma_ratio_{short}_{long}",
+                "sma_ratio",
+                series,
+                f"sma(level,{short})/sma(level,{long})",
+            )
+            for short, long in SMA_RATIO_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_rsi_{window}obs",
+                "wilder_rsi",
+                series,
+                f"Wilder RSI over {window} observations",
+            )
+            for window in RSI_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_roc_{window}obs",
+                "roc",
+                series,
+                f"level(t)/level(t-{window} valid observations)-1",
+            )
+            for window in ROC_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_drawdown_{window}obs",
+                "drawdown",
+                series,
+                f"level(t)/rolling_max(level,{window})-1",
+            )
+            for window in DRAWDOWN_WINDOWS
+        )
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_log_return_{window}obs",

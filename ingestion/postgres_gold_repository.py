@@ -45,6 +45,12 @@ from application.return_features import (
     RETURN_WINDOWS,
     VOLATILITY_WINDOWS,
 )
+from application.trend_features import (
+    DRAWDOWN_WINDOWS,
+    ROC_WINDOWS,
+    RSI_WINDOWS,
+    SMA_RATIO_WINDOWS,
+)
 from application.volatility_features import VOLATILITY_SERIES
 
 POSTGRES_HOST = "10.10.1.3"
@@ -382,9 +388,16 @@ def _macro_features_view_query() -> str:
             for lag in (1, 5, 20)
         )
         source_ctes.append(
-            f"{source} AS (SELECT timestamp_m1, {level} AS level, {lag_sql} "
+            f"{source} AS MATERIALIZED (SELECT timestamp_m1, {level} AS level, {lag_sql}, "
+            "row_number() OVER ordered AS observation_number "
             f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
             "WINDOW ordered AS (ORDER BY timestamp_m1))"
+        )
+        gain_loss_sql = (
+            f"CASE WHEN level > 0 AND {_quote('lag_1')} > 0 "
+            f"THEN greatest(level - {_quote('lag_1')}, 0.0) END AS gain, "
+            f"CASE WHEN level > 0 AND {_quote('lag_1')} > 0 "
+            f"THEN greatest({_quote('lag_1')} - level, 0.0) END AS loss"
         )
         log_return_sql = ", ".join(
             f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
@@ -393,9 +406,50 @@ def _macro_features_view_query() -> str:
             for window in LOG_RETURN_WINDOWS
         )
         source_ctes.append(
-            f"{changes} AS (SELECT *, {delta_sql}, level - {_quote('lag_1')} AS change, "
-            f"{change_lags}, {log_return_sql} FROM {source})"
+            f"{changes} AS MATERIALIZED (SELECT *, {delta_sql}, level - "
+            f"{_quote('lag_1')} AS change, "
+            f"{change_lags}, {gain_loss_sql}, {log_return_sql} FROM {source})"
         )
+        rsi_names: dict[int, tuple[str, str, str, str]] = {}
+        weighted_columns: list[str] = []
+        weighted_windows: list[str] = []
+        for period in RSI_WINDOWS:
+            gain_name = _quote(f"avg_gain_{period}")
+            loss_name = _quote(f"avg_loss_{period}")
+            gain_weighted_name = _quote(f"gain_weighted_{period}")
+            loss_weighted_name = _quote(f"loss_weighted_{period}")
+            rsi_names[period] = (
+                gain_name,
+                loss_name,
+                gain_weighted_name,
+                loss_weighted_name,
+            )
+            decay = (period - 1) / period
+            weighted_columns.extend(
+                [
+                    f"avg(gain) OVER rsi_window_{period} AS {gain_name}",
+                    f"avg(loss) OVER rsi_window_{period} AS {loss_name}",
+                    f"sum(coalesce(gain, 0.0) * power({decay:.17g}, "
+                    f"-observation_number)) OVER rsi_weighted_{period} "
+                    f"AS {gain_weighted_name}",
+                    f"sum(coalesce(loss, 0.0) * power({decay:.17g}, "
+                    f"-observation_number)) OVER rsi_weighted_{period} "
+                    f"AS {loss_weighted_name}",
+                ]
+            )
+            weighted_windows.extend(
+                [
+                    f"rsi_window_{period} AS (ORDER BY observation_number ROWS BETWEEN "
+                    f"{period - 1} PRECEDING AND CURRENT ROW)",
+                    f"rsi_weighted_{period} AS (ORDER BY observation_number)",
+                ]
+            )
+        weighted = _quote(f"{series}_rsi_weighted")
+        source_ctes.append(
+            f"{weighted} AS MATERIALIZED (SELECT changes.*, {', '.join(weighted_columns)} "
+            f"FROM {changes} AS changes WINDOW {', '.join(weighted_windows)})"
+        )
+        feature_input = weighted
         expressions: list[str] = []
         for window in LOG_RETURN_WINDOWS:
             expressions.append(
@@ -438,14 +492,75 @@ def _macro_features_view_query() -> str:
                 f"THEN stddev_samp({_quote('log_return_1')}) OVER window_{window} "
                 f"END AS {_quote(f'{series}_volatility_{window}obs')}"
             )
+        for short, long in SMA_RATIO_WINDOWS:
+            expressions.append(
+                f"CASE WHEN count(level) OVER window_{long} = {long} THEN "
+                f"avg(level) OVER window_{short} / nullif(avg(level) OVER window_{long}, 0) "
+                f"END AS {_quote(f'{series}_sma_ratio_{short}_{long}')}"
+            )
+        for period in RSI_WINDOWS:
+            gain_name, loss_name, gain_weighted_name, loss_weighted_name = rsi_names[period]
+            decay = (period - 1) / period
+            seed_gain = (
+                f"max(CASE WHEN changes.observation_number = {period + 1} "
+                f"THEN changes.{gain_name} END) OVER ()"
+            )
+            seed_loss = (
+                f"max(CASE WHEN changes.observation_number = {period + 1} "
+                f"THEN changes.{loss_name} END) OVER ()"
+            )
+            seed_gain_weighted = (
+                f"max(CASE WHEN changes.observation_number = {period + 1} "
+                f"THEN changes.{gain_weighted_name} END) OVER ()"
+            )
+            seed_loss_weighted = (
+                f"max(CASE WHEN changes.observation_number = {period + 1} "
+                f"THEN changes.{loss_weighted_name} END) OVER ()"
+            )
+            current_gain = (
+                f"power({decay:.17g}, changes.observation_number - {period + 1}) * "
+                f"({seed_gain}) + power({decay:.17g}, changes.observation_number) / "
+                f"{period}.0 * (changes.{gain_weighted_name} - {seed_gain_weighted})"
+            )
+            current_loss = (
+                f"power({decay:.17g}, changes.observation_number - {period + 1}) * "
+                f"({seed_loss}) + power({decay:.17g}, changes.observation_number) / "
+                f"{period}.0 * (changes.{loss_weighted_name} - {seed_loss_weighted})"
+            )
+            expressions.append(
+                f"CASE WHEN changes.observation_number < {period + 1} THEN NULL "
+                f"WHEN {current_loss} = 0 THEN 100.0 "
+                f"WHEN {current_gain} IS NULL OR {current_loss} IS NULL THEN NULL "
+                f"ELSE 100.0 - 100.0 / (1.0 + {current_gain} / {current_loss}) "
+                f"END AS {_quote(f'{series}_rsi_{period}obs')}"
+            )
+        for window in ROC_WINDOWS:
+            expressions.append(
+                f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
+                f"THEN level / {_quote(f'lag_{window}')} - 1.0 "
+                f"END AS {_quote(f'{series}_roc_{window}obs')}"
+            )
+        for window in DRAWDOWN_WINDOWS:
+            expressions.append(
+                f"CASE WHEN count(level) OVER window_{window} = {window} "
+                f"THEN level / nullif(max(level) OVER window_{window}, 0) - 1.0 "
+                f"END AS {_quote(f'{series}_drawdown_{window}obs')}"
+            )
         source_ctes.append(
-            f"{features} AS (SELECT timestamp_m1, {', '.join(expressions)} FROM {changes} "
-            "WINDOW window_5 AS (ORDER BY timestamp_m1 ROWS BETWEEN 4 PRECEDING AND CURRENT ROW), "
-            "window_10 AS (ORDER BY timestamp_m1 ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), "
-            "window_20 AS (ORDER BY timestamp_m1 ROWS BETWEEN 19 PRECEDING AND CURRENT ROW), "
-            "window_40 AS (ORDER BY timestamp_m1 ROWS BETWEEN 39 PRECEDING AND CURRENT ROW), "
-            "window_60 AS (ORDER BY timestamp_m1 ROWS BETWEEN 59 PRECEDING AND CURRENT ROW), "
-            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW))"
+            f"{features} AS MATERIALIZED (SELECT changes.timestamp_m1, {', '.join(expressions)} "
+            f"FROM {feature_input} AS changes "
+            "WINDOW window_5 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "4 PRECEDING AND CURRENT ROW), "
+            "window_10 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "9 PRECEDING AND CURRENT ROW), "
+            "window_20 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "19 PRECEDING AND CURRENT ROW), "
+            "window_40 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "39 PRECEDING AND CURRENT ROW), "
+            "window_60 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "59 PRECEDING AND CURRENT ROW), "
+            "window_120 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "119 PRECEDING AND CURRENT ROW))"
         )
         joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
         for column in _FEATURES_VIEW_COLUMNS:
@@ -456,6 +571,10 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_log_return_")
                 or column.startswith(f"{series}_return_")
                 or column.startswith(f"{series}_volatility_")
+                or column.startswith(f"{series}_sma_ratio_")
+                or column.startswith(f"{series}_rsi_")
+                or column.startswith(f"{series}_roc_")
+                or column.startswith(f"{series}_drawdown_")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
@@ -557,7 +676,8 @@ def _macro_features_view_query() -> str:
         for series in RAW_SERIES
     )
     return (
-        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH {', '.join(source_ctes)} "
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH "
+        f"{', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
         f"FROM {_CONSUMER} raw {' '.join(joins)} "
         "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"

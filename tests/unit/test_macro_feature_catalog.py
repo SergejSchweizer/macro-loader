@@ -19,6 +19,7 @@ from application.return_features import (
     RETURN_WINDOWS,
     VOLATILITY_WINDOWS,
 )
+from application.trend_features import DRAWDOWN_WINDOWS, ROC_WINDOWS, RSI_WINDOWS, SMA_RATIO_WINDOWS
 from ingestion.postgres_gold_repository import _FEATURES_VIEW_DDL, _MIGRATIONS
 
 
@@ -49,6 +50,14 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
             assert f"{series}_volatility_{window}obs" in names
         for window in (25, 60, 120, 240):
             assert f"{series}_return_geom_{window}obs_pct" not in names
+        for short, long in SMA_RATIO_WINDOWS:
+            assert f"{series}_sma_ratio_{short}_{long}" in names
+        for window in RSI_WINDOWS:
+            assert f"{series}_rsi_{window}obs" in names
+        for window in ROC_WINDOWS:
+            assert f"{series}_roc_{window}obs" in names
+        for window in DRAWDOWN_WINDOWS:
+            assert f"{series}_drawdown_{window}obs" in names
     assert "vix9d_vix_ratio" in names
     assert "vix_vix3m_ratio" in names
     assert "vix9d_vix3m_log_ratio" in names
@@ -67,7 +76,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 5
+    assert MACRO_FEATURE_VIEW_VERSION == 6
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
