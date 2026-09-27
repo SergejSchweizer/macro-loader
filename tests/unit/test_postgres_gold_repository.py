@@ -402,6 +402,10 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'AS "vix_return_geom_5obs_pct"' in ddl
     assert 'AS "vix_return_mean_5obs"' in ddl
     assert 'AS "vix_volatility_40obs"' in ddl
+    assert 'AS "vix_sma_ratio_5_20"' in ddl
+    assert 'AS "vix_rsi_7obs"' in ddl
+    assert 'AS "vix_roc_20obs"' in ddl
+    assert 'AS "vix_drawdown_60obs"' in ddl
     assert 'AS "vix_return_geom_240obs_pct"' not in ddl
     assert 'AS "vix_return_geom_25obs_pct"' not in ddl
     assert 'AS "usd_broad_log_return_20obs"' in ddl

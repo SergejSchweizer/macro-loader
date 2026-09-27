@@ -68,11 +68,11 @@ is added.
 ### PR-132: Implement XETRA-Compatible Returns And Volatility
 
 PR name: `xetra-compatible-returns-volatility`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: not opened
+PR: #132
 Git branch: `pr-132/xetra-compatible-returns-volatility`
-Git status: `active-clean`
+Git status: `merged`
 Agent lane: PostgreSQL return/volatility implementation; one agent only
 Depends on: PR-131
 Commit: `feat(pr-132): implement xetra-compatible returns and volatility`
@@ -93,11 +93,11 @@ Acceptance:
 ### PR-133: Implement XETRA-Compatible Trend And Momentum Features
 
 PR name: `xetra-compatible-trend-momentum`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
 PR: not opened
 Git branch: `pr-133/xetra-compatible-trend-momentum`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: BACKLOG.md, application/macro_feature_catalog.py, application/trend_features.py, ingestion/postgres_gold_repository.py, tests/unit/test_macro_feature_catalog.py, tests/unit/test_postgres_gold_repository.py`
 Agent lane: PostgreSQL trend/momentum implementation; one agent only
 Depends on: PR-132
 Commit: `feat(pr-133): implement xetra-compatible trend momentum`
