@@ -110,11 +110,11 @@ Acceptance:
 ### PR-148: Correct FedWatch Economic Baseline And CME Reconstruction
 
 PR name: `fedwatch-methodology-correction`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: pending
 Git branch: `pr-148/fedwatch-methodology-correction`
-Git status: `not-started (branch absent)`
+Git status: `in-progress`
 Agent lane: Fed Funds futures mathematics; one agent only
 Depends on: PR-147
 Commit: `fix(pr-148): correct fedwatch reconstruction methodology`

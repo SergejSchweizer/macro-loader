@@ -11,8 +11,17 @@ from datetime import date
 
 import polars as pl
 
-METHODOLOGY_VERSION = "cme-zq-month-weighted-v1"
-METHODOLOGY_FINGERPRINT = hashlib.sha256(METHODOLOGY_VERSION.encode()).hexdigest()
+METHODOLOGY_VERSION = "cme-zq-month-weighted-v2"
+_METHODOLOGY_SPEC = {
+    "version": METHODOLOGY_VERSION,
+    "anchor": "latest-full-non-meeting-month-or-current-effr",
+    "day_weighting": "before=meeting.day-1, after=days-in-month-before",
+    "outcomes": "quarter-point-floor-and-upper-interpolation",
+    "missing_anchor": "empty-distribution",
+}
+METHODOLOGY_FINGERPRINT = hashlib.sha256(
+    json.dumps(_METHODOLOGY_SPEC, separators=(",", ":"), sort_keys=True).encode()
+).hexdigest()
 PROBABILITY_COLUMNS = (
     "observation_date",
     "meeting_date",
@@ -32,24 +41,35 @@ class ProbabilityOutcome:
 def reconstruct_meeting_distribution(
     settlements: dict[str, float], meeting: date, baseline_percent: float
 ) -> tuple[ProbabilityOutcome, ...]:
-    """Infer a normalized quarter-point distribution for one future meeting."""
+    """Infer a normalized quarter-point distribution for one future meeting.
+
+    A meeting-month futures price is a weighted average.  The pre-meeting rate
+    is anchored by the immediately preceding complete month when available;
+    otherwise the point-in-time EFFR/policy baseline is used.  The meeting day
+    is included in the post-meeting period, matching CME's calendar weighting.
+    """
+    return _reconstruct_with_pre_rate(
+        settlements,
+        meeting,
+        _initial_anchor(settlements, meeting, baseline_percent),
+    )
+
+
+def _reconstruct_with_pre_rate(
+    settlements: dict[str, float], meeting: date, pre_percent: float
+) -> tuple[ProbabilityOutcome, ...]:
     month_key = f"{calendar.month_abbr[meeting.month].upper()} {meeting.year % 100:02d}"
-    if month_key not in settlements or not math.isfinite(baseline_percent):
+    if month_key not in settlements or not math.isfinite(pre_percent):
         return ()
     if any(not math.isfinite(value) or value <= 0 for value in settlements.values()):
         raise ValueError("settlement curve must contain finite positive prices")
     implied_percent = 100.0 - settlements[month_key]
-    previous = _previous_month_key(meeting)
-    pre_percent = 100.0 - settlements[previous] if previous in settlements else baseline_percent
     days = calendar.monthrange(meeting.year, meeting.month)[1]
-    after = days - meeting.day + 1
+    before = meeting.day - 1
+    after = days - before
     if after <= 0:
         raise ValueError("meeting date is outside its calendar month")
-    next_key = _next_month_key(meeting)
-    if meeting.day <= 3 and next_key in settlements:
-        post_percent = 100.0 - settlements[next_key]
-    else:
-        post_percent = (implied_percent * days - pre_percent * (meeting.day - 1)) / after
+    post_percent = (implied_percent * days - pre_percent * before) / after
     expected_move_bp = (post_percent - pre_percent) * 100.0
     lower = math.floor(expected_move_bp / 25.0) * 25.0
     upper = lower + 25.0
@@ -58,6 +78,27 @@ def reconstruct_meeting_distribution(
         ProbabilityOutcome(lower, 1.0 - upper_probability),
         ProbabilityOutcome(upper, upper_probability),
     )
+
+
+def _initial_anchor(
+    settlements: dict[str, float], meeting: date, baseline_percent: float
+) -> float:
+    previous = _previous_month_key(meeting)
+    if previous in settlements:
+        return 100.0 - settlements[previous]
+    return baseline_percent
+
+
+def _post_rate(
+    settlements: dict[str, float], meeting: date, pre_percent: float
+) -> float | None:
+    month_key = f"{calendar.month_abbr[meeting.month].upper()} {meeting.year % 100:02d}"
+    if month_key not in settlements or not math.isfinite(pre_percent):
+        return None
+    days = calendar.monthrange(meeting.year, meeting.month)[1]
+    before = meeting.day - 1
+    after = days - before
+    return ((100.0 - settlements[month_key]) * days - pre_percent * before) / after
 
 
 def reconstruct_probability_tree(
@@ -80,10 +121,33 @@ def reconstruct_probability_tree(
             }
         )
     rows: list[dict[str, object]] = []
-    for meeting in sorted(set(meetings)):
-        if meeting <= observation_date:
-            continue
-        for outcome in reconstruct_meeting_distribution(settlements, meeting, baseline_percent):
+    ordered_meetings = sorted(set(meeting for meeting in meetings if meeting > observation_date))
+    last_post: float | None = None
+    last_meeting: date | None = None
+    for meeting in ordered_meetings:
+        if last_post is None:
+            pre_percent = _initial_anchor(settlements, meeting, baseline_percent)
+        elif last_meeting is not None and (
+            last_meeting.year == meeting.year and last_meeting.month == meeting.month
+        ):
+            pre_percent = last_post
+        else:
+            previous = _previous_month_key(meeting)
+            previous_has_meeting = any(
+                prior.year == meeting.year
+                and prior.month == meeting.month - 1
+                if meeting.month > 1
+                else prior.year == meeting.year - 1
+                and prior.month == 12
+                for prior in ordered_meetings
+                if prior < meeting
+            )
+            pre_percent = (
+                100.0 - settlements[previous]
+                if previous in settlements and not previous_has_meeting
+                else last_post
+            )
+        for outcome in _reconstruct_with_pre_rate(settlements, meeting, pre_percent):
             if outcome.probability <= 0:
                 continue
             rows.append(
@@ -96,6 +160,8 @@ def reconstruct_probability_tree(
                     "methodology_version": METHODOLOGY_VERSION,
                 }
             )
+        last_post = _post_rate(settlements, meeting, pre_percent)
+        last_meeting = meeting
     return pl.DataFrame(
         rows,
         schema={
@@ -111,7 +177,7 @@ def reconstruct_probability_tree(
 
 def methodology_payload() -> str:
     return json.dumps(
-        {"version": METHODOLOGY_VERSION, "fingerprint": METHODOLOGY_FINGERPRINT}, sort_keys=True
+        {**_METHODOLOGY_SPEC, "fingerprint": METHODOLOGY_FINGERPRINT}, sort_keys=True
     )
 
 

@@ -297,6 +297,23 @@ def test_browser_fallback_parses_official_export_without_network(
     assert result[0, "probability"] == 1.0
 
 
+def test_browser_only_fetch_requires_effr_and_never_uses_modal_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = FedPolicyProvider(FakeTransport(), browser_only=True)
+    calls: list[dict[date, float]] = []
+
+    def browser_fetch(
+        start: date, end: date, effr: dict[date, float], context: object
+    ) -> pl.DataFrame:
+        calls.append(effr)
+        return pl.DataFrame()
+
+    monkeypatch.setattr(provider, "_browser_fetch", browser_fetch)
+    provider.fetch(date(2026, 1, 2), date(2026, 1, 2))
+    assert calls == [{date(2026, 1, 2): 3.64}]
+
+
 def test_settlement_parser_ignores_malformed_and_total_rows() -> None:
     assert FedPolicyProvider._settlement_map(b"[]") == {}
     assert FedPolicyProvider._settlement_map(
@@ -318,5 +335,5 @@ def test_reconstructed_outcomes_handles_missing_months_and_early_meeting() -> No
     assert _reconstructed_outcomes({}, meeting, 3.64) == ()
     settlements = {"JAN 26": 96.36, "FEB 26": 96.11}
     outcomes = _reconstructed_outcomes(settlements, meeting, 3.64)
-    assert outcomes[0][0] == pytest.approx(25.0)
+    assert outcomes[0][0] == pytest.approx(0.0)
     assert sum(probability for _, probability in outcomes) == pytest.approx(1.0)

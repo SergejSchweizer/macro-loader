@@ -1,3 +1,5 @@
+import hashlib
+import json
 from datetime import UTC, date, datetime
 
 import polars as pl
@@ -6,6 +8,7 @@ import pytest
 from application.fed_policy_probability import (
     METHODOLOGY_FINGERPRINT,
     METHODOLOGY_VERSION,
+    methodology_payload,
     reconstruct_meeting_distribution,
     reconstruct_probability_tree,
 )
@@ -26,7 +29,7 @@ def test_one_step_and_late_month_weighting_are_quarter_point_distributions() -> 
         {"JAN 26": 96.36, "FEB 26": 96.11}, date(2026, 1, 2), 3.64
     )
 
-    assert outcomes[0].move_bp == pytest.approx(25.0)
+    assert outcomes[0].move_bp == pytest.approx(0.0)
     assert outcomes[0].probability == pytest.approx(1.0)
 
 
@@ -49,6 +52,35 @@ def test_tree_is_sorted_versioned_and_skips_past_meetings() -> None:
         "probability"
     ).to_list() == [1.0, 1.0]
     assert len(METHODOLOGY_FINGERPRINT) == 64
+
+
+def test_early_meeting_uses_actual_meeting_month_weighting_not_next_month() -> None:
+    outcomes = reconstruct_meeting_distribution(
+        {"JAN 26": 96.11, "FEB 26": 95.86}, date(2026, 1, 2), 3.64
+    )
+    assert outcomes[0].move_bp == pytest.approx(25.0)
+
+
+def test_tree_propagates_same_month_meetings_and_full_month_anchors() -> None:
+    result = reconstruct_probability_tree(
+        {"JAN 26": 96.36, "FEB 26": 96.11, "MAR 26": 95.86},
+        date(2026, 1, 1),
+        (date(2026, 1, 2), date(2026, 3, 18)),
+        3.64,
+        datetime(2026, 1, 1, 23, 59, 59, 999999, tzinfo=UTC),
+    )
+    assert result.get_column("meeting_date").unique().sort().to_list() == [
+        date(2026, 1, 2),
+        date(2026, 3, 18),
+    ]
+
+
+def test_methodology_fingerprint_is_bound_to_formula_payload() -> None:
+    payload = json.loads(methodology_payload())
+    fingerprint = payload.pop("fingerprint")
+    assert fingerprint == hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
 
 
 def test_missing_or_invalid_curve_fails_closed() -> None:
