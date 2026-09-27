@@ -66,7 +66,9 @@ class HttpxTransport:
         self._timeout = timeout if timeout is not None else TimeoutConfig()
         self._retry_policy = retry_policy if retry_policy is not None else RetryPolicy()
         self._sleeper = sleeper
-        self._client = httpx.Client(timeout=self._timeout.as_httpx(), transport=transport)
+        self._client = httpx.Client(
+            timeout=self._timeout.as_httpx(), transport=transport, follow_redirects=True
+        )
 
     @property
     def timeout(self) -> TimeoutConfig:
