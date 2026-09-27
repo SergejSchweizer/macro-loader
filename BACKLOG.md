@@ -120,11 +120,11 @@ Acceptance:
 ### PR-134: Independent Mathematical QA For Returns And Volatility
 
 PR name: `xetra-compatible-returns-volatility-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #134
 Git branch: `pr-134/xetra-compatible-returns-volatility-qa`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Independent formula QA; one agent only
 Depends on: PR-132
 Commit: `test(pr-134): verify xetra-compatible returns volatility`
@@ -143,11 +143,11 @@ Acceptance:
 ### PR-135: Independent Mathematical QA For Trend And Momentum
 
 PR name: `xetra-compatible-trend-momentum-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
 PR: not opened
 Git branch: `pr-135/xetra-compatible-trend-momentum-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: BACKLOG.md, tests/integration/test_postgres_real.py, tests/unit/test_xetra_trend_momentum_qa.py`
 Agent lane: Independent trend/momentum QA; one agent only
 Depends on: PR-133
 Commit: `test(pr-135): verify xetra-compatible trend momentum`

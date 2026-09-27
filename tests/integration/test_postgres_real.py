@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from statistics import stdev
 from threading import Event, Thread
 
@@ -46,6 +46,7 @@ from ingestion.postgres_gold_repository import (
     PostgresTimeoutPolicy,
 )
 from scripts.provision_postgres_role import provision_sql
+from tests.unit.test_xetra_trend_momentum_qa import independent_trend_features
 
 pytestmark = pytest.mark.xdist_group("postgres-real")
 
@@ -484,6 +485,52 @@ def test_real_postgres_xetra_returns_match_independent_reference(
     assert math.isclose(row[2], sum(logs[-5:]) / 5.0)
     assert math.isclose(row[3], stdev(logs[-5:]))
     assert not math.isclose(row[1], (levels[-1] / levels[0] - 1.0) * 100.0)
+
+
+@pytest.mark.integration
+def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    levels = [100.0 + index for index in range(65)]
+    timestamps = [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(65)]
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        row = connection.execute(
+            """SELECT "vix_sma_ratio_5_20", "vix_rsi_7", "vix_rsi_14",
+                      "vix_roc_3obs", "vix_roc_5obs", "vix_roc_10obs",
+                      "vix_roc_20obs", "vix_drawdown_20obs", "vix_drawdown_60obs"
+               FROM macro_loader.macro_features
+               WHERE timestamp_m1 = %s""",
+            (timestamps[-1],),
+        ).fetchone()
+
+    expected = independent_trend_features(levels)
+    assert row is not None
+    expected_columns = (
+        "sma_ratio_5_20",
+        "rsi_7",
+        "rsi_14",
+        "roc_3",
+        "roc_5",
+        "roc_10",
+        "roc_20",
+        "drawdown_20",
+        "drawdown_60",
+    )
+    for actual, column in zip(row, expected_columns, strict=True):
+        expected_value = expected[column][-1]
+        assert expected_value is not None
+        assert actual is not None
+        assert math.isclose(actual, expected_value)
 
 
 @pytest.mark.integration
