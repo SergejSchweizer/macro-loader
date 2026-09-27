@@ -33,6 +33,30 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
+### PR-156: Ignore Fed-Only Rows During Market Gold Reconciliation
+
+PR name: `ignore-fed-only-market-sync-rows`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-156/ignore-fed-only-market-sync-rows`
+Git status: `in-progress`
+Agent lane: PostgreSQL reconciliation edge cases; one agent only
+Depends on: PR-155
+Commit: pending
+Design patterns: Repository, Strategy, Unit of Work, Fail-Closed Verification.
+
+Description:
+- R1: Market Gold digest reads ignore rows that contain no market-level value and are
+  owned exclusively by the Fed-policy synchronizer.
+- R2: Market inserts use a conflict-safe market-column upsert and never alter Fed columns.
+
+Acceptance:
+- A1: Fed-only timestamps do not cause market Gold preflight or post-write digest mismatch.
+- A2: A same-timestamp market arrival updates only market columns and preserves Fed values.
+- A3: Required lint, type, unit, integration, and coverage gates pass.
+- A4: The production table/view and cron acceptance pass after this reconciliation fix.
+
 ### PR-155: Decouple Market Gold And Fed Policy PostgreSQL Ownership
 
 PR name: `decouple-market-fed-postgres-sync`

@@ -895,7 +895,11 @@ ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 _INSERT_ROW_SQL = (
     f"INSERT INTO {_CONSUMER} ("
     f"{', '.join(_quote(column) for column in POSTGRES_MARKET_RAW_COLUMNS)}) "
-    f"VALUES ({', '.join('%s' for _ in POSTGRES_MARKET_RAW_COLUMNS)})"
+    f"VALUES ({', '.join('%s' for _ in POSTGRES_MARKET_RAW_COLUMNS)}) "
+    f'ON CONFLICT ("timestamp_m1") DO UPDATE SET '
+    + ", ".join(
+        f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in _MARKET_FEATURE_COLUMNS
+    )
 )
 _UPDATE_ROW_SQL = (
     f"UPDATE {_CONSUMER} SET "
@@ -910,7 +914,9 @@ DO UPDATE SET row_sha256 = EXCLUDED.row_sha256"""
 _DELETE_DIGEST_SQL = f"DELETE FROM {_ROW_HASHES} WHERE dataset_id = %s AND timestamp_m1 = %s"
 _CONSUMER_ROWS_SQL = (
     f"SELECT {', '.join(_quote(column) for column in POSTGRES_MARKET_RAW_COLUMNS)} "
-    f"FROM {_CONSUMER} ORDER BY {_quote('timestamp_m1')}"
+    f"FROM {_CONSUMER} WHERE ("
+    + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _MARKET_FEATURE_COLUMNS)
+    + f") ORDER BY {_quote('timestamp_m1')}"
 )
 _TARGET_SUMMARY_SQL = (
     f"SELECT COUNT(*), MIN({_quote('timestamp_m1')}), MAX({_quote('timestamp_m1')}) "
