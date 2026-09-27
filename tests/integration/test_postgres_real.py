@@ -463,10 +463,11 @@ def test_real_postgres_xetra_returns_match_independent_reference(
     levels = [100.0, 105.0, 110.0, 115.0, 120.0, 125.0]
     timestamps = [_timestamp(day) for day in range(1, len(levels) + 1)]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        connection.executemany(
-            'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
-            zip(timestamps, levels, strict=True),
-        )
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         row = connection.execute(
             """SELECT "vix_log_return_1obs", "vix_return_geom_5obs_pct",
