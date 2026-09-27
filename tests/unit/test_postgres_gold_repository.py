@@ -407,6 +407,11 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'AS "vix_volatility_40obs"' in ddl
     assert 'AS "vix_sma_ratio_5_20"' in ddl
     assert 'AS "vix_rsi_7obs"' in ddl
+    assert "WITH RECURSIVE input AS" in ddl
+    assert "power(" not in ddl
+    assert "coalesce(gains[1], 0.0)" in ddl
+    assert "state.valid_count + 1 >= 7" in ddl
+    assert 'corr(change, "change_lag_20") OVER window_120 IS NULL THEN NULL ELSE greatest' in ddl
     assert 'AS "vix_roc_20obs"' in ddl
     assert 'AS "vix_drawdown_60obs"' in ddl
     assert 'AS "vix_return_geom_240obs_pct"' not in ddl
