@@ -229,7 +229,10 @@ class PostgresLiveDatabaseConformanceInspector:
         if actual == expected:
             return True
         if isinstance(actual, str) and isinstance(expected, int):
-            return actual in {f"{expected}ms", f"{expected / 1_000:g}s"}
+            accepted = {f"{expected}ms", f"{expected / 1_000:g}s"}
+            if expected % 60_000 == 0:
+                accepted.add(f"{expected / 60_000:g}min")
+            return actual in accepted
         return False
 
     @staticmethod
