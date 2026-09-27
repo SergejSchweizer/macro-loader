@@ -388,7 +388,7 @@ def _macro_features_view_query() -> str:
             for lag in (1, 5, 20)
         )
         source_ctes.append(
-            f"{source} AS (SELECT timestamp_m1, {level} AS level, {lag_sql}, "
+            f"{source} AS MATERIALIZED (SELECT timestamp_m1, {level} AS level, {lag_sql}, "
             "row_number() OVER ordered AS observation_number "
             f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
             "WINDOW ordered AS (ORDER BY timestamp_m1))"
@@ -419,7 +419,7 @@ def _macro_features_view_query() -> str:
             loss_name = _quote(f"avg_loss_{period}")
             rsi_names[period] = (gain_name, loss_name)
             source_ctes.append(
-                f"{seed} AS (SELECT timestamp_m1, observation_number, "
+                f"{seed} AS MATERIALIZED (SELECT timestamp_m1, observation_number, "
                 f"avg(gain) OVER rsi_window AS {gain_name}, "
                 f"avg(loss) OVER rsi_window AS {loss_name}, "
                 f"sum(coalesce(gain, 0.0) * power({(period - 1) / period:.17g}, "
@@ -432,7 +432,7 @@ def _macro_features_view_query() -> str:
                 "rsi_weighted AS (ORDER BY observation_number))"
             )
             source_ctes.append(
-                f"{weighted} AS (SELECT changes.*, "
+                f"{weighted} AS MATERIALIZED (SELECT changes.*, "
                 f"sum(coalesce(gain, 0.0) * power({(period - 1) / period:.17g}, "
                 f"-observation_number)) OVER rsi_weighted AS gain_weighted_sum, "
                 f"sum(coalesce(loss, 0.0) * power({(period - 1) / period:.17g}, "
@@ -440,7 +440,8 @@ def _macro_features_view_query() -> str:
                 f"FROM {changes} AS changes WINDOW rsi_weighted AS (ORDER BY observation_number))"
             )
             source_ctes.append(
-                f"{rsi} AS (SELECT weighted.timestamp_m1, weighted.observation_number, "
+                f"{rsi} AS MATERIALIZED (SELECT weighted.timestamp_m1, "
+                "weighted.observation_number, "
                 f"power({(period - 1) / period:.17g}, weighted.observation_number - "
                 f"{period + 1}) * seed.{gain_name} + "
                 f"power({(period - 1) / period:.17g}, weighted.observation_number) / "
@@ -527,7 +528,7 @@ def _macro_features_view_query() -> str:
                 f"END AS {_quote(f'{series}_drawdown_{window}obs')}"
             )
         source_ctes.append(
-            f"{features} AS (SELECT changes.timestamp_m1, {', '.join(expressions)} "
+            f"{features} AS MATERIALIZED (SELECT changes.timestamp_m1, {', '.join(expressions)} "
             f"FROM {changes} AS changes {rsi_join_sql} "
             "WINDOW window_5 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
             "4 PRECEDING AND CURRENT ROW), "
