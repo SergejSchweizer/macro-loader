@@ -7,13 +7,21 @@ from pathlib import Path
 import pytest
 
 BACKLOG = Path("BACKLOG.md")
-ALLOWED_DELIVERY = {"Planned", "In Progress", "Blocked", "Ready", "Merged"}
+ALLOWED_DELIVERY = {
+    "Planned",
+    "In Progress",
+    "Blocked",
+    "Ready",
+    "Merged",
+    "Closed/Superseded",
+}
 ALLOWED_GIT = {
     "not-started (branch absent)",
     "active-clean",
     "pushed-ci-failing",
     "pushed-ci-green",
     "merged",
+    "closed",
 }
 ALLOWED_TYPES = "feat|fix|docs|test|refactor|perf|build|ci|chore"
 HEADER_RE = re.compile(r"^## (PR-\d{2,3}): .+$", re.MULTILINE)
@@ -121,6 +129,9 @@ def _validate(text: str) -> list[BacklogPr]:
         status = values["Status"]
         if status == "Merged":
             assert git_status == "merged"
+            assert values["PR"].startswith("#")
+        elif status == "Closed/Superseded":
+            assert git_status == "closed"
             assert values["PR"].startswith("#")
         elif status == "Planned":
             assert git_status == "not-started (branch absent)"
