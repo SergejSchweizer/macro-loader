@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from statistics import stdev
 from threading import Event, Thread
 
@@ -484,6 +484,49 @@ def test_real_postgres_xetra_returns_match_independent_reference(
     assert math.isclose(row[2], sum(logs[-5:]) / 5.0)
     assert math.isclose(row[3], stdev(logs[-5:]))
     assert not math.isclose(row[1], (levels[-1] / levels[0] - 1.0) * 100.0)
+
+
+@pytest.mark.integration
+def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    levels = [100.0 + index for index in range(65)]
+    timestamps = [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(65)]
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        row = connection.execute(
+            """SELECT "vix_sma_ratio_5_20", "vix_rsi_7obs", "vix_rsi_14obs",
+                      "vix_roc_3obs", "vix_roc_5obs", "vix_roc_10obs",
+                      "vix_roc_20obs", "vix_drawdown_20obs", "vix_drawdown_60obs"
+               FROM macro_loader.macro_features
+               WHERE timestamp_m1 = %s""",
+            (timestamps[-1],),
+        ).fetchone()
+
+    assert row is not None
+    expected_values = (
+        (sum(levels[-5:]) / 5.0) / (sum(levels[-20:]) / 20.0),
+        100.0,
+        100.0,
+        levels[-1] / levels[-4] - 1.0,
+        levels[-1] / levels[-6] - 1.0,
+        levels[-1] / levels[-11] - 1.0,
+        levels[-1] / levels[-21] - 1.0,
+        0.0,
+        0.0,
+    )
+    for actual, expected_value in zip(row, expected_values, strict=True):
+        assert actual is not None
+        assert math.isclose(actual, expected_value)
 
 
 @pytest.mark.integration
