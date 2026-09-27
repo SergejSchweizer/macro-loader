@@ -118,7 +118,7 @@ class FedPolicyProvider:
             raise ValueError("Fed policy start must not exceed end")
         context = RequestContext(Provider.FEDWATCH, "fed_policy", "cme-fedwatch-eod")
         if self._browser_only:
-            return self._browser_fetch(start, end, {}, context)
+            return self._browser_fetch(start, end, self._effr(start, end, context), context)
         calendar_response = self._transport.send(
             HttpRequest("GET", self._fomc_url), context=context
         )
@@ -247,16 +247,9 @@ class FedPolicyProvider:
                         total_probability = sum(probabilities)
                         if abs(total_probability - 1.0) > 1e-3 or total_probability <= 0:
                             continue
-                        baseline = (
-                            round(effr[observation] * 100 / 25) * 25
-                            if observation in effr
-                            else buckets[
-                                max(
-                                    range(len(probabilities)),
-                                    key=lambda index: probabilities[index],
-                                )
-                            ]
-                        )
+                        if observation not in effr:
+                            continue
+                        baseline = round(effr[observation] * 100 / 25) * 25
                         for midpoint, probability in zip(buckets, probabilities, strict=True):
                             if probability > 0:
                                 rows.append(
