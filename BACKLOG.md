@@ -33,6 +33,31 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
+### PR-159: Make PostgreSQL Verification Match Market Gold Artifacts
+
+PR name: `verifier-market-artifact-contract`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-159/verifier-market-artifact-contract`
+Git status: in-progress
+Agent lane: PostgreSQL verification contract; one agent only
+Depends on: PR-158
+Commit: pending
+Design patterns: Adapter, Repository, Fail-Closed Verification.
+
+Description:
+- R1: Independent PostgreSQL verification accepts the market-only Gold artifact and
+  applies the same null Fed-column normalization as the sync service.
+- R2: Verification continues to compare the resulting full digest contract against
+  the production consumer, digest index, and authoritative state.
+
+Acceptance:
+- A1: A market-only Gold artifact verifies against a full PostgreSQL sync contract.
+- A2: Missing market-owned columns still fail closed.
+- A3: Required lint, type, unit, integration, and coverage gates pass.
+- A4: Production `postgres-verify` passes after Gold/Fed sync and the cron run.
+
 ### PR-158: Scope Gold Summaries To Market-Owned Rows
 
 PR name: `market-owned-summary-contract`
