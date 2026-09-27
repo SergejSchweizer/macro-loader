@@ -12,7 +12,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
+from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import (

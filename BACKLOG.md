@@ -44,14 +44,14 @@ acceptance artifacts as proof of end-to-end mathematical correctness.
 ### PR-146: Record Audit Findings And Remediation Plan
 
 PR name: `audit-remediation-plan`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #146
 Git branch: `pr-146/audit-remediation-plan`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Mathematical/contract audit governance; one agent only
 Depends on: PR-145
-Commit: `docs(pr-146): add audit remediation backlog`
+Commit: `docs(pr-146): add audit remediation backlog`; `docs(pr-146): record opened audit PR`
 Design patterns: Single Source of Truth, Closed-World Register, Fail-Closed Verification.
 
 Description:
@@ -78,14 +78,14 @@ Acceptance:
 ### PR-147: Unify Fed Feature Column Contract End To End
 
 PR name: `fed-feature-column-contract`
-Status: Planned
+Status: Pushed
 Updated: 2026-09-27
-PR: not opened
+PR: #147
 Git branch: `pr-147/fed-feature-column-contract`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-green`
 Agent lane: Fed schema/serving contract; one agent only
 Depends on: PR-146
-Commit: `fix(pr-147): unify fed feature column contract`
+Commit: `fix(pr-147): unify fed feature column contract`; `fix(pr-147): export canonical fed contract`
 Design patterns: Single Source of Truth, Contract Test, Repository.
 
 Description:
@@ -314,11 +314,11 @@ is added.
 ### PR-145: Repair Installed Cron Runtime Path And Fail-Closed Configuration
 
 PR name: `repair-installed-cron-runtime-path`
-Status: Pushed
+Status: Merged
 Updated: 2026-09-27
 PR: #145
 Git branch: `pr-145/repair-installed-cron-runtime-path`
-Git status: pushed-ci-green
+Git status: `merged`
 Agent lane: Cron runtime repair and acceptance; one agent only
 Depends on: PR-144
 Commit: `d98620c fix(pr-145): reject stale cron project paths`

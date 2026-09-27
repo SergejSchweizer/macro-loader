@@ -11,7 +11,8 @@ from typing import NoReturn, Protocol, TypeVar, cast
 
 import psycopg
 
-from application.fed_policy_postgres import FED_POLICY_DATASET_ID, FED_POLICY_FEATURE_COLUMNS
+from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
+from application.fed_policy_postgres import FED_POLICY_DATASET_ID
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,

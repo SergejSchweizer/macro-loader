@@ -10,15 +10,22 @@ from math import isfinite
 
 import polars as pl
 
-FED_POLICY_DATASET_ID = "fed_policy_features_daily"
-FED_POLICY_FEATURE_COLUMNS = (
-    "fed_next_expected_move_bp",
-    "fed_path_slope_m3_bp",
-    "fed_next_uncertainty_bp",
-    "fed_repricing_5obs_bp",
+from application.fed_policy_contract import (
+    FED_POLICY_COLUMNS,
+    FED_POLICY_FEATURE_COLUMNS,
 )
-FED_POLICY_LINEAGE_COLUMN = "available_at_utc"
-FED_POLICY_COLUMNS = ("timestamp_m1", *FED_POLICY_FEATURE_COLUMNS, FED_POLICY_LINEAGE_COLUMN)
+
+FED_POLICY_DATASET_ID = "fed_policy_features_daily"
+
+__all__ = [
+    "FED_POLICY_COLUMNS",
+    "FED_POLICY_DATASET_ID",
+    "FED_POLICY_FEATURE_COLUMNS",
+    "FedPolicyDeltaPlan",
+    "FedPolicyFeatureRow",
+    "fed_policy_rows",
+    "plan_fed_policy_delta",
+]
 
 
 @dataclass(frozen=True, slots=True)
