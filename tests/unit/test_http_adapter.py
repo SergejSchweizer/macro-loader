@@ -133,6 +133,20 @@ def test_non_retryable_4xx_returns_after_one_attempt() -> None:
     transport.close()
 
 
+def test_source_redirects_are_followed() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/source":
+            return httpx.Response(307, headers={"Location": "/source.csv"})
+        return httpx.Response(200, content=b"ok")
+
+    transport = HttpxTransport(transport=mock_transport(handler))
+    response = transport.send(HttpRequest("GET", "https://example.test/source"), context=CONTEXT)
+
+    assert response.status_code == 200
+    assert response.content == b"ok"
+    transport.close()
+
+
 def test_429_and_5xx_retry_with_deterministic_sleep_and_retry_after_cap() -> None:
     statuses = iter(
         [

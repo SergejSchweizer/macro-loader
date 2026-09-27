@@ -33,6 +33,30 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
+### PR-160: Follow Source Redirects In Cron HTTP Transport
+
+PR name: `follow-source-redirects`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-160/follow-source-redirects`
+Git status: in-progress
+Agent lane: HTTP transport redirect contract; one agent only
+Depends on: PR-159
+Commit: pending
+Design patterns: Adapter, Fail-Closed Verification.
+
+Description:
+- R1: The production HTTP adapter follows standards-compliant source redirects,
+  including the CBOE canonical CSV redirect.
+- R2: Redirect behavior remains bounded by the existing timeout and retry policies.
+
+Acceptance:
+- A1: CBOE source URLs return parseable data during `run-daily`.
+- A2: Redirect responses no longer become false source-unavailable failures.
+- A3: Required lint, type, unit, integration, and coverage gates pass.
+- A4: The production cron wrapper completes successfully and Gold sync remains green.
+
 ### PR-159: Make PostgreSQL Verification Match Market Gold Artifacts
 
 PR name: `verifier-market-artifact-contract`
