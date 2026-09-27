@@ -166,11 +166,11 @@ Acceptance:
 ### PR-136: Verify Complete View Contract And Legacy Removal
 
 PR name: `xetra-compatible-view-contract-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #136
 Git branch: `pr-136/xetra-compatible-view-contract-qa`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: PostgreSQL schema/conformance QA; one agent only
 Depends on: PR-134, PR-135
 Commit: `test(pr-136): verify xetra-compatible view contract`
@@ -189,11 +189,11 @@ Acceptance:
 ### PR-137: Historical Data Quality, Revision, Replay, And Refresh QA
 
 PR name: `xetra-compatible-historical-quality-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #137
 Git branch: `pr-137/xetra-compatible-historical-quality-qa`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-running`
 Agent lane: Historical PostgreSQL/data-quality QA; one agent only
 Depends on: PR-136
 Commit: `test(pr-137): verify xetra-compatible historical quality`
