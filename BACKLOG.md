@@ -339,8 +339,8 @@ Acceptance:
 - A2: `ops/run-macro-loader-sunday.sh` exports the resolved checkout root before
   configuration export, preserves lock contention and maintenance-marker exits,
   and uses only the resolved root for the installed executables.
-- A3: Unit tests prove matching configuration remains accepted and stale
-  `/home/dev_market` configuration is rejected when the installed root is
+- A3: Unit tests prove matching configuration remains accepted and a stale
+  legacy project-root configuration is rejected when the installed root is
   `/home/dev_macro/macro-loader`.
 - A4: The real Sunday wrapper starts with the repaired venv, reaches `run-daily`,
   leaves no held lock or process after termination, and records a sanitized
