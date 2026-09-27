@@ -216,9 +216,9 @@ Acceptance:
 PR name: `xetra-compatible-complete-run-acceptance`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #138
 Git branch: `pr-138/xetra-compatible-complete-run-acceptance`
-Git status: `active-dirty: BACKLOG.md, tests/unit/test_xetra_complete_run_acceptance.py`
+Git status: `pushed-ci-running`
 Agent lane: Full production-like pipeline acceptance; one agent only
 Depends on: PR-137
 Commit: `test(pr-138): accept complete xetra-compatible run`
