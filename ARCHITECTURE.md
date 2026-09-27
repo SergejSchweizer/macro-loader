@@ -6,7 +6,7 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-09-26, `main` and `origin/main` are aligned through the current Fed-policy
+As of 2026-09-27, `main` and `origin/main` are aligned through the current Fed-policy
 serving/runtime work. Required CI gates are green. Production FedWatch ingestion is
 browser-only and uses the approved Chinese CME public page
 (`https://www.cmegroup.cn/fed-watch/`); the blocked direct CME transport endpoint is
@@ -14,6 +14,12 @@ not a production fallback. Browser session state is kept in the configured cache
 directory and missing free-history observations remain NULL-derived. Production-like
 full-history and Sunday-cron acceptance are explicit, guarded commands and require
 the authorized deployment environment.
+
+The executable Gold contract is currently schema version **7** and feature version
+**6** (`application.gold_frame`). PostgreSQL synchronization populates
+`macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
+rebuilt or refreshed from that table and is the serving projection for the causal
+feature catalog.
 
 ## System Purpose
 

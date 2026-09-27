@@ -1,8 +1,10 @@
-"""Official public-source FedWatch snapshot adapter.
+"""Public-source FedWatch and ZQ settlement adapters.
 
-This adapter intentionally uses only the public CME 30-Day Fed Funds
-settlement endpoint, the public Federal Reserve FOMC calendar, and the public
-Federal Reserve EFFR CSV.  It does not call CME's paid FedWatch API/DataMine.
+Production composition uses the browser-only Chinese CME FedWatch page at
+``https://www.cmegroup.cn/fed-watch/`` plus the official Federal Reserve EFFR
+CSV. The direct CME settlement and FOMC transport path remains explicit tooling
+for tests or operators; it is not a production fallback and no paid CME
+FedWatch API/DataMine is used.
 """
 
 from __future__ import annotations
