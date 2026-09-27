@@ -412,46 +412,65 @@ def _macro_features_view_query() -> str:
             f"{_quote('lag_1')} AS change, "
             f"{change_lags}, {gain_loss_sql}, {log_return_sql} FROM {source})"
         )
-        rsi_names: dict[int, tuple[str, str, str, str]] = {}
-        weighted_columns: list[str] = []
-        weighted_windows: list[str] = []
+        rsi_names: dict[int, tuple[str, str]] = {}
+        rsi_cte_names: list[str] = []
         for period in RSI_WINDOWS:
-            gain_name = _quote(f"avg_gain_{period}")
-            loss_name = _quote(f"avg_loss_{period}")
-            gain_weighted_name = _quote(f"gain_weighted_{period}")
-            loss_weighted_name = _quote(f"loss_weighted_{period}")
-            rsi_names[period] = (
-                gain_name,
-                loss_name,
-                gain_weighted_name,
-                loss_weighted_name,
+            gain_name = f"avg_gain_{period}"
+            loss_name = f"avg_loss_{period}"
+            rsi_names[period] = (gain_name, loss_name)
+            rsi = _quote(f"{series}_rsi_{period}_state")
+            rsi_cte_names.append(rsi)
+            source_ctes.append(
+                f"{rsi} AS (WITH RECURSIVE state AS ("
+                f"SELECT timestamp_m1, observation_number, gain, loss, "
+                "CASE WHEN gain IS NULL OR loss IS NULL THEN 0 ELSE 1 END AS valid_count, "
+                "coalesce(gain, 0.0) AS gain_sum, coalesce(loss, 0.0) AS loss_sum, "
+                "NULL::double precision AS avg_gain, NULL::double precision AS avg_loss "
+                f"FROM {changes} WHERE observation_number = 1 "
+                "UNION ALL "
+                "SELECT next_row.timestamp_m1, next_row.observation_number, "
+                "next_row.gain, next_row.loss, "
+                "CASE WHEN next_row.gain IS NULL OR next_row.loss IS NULL THEN 0 "
+                f"WHEN state.avg_gain IS NULL THEN least(state.valid_count + 1, {period}) "
+                f"ELSE {period} END AS valid_count, "
+                "CASE WHEN next_row.gain IS NULL OR next_row.loss IS NULL THEN 0.0 "
+                "WHEN state.avg_gain IS NULL THEN state.gain_sum + next_row.gain "
+                "ELSE 0.0 END AS gain_sum, "
+                "CASE WHEN next_row.gain IS NULL OR next_row.loss IS NULL THEN 0.0 "
+                "WHEN state.avg_loss IS NULL THEN state.loss_sum + next_row.loss "
+                "ELSE 0.0 END AS loss_sum, "
+                "CASE WHEN next_row.gain IS NULL OR next_row.loss IS NULL THEN NULL "
+                f"WHEN state.avg_gain IS NULL AND state.valid_count + 1 >= {period} "
+                f"THEN (state.gain_sum + next_row.gain) / {period}.0 "
+                f"WHEN state.avg_gain IS NOT NULL THEN "
+                f"(({period - 1}.0 * state.avg_gain) + next_row.gain) / {period}.0 "
+                "END AS avg_gain, "
+                "CASE WHEN next_row.gain IS NULL OR next_row.loss IS NULL THEN NULL "
+                f"WHEN state.avg_loss IS NULL AND state.valid_count + 1 >= {period} "
+                f"THEN (state.loss_sum + next_row.loss) / {period}.0 "
+                f"WHEN state.avg_loss IS NOT NULL THEN "
+                f"(({period - 1}.0 * state.avg_loss) + next_row.loss) / {period}.0 "
+                "END AS avg_loss "
+                f"FROM state JOIN {changes} AS next_row "
+                "ON next_row.observation_number = state.observation_number + 1) "
+                "SELECT timestamp_m1, avg_gain, avg_loss FROM state)"
             )
-            decay = (period - 1) / period
-            weighted_columns.extend(
+        feature_input = _quote(f"{series}_rsi_input")
+        rsi_select = ["changes.*"]
+        rsi_joins: list[str] = []
+        for period, (gain_name, loss_name) in rsi_names.items():
+            rsi = _quote(f"{series}_rsi_{period}_state")
+            rsi_select.extend(
                 [
-                    f"avg(gain) OVER rsi_window_{period} AS {gain_name}",
-                    f"avg(loss) OVER rsi_window_{period} AS {loss_name}",
-                    f"sum(coalesce(gain, 0.0) * power({decay:.17g}, "
-                    f"-observation_number)) OVER rsi_weighted_{period} "
-                    f"AS {gain_weighted_name}",
-                    f"sum(coalesce(loss, 0.0) * power({decay:.17g}, "
-                    f"-observation_number)) OVER rsi_weighted_{period} "
-                    f"AS {loss_weighted_name}",
+                    f"{rsi}.avg_gain AS {_quote(gain_name)}",
+                    f"{rsi}.avg_loss AS {_quote(loss_name)}",
                 ]
             )
-            weighted_windows.extend(
-                [
-                    f"rsi_window_{period} AS (ORDER BY observation_number ROWS BETWEEN "
-                    f"{period - 1} PRECEDING AND CURRENT ROW)",
-                    f"rsi_weighted_{period} AS (ORDER BY observation_number)",
-                ]
-            )
-        weighted = _quote(f"{series}_rsi_weighted")
+            rsi_joins.append(f"LEFT JOIN {rsi} ON {rsi}.timestamp_m1 = changes.timestamp_m1")
         source_ctes.append(
-            f"{weighted} AS MATERIALIZED (SELECT changes.*, {', '.join(weighted_columns)} "
-            f"FROM {changes} AS changes WINDOW {', '.join(weighted_windows)})"
+            f"{feature_input} AS MATERIALIZED (SELECT {', '.join(rsi_select)} "
+            f"FROM {changes} AS changes {' '.join(rsi_joins)})"
         )
-        feature_input = weighted
         expressions: list[str] = []
         for window in LOG_RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
@@ -472,8 +491,9 @@ def _macro_features_view_query() -> str:
             expressions.append(
                 f"CASE WHEN count(change) OVER window_{window} = {window} "
                 f"AND count({_quote(f'change_lag_{lag}')}) OVER window_{window} = {window} "
-                f"THEN greatest(corr(change, {_quote(f'change_lag_{lag}')}) "
-                f"OVER window_{window}, 0.0) END AS "
+                f"THEN CASE WHEN corr(change, {_quote(f'change_lag_{lag}')}) "
+                f"OVER window_{window} IS NULL THEN NULL ELSE greatest(corr(change, "
+                f"{_quote(f'change_lag_{lag}')}) OVER window_{window}, 0.0) END END AS "
                 f"{_quote(f'{series}_momentum_autocorr_{lag}_{window}obs')}"
             )
         for window in RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
@@ -501,34 +521,9 @@ def _macro_features_view_query() -> str:
                 f"END AS {_quote(f'{series}_sma_ratio_{short}_{long}')}"
             )
         for period in RSI_WINDOWS if series in PRICE_FEATURE_SERIES else ():
-            gain_name, loss_name, gain_weighted_name, loss_weighted_name = rsi_names[period]
-            decay = (period - 1) / period
-            seed_gain = (
-                f"max(CASE WHEN changes.observation_number = {period + 1} "
-                f"THEN changes.{gain_name} END) OVER ()"
-            )
-            seed_loss = (
-                f"max(CASE WHEN changes.observation_number = {period + 1} "
-                f"THEN changes.{loss_name} END) OVER ()"
-            )
-            seed_gain_weighted = (
-                f"max(CASE WHEN changes.observation_number = {period + 1} "
-                f"THEN changes.{gain_weighted_name} END) OVER ()"
-            )
-            seed_loss_weighted = (
-                f"max(CASE WHEN changes.observation_number = {period + 1} "
-                f"THEN changes.{loss_weighted_name} END) OVER ()"
-            )
-            current_gain = (
-                f"power({decay:.17g}, changes.observation_number - {period + 1}) * "
-                f"({seed_gain}) + power({decay:.17g}, changes.observation_number) / "
-                f"{period}.0 * (changes.{gain_weighted_name} - {seed_gain_weighted})"
-            )
-            current_loss = (
-                f"power({decay:.17g}, changes.observation_number - {period + 1}) * "
-                f"({seed_loss}) + power({decay:.17g}, changes.observation_number) / "
-                f"{period}.0 * (changes.{loss_weighted_name} - {seed_loss_weighted})"
-            )
+            gain_name, loss_name = rsi_names[period]
+            current_gain = f"changes.{_quote(gain_name)}"
+            current_loss = f"changes.{_quote(loss_name)}"
             expressions.append(
                 f"CASE WHEN changes.observation_number < {period + 1} THEN NULL "
                 f"WHEN {current_loss} = 0 THEN 100.0 "
@@ -619,8 +614,9 @@ def _macro_features_view_query() -> str:
             expressions.append(
                 f"CASE WHEN count(change) OVER window_{window} = {window} "
                 f"AND count({_quote(f'change_lag_{lag}')}) OVER window_{window} = {window} "
-                f"THEN greatest(corr(change, {_quote(f'change_lag_{lag}')}) "
-                f"OVER window_{window}, 0.0) END AS "
+                f"THEN CASE WHEN corr(change, {_quote(f'change_lag_{lag}')}) "
+                f"OVER window_{window} IS NULL THEN NULL ELSE greatest(corr(change, "
+                f"{_quote(f'change_lag_{lag}')}) OVER window_{window}, 0.0) END END AS "
                 f"{_quote(f'{origin}_momentum_autocorr_{lag}_{window}obs')}"
             )
         source_ctes.append(
