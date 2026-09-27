@@ -110,7 +110,7 @@ class FakeCursor:
             settings: dict[str, object] = {
                 "SHOW application_name": "macro-loader",
                 "SHOW lock_timeout": "5s",
-                "SHOW statement_timeout": "30s",
+                "SHOW statement_timeout": "120s",
                 "SHOW idle_in_transaction_session_timeout": "30s",
             }
             self._one = (settings[query],)

@@ -33,6 +33,31 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
+### PR-157: Bound The Production Feature Refresh Timeout
+
+PR name: `allow-production-feature-refresh-timeout`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-157/allow-production-feature-refresh-timeout`
+Git status: `in-progress`
+Agent lane: PostgreSQL operational timeout; one agent only
+Depends on: PR-156
+Commit: pending
+Design patterns: Unit of Work, Dependency Injection, Fail-Closed Verification.
+
+Description:
+- R1: Bound the PostgreSQL statement timeout high enough for the current 445-column
+  materialized-view refresh over the production row count.
+- R2: Keep the timeout finite and covered by the existing injected timeout policy.
+
+Acceptance:
+- A1: The production Gold transaction can complete its atomic view refresh within the
+  configured timeout.
+- A2: Timeout policy validation and SQL session setup remain deterministic.
+- A3: Required lint, type, unit, integration, and coverage gates pass.
+- A4: The production Gold sync and cron acceptance complete successfully.
+
 ### PR-156: Ignore Fed-Only Rows During Market Gold Reconciliation
 
 PR name: `ignore-fed-only-market-sync-rows`

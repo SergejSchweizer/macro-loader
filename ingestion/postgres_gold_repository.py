@@ -72,7 +72,7 @@ class PostgresTimeoutPolicy:
 
     connect_timeout_seconds: int = 5
     lock_timeout_ms: int = 5_000
-    statement_timeout_ms: int = 30_000
+    statement_timeout_ms: int = 120_000
     idle_in_transaction_timeout_ms: int = 30_000
     application_name: str = POSTGRES_APPLICATION_NAME
 

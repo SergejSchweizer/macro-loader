@@ -350,7 +350,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
         "SET application_name = 'macro-loader'",
         "SET TIME ZONE 'UTC'",
         "SET lock_timeout = '5000ms'",
-        "SET statement_timeout = '30000ms'",
+        "SET statement_timeout = '120000ms'",
         "SET idle_in_transaction_session_timeout = '30000ms'",
     ]
     ddl = "\n".join(queries[5:])
