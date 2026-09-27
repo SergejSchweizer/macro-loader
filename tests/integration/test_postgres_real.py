@@ -596,8 +596,9 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
         columns = tuple(
             result[0]
             for result in connection.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'macro_loader' AND table_name = 'macro_features'"
+                "SELECT attname FROM pg_attribute "
+                "WHERE attrelid = 'macro_loader.macro_features'::regclass "
+                "AND attnum > 0 AND NOT attisdropped ORDER BY attnum"
             ).fetchall()
         )
 
