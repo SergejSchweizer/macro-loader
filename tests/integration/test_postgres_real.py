@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from datetime import UTC, datetime
+from statistics import stdev
 from threading import Event, Thread
 
 import polars as pl
@@ -446,6 +448,42 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
         assert connection.execute(
             "SELECT count(*) FROM macro_loader.macro_features"
         ).fetchone() == (1,)
+
+
+@pytest.mark.integration
+def test_real_postgres_xetra_returns_match_independent_reference(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """Compare the live view with a deliberately independent hand-calculable reference."""
+
+    del repository
+    migrator.migrate()
+    levels = [100.0, 105.0, 110.0, 115.0, 120.0, 125.0]
+    timestamps = [_timestamp(day) for day in range(1, len(levels) + 1)]
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        row = connection.execute(
+            """SELECT "vix_log_return_1obs", "vix_return_geom_5obs_pct",
+                      "vix_return_mean_5obs", "vix_volatility_5obs"
+               FROM macro_loader.macro_features
+               WHERE timestamp_m1 = %s""",
+            (timestamps[-1],),
+        ).fetchone()
+
+    logs = [math.log(levels[index] / levels[index - 1]) for index in range(1, len(levels))]
+    assert row is not None
+    assert math.isclose(row[0], logs[-1])
+    assert math.isclose(row[1], levels[-1] / levels[0] - 1.0)
+    assert math.isclose(row[2], sum(logs[-5:]) / 5.0)
+    assert math.isclose(row[3], stdev(logs[-5:]))
+    assert not math.isclose(row[1], (levels[-1] / levels[0] - 1.0) * 100.0)
 
 
 @pytest.mark.integration
