@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import polars as pl
 
 from application.postgres_sync import (
+    POSTGRES_MARKET_RAW_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
@@ -41,7 +42,11 @@ def gold_row_sha256(row: GoldRowPayload) -> str:
     digest.update(POSTGRES_RAW_COLUMNS[0].encode("utf-8"))
     digest.update(b"\x00T")
     digest.update(struct.pack(">q", _epoch_microseconds(row.timestamp_m1)))
-    for column, value in zip(POSTGRES_RAW_COLUMNS[1:], row.values, strict=True):
+    for column, value in zip(
+        POSTGRES_MARKET_RAW_COLUMNS[1:],
+        row.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1],
+        strict=True,
+    ):
         digest.update(column.encode("utf-8"))
         digest.update(b"\x00")
         if value is None:

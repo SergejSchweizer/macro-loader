@@ -49,10 +49,18 @@ def test_row_digest_is_deterministic_and_value_sensitive() -> None:
     values = tuple(float(index) for index in range(len(POSTGRES_RAW_COLUMNS) - 1))
     row = GoldRowPayload(_ts(1), values)
     assert gold_row_sha256(row) == gold_row_sha256(row)
-    changed = GoldRowPayload(_ts(1), (*values[:-1], values[-1] + 1.0))
+    changed = GoldRowPayload(_ts(1), (values[0] + 1.0, *values[1:]))
     assert gold_row_sha256(row) != gold_row_sha256(changed)
     later = GoldRowPayload(_ts(1, micros=1), values)
     assert gold_row_sha256(row) != gold_row_sha256(later)
+
+
+def test_row_digest_ignores_fed_owned_values() -> None:
+    values = tuple(float(index) for index in range(len(POSTGRES_RAW_COLUMNS) - 1))
+    changed_fed = (*values[:-4], values[-4] + 100.0, values[-3] + 100.0, None, None)
+    assert gold_row_sha256(GoldRowPayload(_ts(1), values)) == gold_row_sha256(
+        GoldRowPayload(_ts(1), changed_fed)
+    )
 
 
 def test_row_digest_has_explicit_null_and_normalizes_negative_zero() -> None:
