@@ -557,7 +557,7 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
         ).fetchone()
 
     assert tuple(column[1] for column in columns) == FEATURE_COLUMNS
-    assert columns[0][2] == "timestamp with time zone"
+    assert columns[0][2] == "timestamp(6) with time zone"
     assert all(column[2] == "double precision" for column in columns[1:])
     assert comment == (
         f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
