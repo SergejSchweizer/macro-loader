@@ -22,7 +22,9 @@ The current Gold semantic contract is schema version **7** and feature version *
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
 `application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL synchronization populates
 `macro_raw`, and the `macro_features` materialized view is refreshed from it,
-including the causal XETRA-compatible transformations.
+including the causal XETRA-compatible transformations. The view's non-null `parent`
+JSONB column maps each feature name to its raw parent feature; cross-series features
+contain an ordered parent array.
 
 Before implementing a backlog PR, coding agents must read `AGENTS.md`, `BACKLOG.md`, and `ARCHITECTURE.md`.
 

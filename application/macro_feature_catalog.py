@@ -29,7 +29,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 6
+MACRO_FEATURE_VIEW_VERSION = 7
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -84,6 +84,29 @@ class MacroFeatureSpec:
     family: str
     series: str | None
     formula: str
+
+
+_CROSS_FEATURE_PARENTS: dict[str, tuple[str, ...]] = {
+    "vix9d_vix_ratio": ("vix9d_level", "vix_level"),
+    "vix_vix3m_ratio": ("vix_level", "vix3m_level"),
+    "vix9d_vix3m_log_ratio": ("vix9d_level", "vix3m_level"),
+    "vix3m_minus_vix": ("vix3m_level", "vix_level"),
+    "vix6m_minus_vix": ("vix6m_level", "vix_level"),
+    "vix1y_minus_vix": ("vix1y_level", "vix_level"),
+    "us_10y_minus_us_2y": ("us_10y_level", "us_2y_level"),
+}
+
+
+def feature_parent_columns(spec: MacroFeatureSpec) -> tuple[str, ...]:
+    """Return the raw serving columns from which one feature is derived."""
+    if spec.series is not None:
+        if spec.family.startswith("fed_") or spec.family == "fed_origin":
+            return (spec.series,)
+        return (f"{spec.series}_level",)
+    try:
+        return _CROSS_FEATURE_PARENTS[spec.name]
+    except KeyError as exc:
+        raise ValueError(f"feature {spec.name} has no declared parent") from exc
 
 
 def _source_specs() -> tuple[MacroFeatureSpec, ...]:
@@ -273,6 +296,9 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
 
 FEATURE_CATALOG: tuple[MacroFeatureSpec, ...] = _source_specs()
 FEATURE_COLUMNS: tuple[str, ...] = ("timestamp_m1", *(spec.name for spec in FEATURE_CATALOG))
+FEATURE_PARENT_COLUMNS: tuple[tuple[str, tuple[str, ...]], ...] = tuple(
+    (spec.name, feature_parent_columns(spec)) for spec in FEATURE_CATALOG
+)
 
 
 def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG) -> None:
@@ -282,6 +308,8 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog contains duplicate columns")
     if any(not spec.name or not spec.family or not spec.formula for spec in catalog):
         raise ValueError("macro feature catalog contains incomplete metadata")
+    if any(not feature_parent_columns(spec) for spec in catalog):
+        raise ValueError("macro feature catalog contains an undeclared parent")
     if tuple(spec.name for spec in catalog if spec.family == "raw_log") != RAW_COLUMNS:
         raise ValueError("macro feature catalog raw-log order/coverage mismatch")
     for family in PRICE_FEATURE_FAMILIES:
@@ -304,10 +332,16 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
 
 def feature_catalog_payload(
     catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,
-) -> tuple[dict[str, str | None], ...]:
+) -> tuple[dict[str, object], ...]:
     validate_feature_catalog(catalog)
     return tuple(
-        {"name": spec.name, "family": spec.family, "series": spec.series, "formula": spec.formula}
+        {
+            "name": spec.name,
+            "family": spec.family,
+            "series": spec.series,
+            "formula": spec.formula,
+            "parent": feature_parent_columns(spec),
+        }
         for spec in catalog
     )
 

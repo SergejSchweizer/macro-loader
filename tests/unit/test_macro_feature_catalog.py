@@ -3,6 +3,7 @@ import pytest
 from application.macro_feature_catalog import (
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
+    FEATURE_PARENT_COLUMNS,
     FED_POLICY_DERIVED_COLUMNS,
     FED_POLICY_MATERIALIZED_COLUMNS,
     FED_POLICY_ORIGIN_COLUMNS,
@@ -33,6 +34,10 @@ def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
     assert {spec.series for spec in FEATURE_CATALOG if spec.family == "raw_log"} == set(
         PRICE_FEATURE_SERIES
     )
+    parents = dict(FEATURE_PARENT_COLUMNS)
+    assert parents["vix_log_level"] == ("vix_level",)
+    assert parents["vix_return_geom_5obs_pct"] == ("vix_level",)
+    assert parents["vix9d_vix_ratio"] == ("vix9d_level", "vix_level")
     assert len(FEATURE_COLUMNS) == len(set(FEATURE_COLUMNS))
     assert not any(name.startswith("foo_") for name in FEATURE_COLUMNS)
 
@@ -98,7 +103,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 6
+    assert MACRO_FEATURE_VIEW_VERSION == 7
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -124,6 +129,7 @@ def test_fed_materialized_contract_has_exactly_four_origins_and_28_derived_colum
 def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert "WHERE FALSE" not in _FEATURES_VIEW_DDL
     assert "CREATE MATERIALIZED VIEW" in _FEATURES_VIEW_DDL
+    assert 'AS "parent"' in _FEATURES_VIEW_DDL
     assert '"vix_log_level"' in _FEATURES_VIEW_DDL
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
