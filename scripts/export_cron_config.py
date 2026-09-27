@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 import sys
 from pathlib import Path, PurePosixPath
@@ -55,6 +56,14 @@ def export(path: Path) -> str:
     if not isinstance(parsed, dict):
         raise ValueError("config.yaml must be a mapping")
     project_root = _value(parsed, "runtime", "project_root")
+    expected_project_root = os.environ.get("MACRO_LOADER_PROJECT_ROOT")
+    if expected_project_root and (
+        Path(project_root).resolve() != Path(expected_project_root).resolve()
+    ):
+        raise ValueError(
+            "runtime.project_root does not match the installed project root "
+            f"{expected_project_root}"
+        )
     canonical_log = _canonical_log_path(project_root)
     configured_log = parsed.get("runtime", {}).get("log_path")
     if configured_log is not None and configured_log != canonical_log:
