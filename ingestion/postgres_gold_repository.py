@@ -657,7 +657,7 @@ def _macro_features_view_query() -> str:
         for series in RAW_SERIES
     )
     return (
-        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH RECURSIVE "
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH "
         f"{', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
         f"FROM {_CONSUMER} raw {' '.join(joins)} "
@@ -727,7 +727,7 @@ def _normalize_view_definition(value: str) -> str:
 _FEATURES_VIEW_DEFINITION = _normalize_view_definition(_FEATURES_VIEW_DDL.split(" AS ", 1)[1])
 _FEATURES_VIEW_COLUMNS_EXPECTED = ("timestamp_m1",) + tuple(_FEATURES_VIEW_COLUMNS)
 _FEATURES_VIEW_DEFINITION_MARKERS = (
-    "with recursive vix_source as",
+    "with vix_source as",
     "raw.timestamp_m1",
     "vix9d_vix3m_log_ratio",
     "2010-01-01",
