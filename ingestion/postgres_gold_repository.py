@@ -508,12 +508,18 @@ def _macro_features_view_query() -> str:
         source_ctes.append(
             f"{features} AS (SELECT changes.timestamp_m1, {', '.join(expressions)} "
             f"FROM {changes} AS changes {rsi_join_sql} "
-            "WINDOW window_5 AS (ORDER BY timestamp_m1 ROWS BETWEEN 4 PRECEDING AND CURRENT ROW), "
-            "window_10 AS (ORDER BY timestamp_m1 ROWS BETWEEN 9 PRECEDING AND CURRENT ROW), "
-            "window_20 AS (ORDER BY timestamp_m1 ROWS BETWEEN 19 PRECEDING AND CURRENT ROW), "
-            "window_40 AS (ORDER BY timestamp_m1 ROWS BETWEEN 39 PRECEDING AND CURRENT ROW), "
-            "window_60 AS (ORDER BY timestamp_m1 ROWS BETWEEN 59 PRECEDING AND CURRENT ROW), "
-            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW))"
+            "WINDOW window_5 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "4 PRECEDING AND CURRENT ROW), "
+            "window_10 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "9 PRECEDING AND CURRENT ROW), "
+            "window_20 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "19 PRECEDING AND CURRENT ROW), "
+            "window_40 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "39 PRECEDING AND CURRENT ROW), "
+            "window_60 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "59 PRECEDING AND CURRENT ROW), "
+            "window_120 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            "119 PRECEDING AND CURRENT ROW))"
         )
         joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
         for column in _FEATURES_VIEW_COLUMNS:

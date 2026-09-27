@@ -97,7 +97,7 @@ Status: In Progress
 Updated: 2026-09-27
 PR: #133
 Git branch: `pr-133/xetra-compatible-trend-momentum`
-Git status: `pushed-ci-running`
+Git status: `active-dirty: ingestion/postgres_gold_repository.py`
 Agent lane: PostgreSQL trend/momentum implementation; one agent only
 Depends on: PR-132
 Commit: `feat(pr-133): implement xetra-compatible trend momentum`
