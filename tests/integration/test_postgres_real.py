@@ -470,7 +470,7 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
         assert connection.execute(
             "SELECT parent->>'vix_log_level', parent->'vix9d_vix_ratio' "
             "FROM macro_loader.macro_features"
-        ).fetchone() == ("vix_level", '["vix9d_level", "vix_level"]')
+        ).fetchone() == ("vix_level", ["vix9d_level", "vix_level"])
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
