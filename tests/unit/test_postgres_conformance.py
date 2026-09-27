@@ -125,7 +125,7 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
 
         def read_path(self, relative_data_path: str) -> pl.DataFrame:
             assert relative_data_path == "data.parquet"
-            return frame
+            return frame.select(list(GOLD_COLUMNS))
 
     class Transaction:
         def read_state(self, dataset_id: str) -> GoldSyncState:
