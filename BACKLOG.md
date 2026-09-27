@@ -93,11 +93,11 @@ Acceptance:
 ### PR-133: Implement XETRA-Compatible Trend And Momentum Features
 
 PR name: `xetra-compatible-trend-momentum`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #133
 Git branch: `pr-133/xetra-compatible-trend-momentum`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: PostgreSQL trend/momentum implementation; one agent only
 Depends on: PR-132
 Commit: `feat(pr-133): implement xetra-compatible trend momentum`
@@ -120,11 +120,11 @@ Acceptance:
 ### PR-134: Independent Mathematical QA For Returns And Volatility
 
 PR name: `xetra-compatible-returns-volatility-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
 PR: not opened
 Git branch: `pr-134/xetra-compatible-returns-volatility-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: BACKLOG.md, tests/integration/test_postgres_real.py, tests/unit/test_xetra_returns_volatility_qa.py`
 Agent lane: Independent formula QA; one agent only
 Depends on: PR-132
 Commit: `test(pr-134): verify xetra-compatible returns volatility`
