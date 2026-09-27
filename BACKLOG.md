@@ -179,11 +179,11 @@ Acceptance:
 ### PR-150: Make RSI And Momentum Numerically Stable And NULL-Correct
 
 PR name: `rsi-momentum-numerical-correctness`
-Status: In Progress
+Status: Pushed
 Updated: 2026-09-27
 PR: pending
 Git branch: `pr-150/rsi-momentum-numerical-correctness`
-Git status: `in-progress`
+Git status: `pushed-ci-pending`
 Agent lane: Indicator mathematics; one agent only
 Depends on: PR-149
 Commit: `fix(pr-150): stabilize rsi and momentum null semantics`
