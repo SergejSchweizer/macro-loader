@@ -39,6 +39,11 @@ def test_complete_run_requires_documented_stage_order_and_final_view_contract() 
     assert FEATURE_COLUMNS[0] == "timestamp_m1"
     assert any(column.endswith("_sma_ratio_5_20") for column in FEATURE_COLUMNS)
     assert any(column.endswith("_rsi_7obs") for column in FEATURE_COLUMNS)
+    assert any(column.endswith("_roc_20obs") for column in FEATURE_COLUMNS)
+    assert any(column.endswith("_drawdown_60obs") for column in FEATURE_COLUMNS)
+    assert "estr_delta_1obs" in FEATURE_COLUMNS
+    assert "estr_rsi_7obs" not in FEATURE_COLUMNS
+    assert "estr_return_geom_10obs_pct" not in FEATURE_COLUMNS
     assert not any("return_geom_240obs" in column for column in FEATURE_COLUMNS)
     assert "postgresql://secret" not in artifact
 
