@@ -70,9 +70,9 @@ is added.
 PR name: `final-backlog-merged-status`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #141
 Git branch: `pr-141/final-backlog-merged-status`
-Git status: `active-dirty: BACKLOG.md`
+Git status: `pushed-ci-running`
 Agent lane: Backlog governance and repository cleanup; one agent only
 Depends on: PR-140
 Commit: `docs(pr-141): finalize merged backlog status`
