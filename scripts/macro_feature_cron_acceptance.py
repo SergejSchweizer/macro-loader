@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--execute", action="store_true", help="execute the installed wrapper")
     return parser
+
+
+def _generated_at_utc() -> str:
+    source_date_epoch = os.environ.get("SOURCE_DATE_EPOCH")
+    if source_date_epoch is not None:
+        return datetime.fromtimestamp(int(source_date_epoch), UTC).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     passed = len(results) == 2 and all(result["exit_code"] == 0 for result in results)
     payload = {
         "schema": "macro-feature-cron-v1",
-        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "generated_at_utc": _generated_at_utc(),
         "result": "PASS" if passed else "FAIL",
         "wrapper": "ops/run-macro-loader-sunday.sh",
         "stages": results,

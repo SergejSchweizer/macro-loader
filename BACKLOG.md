@@ -214,11 +214,11 @@ Acceptance:
 ### PR-138: Complete Pipeline And PostgreSQL Serving Acceptance
 
 PR name: `xetra-compatible-complete-run-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #138
 Git branch: `pr-138/xetra-compatible-complete-run-acceptance`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Full production-like pipeline acceptance; one agent only
 Depends on: PR-137
 Commit: `test(pr-138): accept complete xetra-compatible run`
@@ -239,11 +239,11 @@ Acceptance:
 ### PR-139: Installed Cron And Failure-Recovery Acceptance
 
 PR name: `xetra-compatible-cron-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
 PR: not opened
 Git branch: `pr-139/xetra-compatible-cron-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: BACKLOG.md, scripts/macro_feature_cron_acceptance.py, tests/unit/test_xetra_cron_acceptance.py`
 Agent lane: Installed operational cron QA; one agent only
 Depends on: PR-138
 Commit: `test(pr-139): accept xetra-compatible cron run`
