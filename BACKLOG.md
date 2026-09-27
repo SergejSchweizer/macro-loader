@@ -65,14 +65,37 @@ retained with the new XETRA-compatible 10-observation semantics; the obsolete
 `25/60/120/240obs` columns and their old values are removed. No breadth/dispersion column
 is added.
 
+### PR-141: Finalize Merged Backlog Status And Branch Cleanup
+
+PR name: `final-backlog-merged-status`
+Status: In Progress
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-141/final-backlog-merged-status`
+Git status: `active-dirty: BACKLOG.md`
+Agent lane: Backlog governance and repository cleanup; one agent only
+Depends on: PR-140
+Commit: `docs(pr-141): finalize merged backlog status`
+Design patterns: Single Source of Truth, Closed-World Register.
+
+Description:
+- R1: Mark PR-140 merged only after GitHub reports the merge.
+- R2: Record the final merged state for every current XETRA delivery PR and the guarded production-run limitation.
+- R3: Make the repository ready for final local/remote branch cleanup with `main` as the sole retained branch.
+
+Acceptance:
+- A1: PR-132 through PR-140 detailed entries and condensed register rows agree on merged status and GitHub number.
+- A2: the final branch inventory contains only `main` locally and remotely after merge.
+- A3: no acceptance artifact claims an unauthorized production/service-account run.
+
 ### PR-140: Consolidate Final XETRA Delivery Backlog Status
 
 PR name: `backlog-final-status`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #140
 Git branch: `pr-140/backlog-final-status`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Backlog governance; one agent only
 Depends on: PR-139
 Commit: `docs(pr-140): finalize xetra delivery backlog statuses`
@@ -1073,6 +1096,8 @@ available as a compact historical record. No old Fed-policy PR may absorb PR-132
 | PR-137 | Historical revision/replay/refresh QA | Merged (#137) | Causal impact, finite/null, deterministic replay evidence |
 | PR-138 | Complete pipeline/PostgreSQL acceptance | Merged (#138) | Offline-safe ordered end-to-end acceptance contract |
 | PR-139 | Installed cron/failure-recovery acceptance | Merged (#139) | Offline wrapper/lock/exit/report QA; production run guarded |
+| PR-140 | Consolidate final XETRA delivery backlog status | Merged (#140) | Detailed contracts retained at beginning; compact register at end |
+| PR-141 | Finalize merged backlog status and branch cleanup | In Progress | Final metadata and sole-main branch inventory |
 
 The new dependency chain is:
 
