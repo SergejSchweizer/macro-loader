@@ -46,7 +46,6 @@ from ingestion.postgres_gold_repository import (
     PostgresTimeoutPolicy,
 )
 from scripts.provision_postgres_role import provision_sql
-from tests.unit.test_xetra_trend_momentum_qa import independent_trend_features
 
 pytestmark = pytest.mark.xdist_group("postgres-real")
 
@@ -513,22 +512,19 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
             (timestamps[-1],),
         ).fetchone()
 
-    expected = independent_trend_features(levels)
     assert row is not None
-    expected_columns = (
-        "sma_ratio_5_20",
-        "rsi_7",
-        "rsi_14",
-        "roc_3",
-        "roc_5",
-        "roc_10",
-        "roc_20",
-        "drawdown_20",
-        "drawdown_60",
+    expected_values = (
+        (sum(levels[-5:]) / 5.0) / (sum(levels[-20:]) / 20.0),
+        100.0,
+        100.0,
+        levels[-1] / levels[-4] - 1.0,
+        levels[-1] / levels[-6] - 1.0,
+        levels[-1] / levels[-11] - 1.0,
+        levels[-1] / levels[-21] - 1.0,
+        0.0,
+        0.0,
     )
-    for actual, column in zip(row, expected_columns, strict=True):
-        expected_value = expected[column][-1]
-        assert expected_value is not None
+    for actual, expected_value in zip(row, expected_values, strict=True):
         assert actual is not None
         assert math.isclose(actual, expected_value)
 
