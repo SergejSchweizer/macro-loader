@@ -504,7 +504,7 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
             )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         row = connection.execute(
-            """SELECT "vix_sma_ratio_5_20", "vix_rsi_7", "vix_rsi_14",
+            """SELECT "vix_sma_ratio_5_20", "vix_rsi_7obs", "vix_rsi_14obs",
                       "vix_roc_3obs", "vix_roc_5obs", "vix_roc_10obs",
                       "vix_roc_20obs", "vix_drawdown_20obs", "vix_drawdown_60obs"
                FROM macro_loader.macro_features

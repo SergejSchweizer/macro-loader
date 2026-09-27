@@ -147,7 +147,7 @@ Status: In Progress
 Updated: 2026-09-27
 PR: #135
 Git branch: `pr-135/xetra-compatible-trend-momentum-qa`
-Git status: `pushed-ci-running`
+Git status: `active-dirty: BACKLOG.md, tests/integration/test_postgres_real.py`
 Agent lane: Independent trend/momentum QA; one agent only
 Depends on: PR-133
 Commit: `test(pr-135): verify xetra-compatible trend momentum`
