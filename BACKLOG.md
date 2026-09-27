@@ -168,9 +168,9 @@ Acceptance:
 PR name: `xetra-compatible-view-contract-qa`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #136
 Git branch: `pr-136/xetra-compatible-view-contract-qa`
-Git status: `active-dirty: BACKLOG.md, tests/integration/test_postgres_real.py`
+Git status: `pushed-ci-running`
 Agent lane: PostgreSQL schema/conformance QA; one agent only
 Depends on: PR-134, PR-135
 Commit: `test(pr-136): verify xetra-compatible view contract`
