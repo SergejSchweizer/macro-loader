@@ -437,7 +437,7 @@ def _macro_features_view_query() -> str:
                 f"-observation_number)) OVER rsi_weighted AS gain_weighted_sum, "
                 f"sum(coalesce(loss, 0.0) * power({(period - 1) / period:.17g}, "
                 f"-observation_number)) OVER rsi_weighted AS loss_weighted_sum "
-                f"FROM {changes} WINDOW rsi_weighted AS (ORDER BY observation_number))"
+                f"FROM {changes} AS changes WINDOW rsi_weighted AS (ORDER BY observation_number))"
             )
             source_ctes.append(
                 f"{rsi} AS (SELECT weighted.timestamp_m1, weighted.observation_number, "
