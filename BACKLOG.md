@@ -72,7 +72,7 @@ Status: Pushed
 Updated: 2026-09-27
 PR: #145
 Git branch: `pr-145/repair-installed-cron-runtime-path`
-Git status: pushed-ci-pending
+Git status: pushed-ci-green
 Agent lane: Cron runtime repair and acceptance; one agent only
 Depends on: PR-144
 Commit: `d98620c fix(pr-145): reject stale cron project paths`
