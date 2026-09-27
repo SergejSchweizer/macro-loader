@@ -15,10 +15,15 @@ from dataclasses import dataclass
 from application.fed_policy_postgres import FED_POLICY_FEATURE_COLUMNS
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
-from application.return_features import RETURN_WINDOWS
+from application.return_features import (
+    LOG_RETURN_WINDOWS,
+    RETURN_MEAN_WINDOWS,
+    RETURN_WINDOWS,
+    VOLATILITY_WINDOWS,
+)
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 4
+MACRO_FEATURE_VIEW_VERSION = 5
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in RAW_SERIES)
@@ -110,15 +115,37 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             MacroFeatureSpec("vix6m_minus_vix", "term_structure", None, "vix6m-vix"),
             MacroFeatureSpec("vix1y_minus_vix", "term_structure", None, "vix1y-vix"),
             MacroFeatureSpec("us_10y_minus_us_2y", "cross_series", None, "us_10y-us_2y"),
-            MacroFeatureSpec(
-                "usd_broad_log_return_20obs",
-                "cross_series",
-                "usd_broad",
-                "ln(usd_broad(t)/usd_broad(t-20 valid observations))",
-            ),
         )
     )
     for series in RAW_SERIES:
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_log_return_{window}obs",
+                "log_return",
+                series,
+                f"ln(level(t)/level(t-{window} valid observations))",
+            )
+            for window in LOG_RETURN_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_return_mean_{window}obs",
+                "return_mean",
+                series,
+                f"mean of one-observation log returns over {window} valid observations",
+            )
+            for window in RETURN_MEAN_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_volatility_{window}obs",
+                "volatility",
+                series,
+                "sample standard deviation of one-observation log returns over "
+                f"{window} valid observations",
+            )
+            for window in VOLATILITY_WINDOWS
+        )
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_momentum_autocorr_{lag}_{window}obs",
@@ -134,7 +161,8 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 f"{series}_return_geom_{window}obs_pct",
                 "geometric_return",
                 series,
-                f"geometric mean simple return over {window} valid observations, percent",
+                "exp(sum of one-observation log returns over "
+                f"{window} valid observations)-1; decimal fraction",
             )
             for window in RETURN_WINDOWS
         )

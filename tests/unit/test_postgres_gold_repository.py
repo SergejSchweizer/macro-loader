@@ -381,13 +381,7 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
-    assert len(module._FEATURES_VIEW_COLUMNS) == 199
-    assert module._FEATURES_VIEW_COLUMNS[-32::8] == (
-        "fed_next_expected_move_bp",
-        "fed_path_slope_m3_bp",
-        "fed_next_uncertainty_bp",
-        "fed_repricing_5obs_bp",
-    )
+    assert len(module._FEATURES_VIEW_COLUMNS) == len(module.FEATURE_COLUMNS) - 1
     for column in (
         "fed_next_expected_move_bp",
         "fed_path_slope_m3_bp",
@@ -404,7 +398,12 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'AS "vix9d_delta_1obs"' in ddl
     assert 'AS "vix9d_vix_ratio"' in ddl
     assert 'AS "vix9d_vix3m_log_ratio"' in ddl
-    assert 'AS "us_10y_return_geom_240obs_pct"' in ddl
+    assert 'AS "vix_log_return_1obs"' in ddl
+    assert 'AS "vix_return_geom_5obs_pct"' in ddl
+    assert 'AS "vix_return_mean_5obs"' in ddl
+    assert 'AS "vix_volatility_40obs"' in ddl
+    assert 'AS "vix_return_geom_240obs_pct"' not in ddl
+    assert 'AS "vix_return_geom_25obs_pct"' not in ddl
     assert 'AS "usd_broad_log_return_20obs"' in ddl
     assert "WHERE FALSE" not in ddl
     assert '"estr_return_geom_10obs_pct"' in ddl

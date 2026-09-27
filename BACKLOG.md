@@ -4,7 +4,7 @@ This backlog is the implementation source of truth for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-09-26
+Last reviewed: 2026-09-27
 
 ## Current repository and production status
 
@@ -30,6 +30,236 @@ The target historical exposure boundary for both PostgreSQL relations is
 where point-in-time source support is genuinely unavailable or a transformation has not
 completed its causal warm-up; every such gap must be measured and explained by QA rather
 than filled, interpolated, carried, or synthesized.
+
+## New Delivery Wave — XETRA-Compatible Price Transformations In `macro_features`
+
+This wave adopts the calculation semantics from the current
+[`xetra-loader` feature catalog](https://github.com/SergejSchweizer/xetra-loader/blob/main/src/xetra_loader/features/catalog.py)
+and its PostgreSQL view implementation. The source-specific `adjusted_close` concept is
+mapped to each eligible positive `macro_raw` level series; no synthetic adjusted-close
+column is introduced.
+
+The requested market-wide `breadth` and `dispersion` families are explicitly **out of
+scope** because `macro-loader` currently has no instrument cross-section (`isin`, venue,
+instrument, trade-date) on which to calculate them.
+
+The XETRA-compatible geometric-return columns retain the `_pct` name but store decimal
+fractions (`0.05` means 5%), exactly as the XETRA SQL example computes them. Average
+returns mean the average one-observation **log returns**, not average simple returns.
+
+The final replacement set per eligible source level is exactly 26 columns:
+
+```text
+log_return:       1, 3, 5, 10, 20 observations
+return_geom_pct:  5, 10, 20 observations; decimal fractions despite the _pct suffix
+return_mean:      5, 10, 20 observations; mean of one-observation log returns
+volatility:       5, 10, 20, 40 observations; sample standard deviation of log returns
+sma_ratio:        5/20, 10/20, 10/40
+wilder_rsi:       7, 14 observations
+roc:              3, 5, 10, 20 observations
+drawdown:         20, 60 observations
+```
+
+The existing geometric-return implementation is replaced. The `10obs` column name is
+retained with the new XETRA-compatible 10-observation semantics; the obsolete
+`25/60/120/240obs` columns and their old values are removed. No breadth/dispersion column
+is added.
+
+### PR-132: Implement XETRA-Compatible Returns And Volatility
+
+PR name: `xetra-compatible-returns-volatility`
+Status: In Progress
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-132/xetra-compatible-returns-volatility`
+Git status: `active-dirty: BACKLOG.md, README.md, application/gold_sidecars.py, application/macro_feature_catalog.py, application/return_features.py, ingestion/postgres_gold_repository.py, tests/unit/test_macro_feature_catalog.py, tests/unit/test_postgres_gold_repository.py`
+Agent lane: PostgreSQL return/volatility implementation; one agent only
+Depends on: PR-131
+Commit: `feat(pr-132): implement xetra-compatible returns and volatility`
+Design patterns: Materialized View, Specification/Policy Object, Pure Transformation.
+
+Description:
+- R1: Replace the current geometric-return windows `10/25/60/120/240` with exact XETRA-compatible log-return windows `1/3/5/10/20`, geometric-return windows `5/10/20`, average-log-return windows `5/10/20`, and sample-volatility windows `5/10/20/40` for every eligible positive `macro_raw` level series.
+- R2: Preserve the `_pct` column suffix for geometric returns while storing decimal fractions; define and document `exp(sum(log_return_1)) - 1`, without multiplying by 100.
+- R3: Remove every obsolete `*_return_geom_25obs_pct`, `*_return_geom_60obs_pct`, `*_return_geom_120obs_pct`, and `*_return_geom_240obs_pct` column and replace the old `*_return_geom_10obs_pct` calculation with the new XETRA-compatible value in the closed-world catalog, SQL projection, migration, and view fingerprint.
+- R4: Use causal observation windows, positive-value guards, complete-window warm-up, NULL propagation, and no fill/interpolation/carry; do not add breadth or dispersion.
+
+Acceptance:
+- A1 (verifies R1): the catalog and generated PostgreSQL view define exactly the requested return/volatility columns for every eligible level series, with exact names, order, types, and formulas.
+- A2 (verifies R2): hand-calculable fixtures prove `0.05`, not `5.0`, for a 5% geometric return and prove average values are averages of one-observation log returns.
+- A3 (verifies R3): schema/code search and materialized-view introspection prove obsolete 25/60/120/240 windows are absent, the old 10-observation values are replaced, and no stale catalog/fingerprint entry remains.
+- A4 (verifies R4): irregular dates, NULLs, non-positive values, incomplete windows, zero variance, and truncation fixtures prove causal NULL-safe behavior and no market-wide feature is introduced.
+
+### PR-133: Implement XETRA-Compatible Trend And Momentum Features
+
+PR name: `xetra-compatible-trend-momentum`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-133/xetra-compatible-trend-momentum`
+Git status: `not-started (branch absent)`
+Agent lane: PostgreSQL trend/momentum implementation; one agent only
+Depends on: PR-132
+Commit: `feat(pr-133): implement xetra-compatible trend momentum`
+Design patterns: Materialized View, Specification/Policy Object, Pure Transformation.
+
+Description:
+- R1: Add SMA ratios `5/20`, `10/20`, and `10/40` over each eligible level series with full denominator warm-up and zero-denominator NULL behavior.
+- R2: Add Wilder RSI over 7 and 14 observations using the XETRA seed and recursive Wilder smoothing, with exact warm-up and all-gain/all-loss edge semantics.
+- R3: Add ROC over 3, 5, 10, and 20 observations as `level(t)/level(t-n)-1` with positive-value guards.
+- R4: Add rolling drawdown over 20 and 60 observations as `level(t)/rolling_max(level,n)-1`, with full causal windows and NULL-safe zero maxima.
+- R5: Keep breadth, dispersion, and all obsolete geometric-return windows out of the view; preserve the PR-132 return/volatility formulas, including the replaced 10-observation geometric-return value.
+
+Acceptance:
+- A1 (verifies R1): fixed positive fixtures reproduce all three SMA ratios exactly and return NULL before the denominator window is complete or when its denominator is zero.
+- A2 (verifies R2): an independent Wilder reference reproduces RSI-7/RSI-14, including seed row, recursive rows, all-gain=100 behavior, and undefined warm-up rows.
+- A3 (verifies R3): independent fixtures reproduce all four ROC windows, including non-positive source guards and exact observation-based lagging.
+- A4 (verifies R4): independent fixtures reproduce drawdown-20/drawdown-60 from the causal rolling maximum and preserve NULLs for incomplete/invalid windows.
+- A5 (verifies R5): final catalog/view projection contains none of the excluded breadth, dispersion, or obsolete 25/60/120/240 return columns, and the 10-observation column matches PR-132 output parity.
+
+### PR-134: Independent Mathematical QA For Returns And Volatility
+
+PR name: `xetra-compatible-returns-volatility-qa`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-134/xetra-compatible-returns-volatility-qa`
+Git status: `not-started (branch absent)`
+Agent lane: Independent formula QA; one agent only
+Depends on: PR-132
+Commit: `test(pr-134): verify xetra-compatible returns volatility`
+Design patterns: Differential Testing, Golden Master, Pure Reference Calculator, Fail-Closed Verification.
+
+Description:
+- R1: Build a dependency-independent reference calculator for all return and volatility columns without importing the production SQL builder or catalog formulas.
+- R2: Compare PostgreSQL output against the reference on positive, zero, negative, NULL, sparse, truncated, constant, and sign-changing fixtures.
+- R3: Verify decimal `_pct` semantics, average-log-return semantics, sample standard deviation, full warm-up, and exact observation-window behavior.
+
+Acceptance:
+- A1 (verifies R1): the reference calculator computes every PR-132 column independently and detects a deliberately altered production formula.
+- A2 (verifies R2): PostgreSQL and reference values match within one declared floating-point tolerance; invalid or incomplete cases match NULL exactly.
+- A3 (verifies R3): dedicated assertions prove decimal geometric values, average-log-return values, sample volatility, no look-ahead, absence of obsolete windows, and replacement of the old 10-observation values.
+
+### PR-135: Independent Mathematical QA For Trend And Momentum
+
+PR name: `xetra-compatible-trend-momentum-qa`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-135/xetra-compatible-trend-momentum-qa`
+Git status: `not-started (branch absent)`
+Agent lane: Independent trend/momentum QA; one agent only
+Depends on: PR-133
+Commit: `test(pr-135): verify xetra-compatible trend momentum`
+Design patterns: Differential Testing, Golden Master, Pure Reference Calculator, Fail-Closed Verification.
+
+Description:
+- R1: Build independent reference implementations for SMA ratios, Wilder RSI, ROC, and drawdown.
+- R2: Compare the complete PR-133 output against the reference using hand-calculable and sparse-observation fixtures.
+- R3: Verify no future rows, calendar-day shortcuts, implicit carry, invalid-value substitution, or premature warm-up values.
+
+Acceptance:
+- A1 (verifies R1): all 11 trend/momentum columns are independently calculated and every catalog column is covered exactly once.
+- A2 (verifies R2): PostgreSQL values match the independent reference within the declared tolerance, including all edge cases and NULLs.
+- A3 (verifies R3): truncation, irregular-date, invalid-level, and future-row mutation tests prove causal observation semantics and no look-ahead.
+
+### PR-136: Verify Complete View Contract And Legacy Removal
+
+PR name: `xetra-compatible-view-contract-qa`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-136/xetra-compatible-view-contract-qa`
+Git status: `not-started (branch absent)`
+Agent lane: PostgreSQL schema/conformance QA; one agent only
+Depends on: PR-134, PR-135
+Commit: `test(pr-136): verify xetra-compatible view contract`
+Design patterns: Contract Test, Closed-World Catalog, Fail-Closed Verification.
+
+Description:
+- R1: Inspect the clean-created and migrated `macro_features` materialized view independently of the production catalog builder.
+- R2: Verify presence, order, PostgreSQL types, NULLability, comments, ownership, grants, version, and fingerprint for all new columns.
+- R3: Verify absence of every obsolete 25/60/120/240 geometric-return column, replacement of the old 10-observation value, and absence of all breadth/dispersion columns.
+
+Acceptance:
+- A1 (verifies R1): clean-create and in-place-upgrade introspection converge to one exact materialized-view definition.
+- A2 (verifies R2): all 26 new columns per eligible series exist exactly once with expected order/types and the declared decimal `_pct` contract.
+- A3 (verifies R3): obsolete `return_geom_25/60/120/240` columns, the old 10-observation formula/value, every breadth column, and every dispersion column are absent; only the replacement `return_geom_10` contract remains.
+
+### PR-137: Historical Data Quality, Revision, Replay, And Refresh QA
+
+PR name: `xetra-compatible-historical-quality-qa`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-137/xetra-compatible-historical-quality-qa`
+Git status: `not-started (branch absent)`
+Agent lane: Historical PostgreSQL/data-quality QA; one agent only
+Depends on: PR-136
+Commit: `test(pr-137): verify xetra-compatible historical quality`
+Design patterns: End-to-End Test, Reconciliation, Differential Testing, State Machine, Fail-Closed Verification.
+
+Description:
+- R1: Run the full available historical `macro_features` view against the independent references and produce per-column coverage, warm-up, NULL-reason, finite-value, and distribution evidence.
+- R2: Verify one historical source revision changes exactly the mathematically affected windows and never mutates unrelated columns or future rows.
+- R3: Verify unchanged replay produces zero source mutations, zero unnecessary refreshes, stable version/fingerprint, and identical results.
+- R4: Emit a deterministic sanitized acceptance artifact with PASS/FAIL and no credentials or environment-specific secrets.
+
+Acceptance:
+- A1 (verifies R1): every new column exists over the expected historical range, all values are finite-or-NULL, warm-up NULLs are exact, and unexplained gaps fail.
+- A2 (verifies R2): a controlled historical revision produces exactly the expected affected rows for every impacted window and no others.
+- A3 (verifies R3): unchanged replay records zero semantic mutations and zero refreshes while preserving exact schema/fingerprint and output parity.
+- A4 (verifies R4): the artifact is deterministic/sanitized and cannot report PASS unless A1-A3 pass.
+
+### PR-138: Complete Pipeline And PostgreSQL Serving Acceptance
+
+PR name: `xetra-compatible-complete-run-acceptance`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-138/xetra-compatible-complete-run-acceptance`
+Git status: `not-started (branch absent)`
+Agent lane: Full production-like pipeline acceptance; one agent only
+Depends on: PR-137
+Commit: `test(pr-138): accept complete xetra-compatible run`
+Design patterns: End-to-End Acceptance, Unit of Work, Reconciliation, Fail-Closed Verification.
+
+Description:
+- R1: Execute the complete authorized path from source update through Bronze, Silver, Gold, PostgreSQL raw synchronization, materialized-view refresh, and independent verification.
+- R2: Verify the new feature columns are present in the final serving view, all legacy columns are absent, and non-target features are unchanged.
+- R3: Run a bounded normal replay after the complete run and prove no automatic full-history reconcile or fabricated observations occurs.
+- R4: Emit a deterministic sanitized complete-run artifact.
+
+Acceptance:
+- A1 (verifies R1): every stage completes in the documented order against the intended persistent lake and PostgreSQL endpoint, with exact mutation/refresh evidence.
+- A2 (verifies R2): final serving introspection and independent parity checks prove all new columns exist and all excluded/legacy columns do not exist.
+- A3 (verifies R3): immediate replay is delta-bounded, produces zero semantic mutations/refreshes when unchanged, and preserves all source/view invariants.
+- A4 (verifies R4): the artifact is sanitized, deterministic, and PASS is impossible if any stage or assertion fails.
+
+### PR-139: Installed Cron And Failure-Recovery Acceptance
+
+PR name: `xetra-compatible-cron-acceptance`
+Status: Planned
+Updated: 2026-09-27
+PR: not opened
+Git branch: `pr-139/xetra-compatible-cron-acceptance`
+Git status: `not-started (branch absent)`
+Agent lane: Installed operational cron QA; one agent only
+Depends on: PR-138
+Commit: `test(pr-139): accept xetra-compatible cron run`
+Design patterns: End-to-End Acceptance, Command, Single-Instance Lock, Failure Injection, Fail-Closed Verification.
+
+Description:
+- R1: Execute the exact installed cron wrapper with the configured service account, working directory, timezone, lock, lake, logs, and PostgreSQL roles; no Python-substitution shortcut is allowed.
+- R2: Verify a successful run, unchanged replay, missed-run catch-up, weekend/holiday no-op, lock contention, runtime preflight, and exit-code propagation.
+- R3: Inject source failure before publication and PostgreSQL/refresh failure after local publication; verify safe retry and preservation of the last committed serving state.
+- R4: Emit the final deterministic sanitized cron acceptance artifact.
+
+Acceptance:
+- A1 (verifies R1): evidence identifies the exact installed wrapper/config/service identity/cwd/timezone/lock/log path and proves the scheduler path was used.
+- A2 (verifies R2): successful and replay runs prove exact new-column presence, old-column absence, bounded updates, correct no-op behavior, and no concurrent execution.
+- A3 (verifies R3): both injected failure classes return non-zero, avoid false PASS, preserve committed state, and recover through the documented retry path.
+- A4 (verifies R4): the artifact is sanitized/deterministic and PASS is impossible unless A1-A3 pass.
 
 ## New Delivery PRs — Fed Origins In PostgreSQL Serving
 
@@ -789,3 +1019,51 @@ because replacement/cleanup PRs were occasionally opened under the same backlog 
 - PR-97–105: Fed-policy EOD contract, ZQ persistence/acquisition, point-in-time Fed references, probability reconstruction, four canonical features, private PostgreSQL synchronization, delta orchestration, and installed daily cron were delivered; the next serving-layout wave moves those origins into `macro_raw` and derives `macro_features` from that table.
 
 The detailed active backlog above contains only open/planned Fed serving work. Completed PR-97–105 are intentionally condensed in this Closed Delivery Summary and must not be reopened or silently rewritten to implement PR-113+ work.
+
+## Condensed Existing PR Register
+
+This register is intentionally at the end of the backlog data so the new PR-132–139
+transformation wave remains the first actionable scope while previous/current work stays
+available as a compact historical record. No old Fed-policy PR may absorb PR-132–139 scope.
+
+| PR | Scope | Status | Dependencies / evidence |
+|---|---|---|---|
+| PR-106 | CME FedWatch differential QA | Planned | Depends on PR-102 |
+| PR-107 | Real-PostgreSQL Fed-policy QA | Planned | Depends on PR-106, PR-116, PR-118 |
+| PR-108 | Full Fed-policy history acceptance | Planned | Depends on PR-107, PR-116, PR-118 |
+| PR-109 | Installed Fed-policy cron acceptance | Planned | Depends on PR-107, PR-108, PR-116, PR-118 |
+| PR-110 | Legacy FedWatch cleanup and documentation | Planned | Depends on PR-106–109, PR-116, PR-118 |
+| PR-113 | Fed serving-lineage backlog/governance contract | Merged (#115) | Defines `canonical Fed -> macro_raw -> macro_features` |
+| PR-114 | Four Fed columns in `macro_raw` | Merged (#117) | Schema/version/fingerprint contract |
+| PR-115 | Fed raw backfill and bounded population | Merged (#118) | Reconcile/backfill plus delta updates |
+| PR-116 | Fed raw historical/data-quality QA | Merged (#119) | Real PostgreSQL and sanitized quality evidence |
+| PR-117 | Fed features derived exclusively from `macro_raw` | Merged (#120) | Four origins plus 28 signed-safe derived columns |
+| PR-118 | Fed materialized-feature historical QA | In Progress (#121) | Existing active QA; must not absorb PR-132–139 |
+| PR-129 | Initial path rename attempt | Closed/superseded | Replaced by PR-130 |
+| PR-130 | Rename `dev_market` to `dev_macro` | Merged (#130) | Protected-main merge; feature branches removed |
+| PR-131 | Cron runtime executable preflight | Merged (#131) | Five required CI checks green; feature branch removed |
+
+The new dependency chain is:
+
+```text
+PR-132 returns + volatility
+        |
+        +--> PR-134 independent returns/volatility QA
+        |
+        v
+PR-133 trend + momentum
+        |
+        +--> PR-135 independent trend/momentum QA
+                         |
+                         v
+              PR-136 complete view contract/legacy removal QA
+                         |
+                         v
+              PR-137 historical/revision/replay QA
+                         |
+                         v
+              PR-138 complete pipeline/PostgreSQL acceptance
+                         |
+                         v
+              PR-139 installed cron/failure-recovery acceptance
+```

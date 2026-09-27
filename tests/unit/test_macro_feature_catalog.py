@@ -13,7 +13,12 @@ from application.macro_feature_catalog import (
     validate_feature_catalog,
 )
 from application.momentum_features import MOMENTUM_POLICY
-from application.return_features import RETURN_WINDOWS
+from application.return_features import (
+    LOG_RETURN_WINDOWS,
+    RETURN_MEAN_WINDOWS,
+    RETURN_WINDOWS,
+    VOLATILITY_WINDOWS,
+)
 from ingestion.postgres_gold_repository import _FEATURES_VIEW_DDL, _MIGRATIONS
 
 
@@ -34,8 +39,16 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
         assert f"{series}_log_level" in names
         for lag, window in MOMENTUM_POLICY.lag_windows:
             assert f"{series}_momentum_autocorr_{lag}_{window}obs" in names
+        for window in LOG_RETURN_WINDOWS:
+            assert f"{series}_log_return_{window}obs" in names
         for window in RETURN_WINDOWS:
             assert f"{series}_return_geom_{window}obs_pct" in names
+        for window in RETURN_MEAN_WINDOWS:
+            assert f"{series}_return_mean_{window}obs" in names
+        for window in VOLATILITY_WINDOWS:
+            assert f"{series}_volatility_{window}obs" in names
+        for window in (25, 60, 120, 240):
+            assert f"{series}_return_geom_{window}obs_pct" not in names
     assert "vix9d_vix_ratio" in names
     assert "vix_vix3m_ratio" in names
     assert "vix9d_vix3m_log_ratio" in names
@@ -54,7 +67,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 4
+    assert MACRO_FEATURE_VIEW_VERSION == 5
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
