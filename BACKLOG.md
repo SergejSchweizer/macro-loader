@@ -179,11 +179,11 @@ Acceptance:
 ### PR-150: Make RSI And Momentum Numerically Stable And NULL-Correct
 
 PR name: `rsi-momentum-numerical-correctness`
-Status: Pushed
+Status: Merged
 Updated: 2026-09-27
 PR: #150
 Git branch: `pr-150/rsi-momentum-numerical-correctness`
-Git status: `pushed-ci-pending`
+Git status: `merged`
 Agent lane: Indicator mathematics; one agent only
 Depends on: PR-149
 Commit: `fix(pr-150): stabilize rsi and momentum null semantics`
@@ -215,11 +215,11 @@ Acceptance:
 ### PR-151: Reconcile Executable Versions And Documentation Contracts
 
 PR name: `contract-version-doc-reconciliation`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: pending
 Git branch: `pr-151/contract-version-doc-reconciliation`
-Git status: `not-started (branch absent)`
+Git status: `in-progress`
 Agent lane: Documentation/schema governance; one agent only
 Depends on: PR-147, PR-148, PR-149, PR-150
 Commit: `docs(pr-151): reconcile executable and documented contracts`
