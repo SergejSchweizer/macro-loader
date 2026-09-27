@@ -1086,7 +1086,7 @@ available as a compact historical record. No old Fed-policy PR may absorb PR-132
 | PR-117 | Fed features derived exclusively from `macro_raw` | Merged (#120) | Four origins plus 28 signed-safe derived columns |
 | PR-118 | Fed materialized-feature historical QA | Merged (#121) | Historical QA repair merged; must not absorb PR-132–139 |
 | PR-129 | Initial path rename attempt | Closed/superseded | Replaced by PR-130 |
-| PR-130 | Rename `dev_market` to `dev_macro` | Merged (#130) | Protected-main merge; feature branches removed |
+| PR-130 | Project path rename | Merged (#130) | Protected-main merge; feature branches removed |
 | PR-131 | Cron runtime executable preflight | Merged (#131) | Five required CI checks green; feature branch removed |
 | PR-132 | XETRA-compatible returns and volatility | Merged (#132) | Five required CI checks green; legacy geometric windows removed |
 | PR-133 | XETRA-compatible trend and momentum | Merged (#133) | Five required CI checks green; RSI/SMA/ROC/drawdown view contract |
