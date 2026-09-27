@@ -413,6 +413,7 @@ def _macro_features_view_query() -> str:
         rsi_names: dict[int, tuple[str, str]] = {}
         for period in RSI_WINDOWS:
             seed = _quote(f"{series}_rsi_seed_{period}")
+            weighted = _quote(f"{series}_rsi_weighted_{period}")
             rsi = _quote(f"{series}_rsi_{period}")
             gain_name = _quote(f"avg_gain_{period}")
             loss_name = _quote(f"avg_loss_{period}")
@@ -420,18 +421,37 @@ def _macro_features_view_query() -> str:
             source_ctes.append(
                 f"{seed} AS (SELECT timestamp_m1, observation_number, "
                 f"avg(gain) OVER rsi_window AS {gain_name}, "
-                f"avg(loss) OVER rsi_window AS {loss_name} FROM {changes} "
+                f"avg(loss) OVER rsi_window AS {loss_name}, "
+                f"sum(coalesce(gain, 0.0) * power({(period - 1) / period:.17g}, "
+                f"-observation_number)) OVER rsi_weighted AS gain_weighted_sum, "
+                f"sum(coalesce(loss, 0.0) * power({(period - 1) / period:.17g}, "
+                f"-observation_number)) OVER rsi_weighted AS loss_weighted_sum "
+                f"FROM {changes} "
                 f"WINDOW rsi_window AS (ORDER BY observation_number ROWS BETWEEN "
-                f"{period - 1} PRECEDING AND CURRENT ROW))"
+                f"{period - 1} PRECEDING AND CURRENT ROW), "
+                "rsi_weighted AS (ORDER BY observation_number))"
             )
             source_ctes.append(
-                f"{rsi} AS (SELECT timestamp_m1, observation_number, {gain_name}, {loss_name} "
-                f"FROM {seed} WHERE observation_number = {period + 1} UNION ALL "
-                f"SELECT n.timestamp_m1, n.observation_number, "
-                f"(p.{gain_name} * {period - 1}.0 + n.gain) / {period}.0, "
-                f"(p.{loss_name} * {period - 1}.0 + n.loss) / {period}.0 "
-                f"FROM {rsi} p JOIN {changes} n "
-                "ON n.observation_number = p.observation_number + 1)"
+                f"{weighted} AS (SELECT changes.*, "
+                f"sum(coalesce(gain, 0.0) * power({(period - 1) / period:.17g}, "
+                f"-observation_number)) OVER rsi_weighted AS gain_weighted_sum, "
+                f"sum(coalesce(loss, 0.0) * power({(period - 1) / period:.17g}, "
+                f"-observation_number)) OVER rsi_weighted AS loss_weighted_sum "
+                f"FROM {changes} WINDOW rsi_weighted AS (ORDER BY observation_number))"
+            )
+            source_ctes.append(
+                f"{rsi} AS (SELECT weighted.timestamp_m1, weighted.observation_number, "
+                f"power({(period - 1) / period:.17g}, weighted.observation_number - "
+                f"{period + 1}) * seed.{gain_name} + "
+                f"power({(period - 1) / period:.17g}, weighted.observation_number) / "
+                f"{period}.0 * (weighted.gain_weighted_sum - seed.gain_weighted_sum) "
+                f"AS {gain_name}, power({(period - 1) / period:.17g}, "
+                f"weighted.observation_number - {period + 1}) * seed.{loss_name} + "
+                f"power({(period - 1) / period:.17g}, weighted.observation_number) / "
+                f"{period}.0 * (weighted.loss_weighted_sum - seed.loss_weighted_sum) "
+                f"AS {loss_name} FROM {weighted} weighted CROSS JOIN {seed} seed "
+                f"WHERE seed.observation_number = {period + 1} "
+                f"AND weighted.observation_number >= {period + 1})"
             )
         rsi_join_sql = " ".join(
             f"LEFT JOIN {_quote(f'{series}_rsi_{period}')} rsi_{period} "
