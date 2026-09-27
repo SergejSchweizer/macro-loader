@@ -539,10 +539,15 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
     migrator.migrate()
     with psycopg.connect(postgres_dsn) as connection:
         columns = connection.execute(
-            """SELECT ordinal_position, column_name, data_type
-               FROM information_schema.columns
-               WHERE table_schema = 'macro_loader' AND table_name = 'macro_features'
-               ORDER BY ordinal_position"""
+            """SELECT attributes.attnum, attributes.attname,
+                      format_type(attributes.atttypid, attributes.atttypmod)
+               FROM pg_attribute AS attributes
+               JOIN pg_class AS classes ON classes.oid = attributes.attrelid
+               JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+               WHERE namespaces.nspname = 'macro_loader'
+                 AND classes.relname = 'macro_features'
+                 AND attributes.attnum > 0 AND NOT attributes.attisdropped
+               ORDER BY attributes.attnum"""
         ).fetchall()
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
