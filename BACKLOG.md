@@ -241,9 +241,9 @@ Acceptance:
 PR name: `xetra-compatible-cron-acceptance`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #139
 Git branch: `pr-139/xetra-compatible-cron-acceptance`
-Git status: `active-dirty: BACKLOG.md, scripts/macro_feature_cron_acceptance.py, tests/unit/test_xetra_cron_acceptance.py`
+Git status: `pushed-ci-running`
 Agent lane: Installed operational cron QA; one agent only
 Depends on: PR-138
 Commit: `test(pr-139): accept xetra-compatible cron run`
