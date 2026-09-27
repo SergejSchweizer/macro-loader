@@ -453,7 +453,7 @@ def _macro_features_view_query() -> str:
         )
         feature_input = weighted
         expressions: list[str] = []
-        for window in (LOG_RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for window in LOG_RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"{_quote(f'log_return_{window}')} AS {_quote(f'{series}_log_return_{window}obs')}"
             )
@@ -476,31 +476,31 @@ def _macro_features_view_query() -> str:
                 f"OVER window_{window}, 0.0) END AS "
                 f"{_quote(f'{series}_momentum_autocorr_{lag}_{window}obs')}"
             )
-        for window in (RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for window in RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
                 f"THEN exp(sum({_quote('log_return_1')}) OVER window_{window}) - 1.0 "
                 f"END AS {_quote(f'{series}_return_geom_{window}obs_pct')}"
             )
-        for window in (RETURN_MEAN_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for window in RETURN_MEAN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
                 f"THEN avg({_quote('log_return_1')}) OVER window_{window} "
                 f"END AS {_quote(f'{series}_return_mean_{window}obs')}"
             )
-        for window in (VOLATILITY_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for window in VOLATILITY_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
                 f"THEN stddev_samp({_quote('log_return_1')}) OVER window_{window} "
                 f"END AS {_quote(f'{series}_volatility_{window}obs')}"
             )
-        for short, long in (SMA_RATIO_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for short, long in SMA_RATIO_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN count(level) OVER window_{long} = {long} THEN "
                 f"avg(level) OVER window_{short} / nullif(avg(level) OVER window_{long}, 0) "
                 f"END AS {_quote(f'{series}_sma_ratio_{short}_{long}')}"
             )
-        for period in (RSI_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for period in RSI_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             gain_name, loss_name, gain_weighted_name, loss_weighted_name = rsi_names[period]
             decay = (period - 1) / period
             seed_gain = (
@@ -536,13 +536,13 @@ def _macro_features_view_query() -> str:
                 f"ELSE 100.0 - 100.0 / (1.0 + {current_gain} / {current_loss}) "
                 f"END AS {_quote(f'{series}_rsi_{period}obs')}"
             )
-        for window in (ROC_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for window in ROC_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
                 f"THEN level / {_quote(f'lag_{window}')} - 1.0 "
                 f"END AS {_quote(f'{series}_roc_{window}obs')}"
             )
-        for window in (DRAWDOWN_WINDOWS if series in PRICE_FEATURE_SERIES else ()):
+        for window in DRAWDOWN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN count(level) OVER window_{window} = {window} "
                 f"THEN level / nullif(max(level) OVER window_{window}, 0) - 1.0 "

@@ -47,9 +47,7 @@ PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "roc",
     "drawdown",
 )
-RAW_COLUMNS: tuple[str, ...] = tuple(
-    f"{series}_log_level" for series in PRICE_FEATURE_SERIES
-)
+RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in PRICE_FEATURE_SERIES)
 FED_POLICY_ORIGIN_COLUMNS = FED_POLICY_FEATURE_COLUMNS
 FED_POLICY_DERIVED_COLUMNS = tuple(
     column
@@ -290,9 +288,7 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         family_series = {spec.series for spec in catalog if spec.family == family}
         if family_series != set(PRICE_FEATURE_SERIES):
             raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
-    momentum_series = {
-        spec.series for spec in catalog if spec.family == "momentum_autocorrelation"
-    }
+    momentum_series = {spec.series for spec in catalog if spec.family == "momentum_autocorrelation"}
     if momentum_series != set(RAW_SERIES):
         raise ValueError("macro feature catalog momentum domain/coverage mismatch")
     if "foo_log_level" in names:
