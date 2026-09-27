@@ -115,7 +115,7 @@ def _independent_wilder_rsi(levels: list[float], period: int) -> float | None:
     average_loss: float | None = None
     gains: list[float] = []
     losses: list[float] = []
-    for previous, current in zip(levels, levels[1:], strict=True):
+    for previous, current in zip(levels[:-1], levels[1:], strict=True):
         if previous <= 0 or current <= 0:
             average_gain = average_loss = None
             gains.clear()
