@@ -33,35 +33,6 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
-### PR-162: Publish Parent Feature Lineage In PostgreSQL View
-
-PR name: `view-parent-lineage`
-Status: In Progress
-Updated: 2026-09-27
-PR: pending
-Git branch: `pr-162/view-parent-lineage`
-Git status: in-progress
-Agent lane: PostgreSQL view lineage contract; one agent only
-Depends on: PR-161
-Commit: pending
-Design patterns: Registry, Materialized View, Single Source of Truth, Fail-Closed Verification.
-
-Description:
-- R1: Add a non-null `parent` JSONB column to `macro_loader.macro_features`.
-- R2: Map every published feature name to its raw parent feature; cross-series
-  transformations retain all raw parents as an ordered JSON array.
-- R3: Include the lineage mapping in the catalog fingerprint and rebuild the
-  production materialized view through the existing admin migration boundary.
-
-Acceptance:
-- A1: The source-controlled view DDL exposes `parent` immediately after `timestamp_m1`.
-- A2: View conformance rejects missing, reordered, wrongly typed, or stale `parent`
-  columns and validates the versioned lineage contract.
-- A3: Required lint, type, unit, integration, and coverage gates pass.
-- A4: Production `macro_loader.macro_features` is rebuilt and contains the parent
-  mapping for representative raw, single-series, and cross-series transformations.
-- A5: Production `postgres-verify`, Gold sync, and the cron acceptance remain green.
-
 ### PR-160: Follow Source Redirects In Cron HTTP Transport
 
 PR name: `follow-source-redirects`

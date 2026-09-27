@@ -130,13 +130,7 @@ class FakeCursor:
                 (
                     ordinal,
                     name,
-                    (
-                        "timestamp(6) with time zone"
-                        if ordinal == 1
-                        else "jsonb"
-                        if ordinal == 2
-                        else "double precision"
-                    ),
+                    "timestamp(6) with time zone" if ordinal == 1 else "double precision",
                     False,
                 )
                 for ordinal, name in enumerate(module._FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
