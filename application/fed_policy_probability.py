@@ -80,18 +80,14 @@ def _reconstruct_with_pre_rate(
     )
 
 
-def _initial_anchor(
-    settlements: dict[str, float], meeting: date, baseline_percent: float
-) -> float:
+def _initial_anchor(settlements: dict[str, float], meeting: date, baseline_percent: float) -> float:
     previous = _previous_month_key(meeting)
     if previous in settlements:
         return 100.0 - settlements[previous]
     return baseline_percent
 
 
-def _post_rate(
-    settlements: dict[str, float], meeting: date, pre_percent: float
-) -> float | None:
+def _post_rate(settlements: dict[str, float], meeting: date, pre_percent: float) -> float | None:
     month_key = f"{calendar.month_abbr[meeting.month].upper()} {meeting.year % 100:02d}"
     if month_key not in settlements or not math.isfinite(pre_percent):
         return None
@@ -134,11 +130,9 @@ def reconstruct_probability_tree(
         else:
             previous = _previous_month_key(meeting)
             previous_has_meeting = any(
-                prior.year == meeting.year
-                and prior.month == meeting.month - 1
+                prior.year == meeting.year and prior.month == meeting.month - 1
                 if meeting.month > 1
-                else prior.year == meeting.year - 1
-                and prior.month == 12
+                else prior.year == meeting.year - 1 and prior.month == 12
                 for prior in ordered_meetings
                 if prior < meeting
             )
@@ -176,9 +170,7 @@ def reconstruct_probability_tree(
 
 
 def methodology_payload() -> str:
-    return json.dumps(
-        {**_METHODOLOGY_SPEC, "fingerprint": METHODOLOGY_FINGERPRINT}, sort_keys=True
-    )
+    return json.dumps({**_METHODOLOGY_SPEC, "fingerprint": METHODOLOGY_FINGERPRINT}, sort_keys=True)
 
 
 def _previous_month_key(value: date) -> str:

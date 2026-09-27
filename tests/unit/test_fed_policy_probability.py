@@ -78,9 +78,12 @@ def test_tree_propagates_same_month_meetings_and_full_month_anchors() -> None:
 def test_methodology_fingerprint_is_bound_to_formula_payload() -> None:
     payload = json.loads(methodology_payload())
     fingerprint = payload.pop("fingerprint")
-    assert fingerprint == hashlib.sha256(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    ).hexdigest()
+    assert (
+        fingerprint
+        == hashlib.sha256(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+        ).hexdigest()
+    )
 
 
 def test_missing_or_invalid_curve_fails_closed() -> None:
