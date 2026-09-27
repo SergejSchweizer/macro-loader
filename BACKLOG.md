@@ -33,6 +33,36 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
+### PR-155: Decouple Market Gold And Fed Policy PostgreSQL Ownership
+
+PR name: `decouple-market-fed-postgres-sync`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-155/decouple-market-fed-postgres-sync`
+Git status: `in-progress`
+Agent lane: PostgreSQL serving ownership and production repair; one agent only
+Depends on: PR-152
+Commit: pending
+Design patterns: Repository, Single Source of Truth, Unit of Work, Fail-Closed Verification.
+
+Description:
+- R1: Gold synchronization owns market-level columns and their digests only.
+- R2: Fed-policy synchronization owns the four Fed columns and may preserve or update them
+  without causing market Gold drift.
+- R3: A production table containing Fed-only dates can be reconciled without losing Fed
+  values or failing the complete-state market sync.
+
+Acceptance:
+- A1: Gold row digests are unchanged when only Fed-owned values change.
+- A2: Gold insert/update SQL never overwrites the four Fed-owned columns.
+- A3: A regression with Fed-only rows proves market sync deletes/reconciles only its own
+  state and the subsequent Fed sync restores the canonical Fed rows.
+- A4: Production `macro_raw` and `macro_features` pass the current schema/view contract
+  and contain current synchronized values after the repair.
+- A5: The production cron wrapper completes successfully once and leaves no lock/process
+  residue.
+
 This wave was added after a repository-wide review of the current Fed-policy and
 PostgreSQL feature paths. The review found issues that are not cosmetic: one command-path
 contract mismatch can reject the canonical Fed frame, the production browser FedWatch path

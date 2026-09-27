@@ -29,6 +29,10 @@ POSTGRES_RAW_COLUMNS = (
     *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
     *FED_POLICY_FEATURE_COLUMNS,
 )
+POSTGRES_MARKET_RAW_COLUMNS = (
+    "timestamp_m1",
+    *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
+)
 POSTGRES_FED_RAW_COLUMNS = (
     "timestamp_m1",
     "fed_next_expected_move_bp",

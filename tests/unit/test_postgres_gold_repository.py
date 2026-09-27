@@ -7,6 +7,7 @@ import pytest
 import ingestion.postgres_gold_repository as module
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
+    POSTGRES_MARKET_RAW_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
@@ -422,6 +423,12 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'raw."estr_level" AS "estr_level"' not in ddl
 
 
+def test_gold_sync_sql_preserves_fed_owned_columns() -> None:
+    assert '"fed_next_expected_move_bp"' not in module._INSERT_ROW_SQL
+    assert '"fed_next_expected_move_bp"' not in module._UPDATE_ROW_SQL
+    assert '"fed_next_expected_move_bp"' not in module._CONSUMER_ROWS_SQL
+
+
 def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:
     connection = FakeConnection()
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
@@ -515,8 +522,8 @@ def test_read_consumer_digests_hashes_complete_rows_in_timestamp_order() -> None
     second = _row(2, 2.0)
     connection = FakeConnection(
         consumer_rows=(
-            (first.timestamp_m1, *first.values),
-            (second.timestamp_m1, *second.values),
+            (first.timestamp_m1, *first.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
+            (second.timestamp_m1, *second.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
         )
     )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
@@ -528,7 +535,8 @@ def test_read_consumer_digests_hashes_complete_rows_in_timestamp_order() -> None
     consumer_query = next(
         query for query in _execute_queries(connection) if query.startswith('SELECT "timestamp_m1"')
     )
-    assert all(f'"{column}"' in consumer_query for column in POSTGRES_RAW_COLUMNS)
+    assert all(f'"{column}"' in consumer_query for column in POSTGRES_MARKET_RAW_COLUMNS)
+    assert '"fed_next_expected_move_bp"' not in consumer_query
 
 
 def test_summary_returns_count_and_utc_bounds() -> None:
@@ -560,8 +568,8 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     connection = FakeConnection(
         digest_rows=tuple((digest.timestamp_m1, digest.row_sha256) for digest in digests),
         consumer_rows=(
-            (update.timestamp_m1, *update.values),
-            (insert.timestamp_m1, *insert.values),
+            (update.timestamp_m1, *update.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
+            (insert.timestamp_m1, *insert.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
         ),
         summary_row=(2, _ts(1), _ts(2)),
     )
@@ -629,7 +637,9 @@ def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() ->
     plan = GoldDeltaPlan(rows, (), (), (), digests)
     connection = FakeConnection(
         digest_rows=tuple((digest.timestamp_m1, digest.row_sha256) for digest in digests),
-        consumer_rows=tuple((row.timestamp_m1, *row.values) for row in rows),
+        consumer_rows=tuple(
+            (row.timestamp_m1, *row.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]) for row in rows
+        ),
         summary_row=(2, _ts(1), _ts(2)),
     )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
