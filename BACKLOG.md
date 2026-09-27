@@ -65,6 +65,29 @@ retained with the new XETRA-compatible 10-observation semantics; the obsolete
 `25/60/120/240obs` columns and their old values are removed. No breadth/dispersion column
 is added.
 
+### PR-140: Consolidate Final XETRA Delivery Backlog Status
+
+PR name: `backlog-final-status`
+Status: In Progress
+Updated: 2026-09-27
+PR: #140
+Git branch: `pr-140/backlog-final-status`
+Git status: `pushed-ci-running`
+Agent lane: Backlog governance; one agent only
+Depends on: PR-139
+Commit: `docs(pr-140): finalize xetra delivery backlog statuses`
+Design patterns: Single Source of Truth, Closed-World Register.
+
+Description:
+- R1: Mark PR-132 through PR-139 with their merged GitHub PR numbers and final git status.
+- R2: Condense the current delivery wave into the end-of-data register while retaining exact detailed acceptance contracts at the beginning.
+- R3: Record the guarded production-run limitation for PR-138/PR-139 without claiming an unauthorized deployment execution.
+
+Acceptance:
+- A1: every PR-132–139 detailed entry and condensed register row agrees on status, number, dependency, and branch metadata.
+- A2: no XETRA delivery PR remains `In Progress` or `Planned`; all eight implementation/QA PRs are GitHub-merged.
+- A3: the backlog states that only offline-safe acceptance ran and no production deployment/service-account execution is falsely reported as complete.
+
 ### PR-132: Implement XETRA-Compatible Returns And Volatility
 
 PR name: `xetra-compatible-returns-volatility`
@@ -239,11 +262,11 @@ Acceptance:
 ### PR-139: Installed Cron And Failure-Recovery Acceptance
 
 PR name: `xetra-compatible-cron-acceptance`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #139
 Git branch: `pr-139/xetra-compatible-cron-acceptance`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Installed operational cron QA; one agent only
 Depends on: PR-138
 Commit: `test(pr-139): accept xetra-compatible cron run`
@@ -1042,6 +1065,14 @@ available as a compact historical record. No old Fed-policy PR may absorb PR-132
 | PR-129 | Initial path rename attempt | Closed/superseded | Replaced by PR-130 |
 | PR-130 | Rename `dev_market` to `dev_macro` | Merged (#130) | Protected-main merge; feature branches removed |
 | PR-131 | Cron runtime executable preflight | Merged (#131) | Five required CI checks green; feature branch removed |
+| PR-132 | XETRA-compatible returns and volatility | Merged (#132) | Five required CI checks green; legacy geometric windows removed |
+| PR-133 | XETRA-compatible trend and momentum | Merged (#133) | Five required CI checks green; RSI/SMA/ROC/drawdown view contract |
+| PR-134 | Independent returns/volatility mathematical QA | Merged (#134) | Reference calculator plus live PostgreSQL parity |
+| PR-135 | Independent trend/momentum mathematical QA | Merged (#135) | Reference calculator plus live PostgreSQL parity |
+| PR-136 | Complete view contract and legacy-removal QA | Merged (#136) | Catalog/type/order/fingerprint/absence introspection |
+| PR-137 | Historical revision/replay/refresh QA | Merged (#137) | Causal impact, finite/null, deterministic replay evidence |
+| PR-138 | Complete pipeline/PostgreSQL acceptance | Merged (#138) | Offline-safe ordered end-to-end acceptance contract |
+| PR-139 | Installed cron/failure-recovery acceptance | Merged (#139) | Offline wrapper/lock/exit/report QA; production run guarded |
 
 The new dependency chain is:
 
