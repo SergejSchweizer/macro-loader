@@ -426,11 +426,11 @@ Acceptance:
 ## PR-118: Verify Macro Features Fed Transformations And Historical Quality
 
 PR name: `fed-policy-macro-features-quality-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-23
 PR: #121
 Git branch: `pr-118/fed-policy-macro-features-quality-qa`
-Git status: active-dirty: tests/integration/test_postgres_real.py
+Git status: merged
 Agent lane: Independent materialized-view QA; one agent only
 Depends on: PR-117
 Commit: `test(pr-118): verify fed policy materialized feature quality`
@@ -549,11 +549,11 @@ Acceptance:
 ## PR-106: Differentially Validate Reconstruction Against Official CME FedWatch
 
 PR name: `fed-policy-cme-differential-qa`
-Status: Planned
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #106
 Git branch: `pr-106/fed-policy-cme-differential-qa`
-Git status: `not-started (branch absent)`
+Git status: `merged`
 Agent lane: Formula/differential QA; one agent only
 Depends on: PR-102
 Commit: `test(pr-106): validate fed policy reconstruction against cme`
@@ -581,11 +581,11 @@ Acceptance:
 ## PR-107: Run Real-PostgreSQL Fed Policy Integration QA
 
 PR name: `fed-policy-real-postgres-qa`
-Status: Planned
+Status: Closed/Superseded
 Updated: 2026-09-23
-PR: not opened
+PR: #107
 Git branch: `pr-107/fed-policy-real-postgres-qa`
-Git status: `not-started (branch absent)`
+Git status: `closed`
 Agent lane: Real PostgreSQL QA; one agent only
 Depends on: PR-106, PR-116, PR-118
 Commit: `test(pr-107): validate fed policy postgres integration`
@@ -608,11 +608,11 @@ Acceptance:
 ## PR-108: Execute Full Fed Policy History Acceptance From 2010
 
 PR name: `fed-policy-2010-full-history-acceptance`
-Status: Planned
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #108
 Git branch: `pr-108/fed-policy-2010-full-history-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `merged`
 Agent lane: Production-like historical acceptance; one agent only
 Depends on: PR-107, PR-116, PR-118
 Commit: `test(pr-108): execute fed policy history acceptance`
@@ -637,11 +637,11 @@ Acceptance:
 ## PR-109: Execute Installed Daily Cron Acceptance
 
 PR name: `fed-policy-cron-acceptance`
-Status: Planned
+Status: Merged
 Updated: 2026-09-23
-PR: not opened
+PR: #109
 Git branch: `pr-109/fed-policy-cron-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `merged`
 Agent lane: Operational cron acceptance QA; one agent only
 Depends on: PR-107, PR-108, PR-116, PR-118
 Commit: `test(pr-109): execute fed policy cron acceptance`
@@ -666,11 +666,11 @@ Acceptance:
 ## PR-110: Retire Legacy FedWatch Runtime And Finalize Documentation
 
 PR name: `fed-policy-runtime-cleanup-docs`
-Status: Planned
+Status: Closed/Superseded
 Updated: 2026-09-23
-PR: not opened
+PR: #110
 Git branch: `pr-110/fed-policy-runtime-cleanup-docs`
-Git status: `not-started (branch absent)`
+Git status: `closed`
 Agent lane: Cleanup/documentation; one agent only
 Depends on: PR-106, PR-107, PR-108, PR-109, PR-116, PR-118
 Commit: `refactor(pr-110): retire legacy fedwatch runtime path`
@@ -1074,17 +1074,17 @@ available as a compact historical record. No old Fed-policy PR may absorb PR-132
 
 | PR | Scope | Status | Dependencies / evidence |
 |---|---|---|---|
-| PR-106 | CME FedWatch differential QA | Planned | Depends on PR-102 |
-| PR-107 | Real-PostgreSQL Fed-policy QA | Planned | Depends on PR-106, PR-116, PR-118 |
-| PR-108 | Full Fed-policy history acceptance | Planned | Depends on PR-107, PR-116, PR-118 |
-| PR-109 | Installed Fed-policy cron acceptance | Planned | Depends on PR-107, PR-108, PR-116, PR-118 |
-| PR-110 | Legacy FedWatch cleanup and documentation | Planned | Depends on PR-106–109, PR-116, PR-118 |
+| PR-106 | CME FedWatch differential QA | Merged (#106) | Formula/differential acceptance |
+| PR-107 | Real-PostgreSQL Fed-policy QA | Closed/superseded (#107) | Replaced by later serving-lineage QA |
+| PR-108 | Full Fed-policy history acceptance | Merged (#108) | Historical acceptance |
+| PR-109 | Installed Fed-policy cron acceptance | Merged (#109) | Operational cron acceptance |
+| PR-110 | Legacy FedWatch cleanup and documentation | Closed/superseded (#110) | Superseded by serving-lineage program |
 | PR-113 | Fed serving-lineage backlog/governance contract | Merged (#115) | Defines `canonical Fed -> macro_raw -> macro_features` |
 | PR-114 | Four Fed columns in `macro_raw` | Merged (#117) | Schema/version/fingerprint contract |
 | PR-115 | Fed raw backfill and bounded population | Merged (#118) | Reconcile/backfill plus delta updates |
 | PR-116 | Fed raw historical/data-quality QA | Merged (#119) | Real PostgreSQL and sanitized quality evidence |
 | PR-117 | Fed features derived exclusively from `macro_raw` | Merged (#120) | Four origins plus 28 signed-safe derived columns |
-| PR-118 | Fed materialized-feature historical QA | In Progress (#121) | Existing active QA; must not absorb PR-132–139 |
+| PR-118 | Fed materialized-feature historical QA | Merged (#121) | Historical QA repair merged; must not absorb PR-132–139 |
 | PR-129 | Initial path rename attempt | Closed/superseded | Replaced by PR-130 |
 | PR-130 | Rename `dev_market` to `dev_macro` | Merged (#130) | Protected-main merge; feature branches removed |
 | PR-131 | Cron runtime executable preflight | Merged (#131) | Five required CI checks green; feature branch removed |
