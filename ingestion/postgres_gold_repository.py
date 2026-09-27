@@ -406,7 +406,8 @@ def _macro_features_view_query() -> str:
             for window in LOG_RETURN_WINDOWS
         )
         source_ctes.append(
-            f"{changes} AS (SELECT *, {delta_sql}, level - {_quote('lag_1')} AS change, "
+            f"{changes} AS MATERIALIZED (SELECT *, {delta_sql}, level - "
+            f"{_quote('lag_1')} AS change, "
             f"{change_lags}, {gain_loss_sql}, {log_return_sql} FROM {source})"
         )
         rsi_names: dict[int, tuple[str, str]] = {}
