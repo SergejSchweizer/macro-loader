@@ -8,7 +8,8 @@ from application.macro_feature_catalog import (
     FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
-    RAW_SERIES,
+    PRICE_FEATURE_SERIES,
+    SIGNED_LEVEL_SERIES,
     feature_catalog_fingerprint,
     validate_feature_catalog,
 )
@@ -26,17 +27,19 @@ from ingestion.postgres_gold_repository import _FEATURES_VIEW_DDL, _MIGRATIONS
 def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
     validate_feature_catalog()
     assert FEATURE_COLUMNS[0] == "timestamp_m1"
-    assert tuple(spec.name for spec in FEATURE_CATALOG[: len(RAW_SERIES)]) == tuple(
-        f"{series}_log_level" for series in RAW_SERIES
+    assert tuple(spec.name for spec in FEATURE_CATALOG[: len(PRICE_FEATURE_SERIES)]) == tuple(
+        f"{series}_log_level" for series in PRICE_FEATURE_SERIES
     )
-    assert {spec.series for spec in FEATURE_CATALOG if spec.family == "raw_log"} == set(RAW_SERIES)
+    assert {spec.series for spec in FEATURE_CATALOG if spec.family == "raw_log"} == set(
+        PRICE_FEATURE_SERIES
+    )
     assert len(FEATURE_COLUMNS) == len(set(FEATURE_COLUMNS))
     assert not any(name.startswith("foo_") for name in FEATURE_COLUMNS)
 
 
 def test_catalog_contains_all_fixed_feature_families() -> None:
     names = set(FEATURE_COLUMNS)
-    for series in RAW_SERIES:
+    for series in PRICE_FEATURE_SERIES:
         assert f"{series}_log_level" in names
         for lag, window in MOMENTUM_POLICY.lag_windows:
             assert f"{series}_momentum_autocorr_{lag}_{window}obs" in names
@@ -63,6 +66,25 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
     assert "vix9d_vix3m_log_ratio" in names
     assert "us_10y_minus_us_2y" in names
     assert "usd_broad_log_return_20obs" in names
+    assert "estr_level" not in names
+    assert "estr_log_level" not in names
+    assert not any(
+        name.startswith("estr_")
+        and any(
+            name.startswith(f"estr_{family}")
+            for family in (
+                "log_return",
+                "return_",
+                "volatility_",
+                "sma_ratio",
+                "rsi_",
+                "roc_",
+                "drawdown_",
+            )
+        )
+        for name in names
+    )
+    assert set(SIGNED_LEVEL_SERIES) == {"estr"}
     for origin in FED_POLICY_ORIGIN_COLUMNS:
         assert origin in names
         for lag in (1, 5, 20):

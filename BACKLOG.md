@@ -149,14 +149,14 @@ Acceptance:
 ### PR-149: Define Signed-Series Eligibility For XETRA Feature Families
 
 PR name: `xetra-feature-domain-contract`
-Status: Planned
+Status: Pushed
 Updated: 2026-09-27
-PR: not opened
+PR: #149
 Git branch: `pr-149/xetra-feature-domain-contract`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-pending`
 Agent lane: Feature-domain specification; one agent only
 Depends on: PR-146
-Commit: `fix(pr-149): define xetra feature domains`
+Commit: `fix(pr-149): define xetra feature domains`; `chore(pr-149): format domain policy implementation`
 Design patterns: Specification/Policy Object, Closed-World Catalog.
 
 Description:

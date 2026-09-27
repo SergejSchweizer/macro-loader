@@ -187,6 +187,7 @@ Feature semantics are fixed and causal:
 - each of the 13 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level includes XETRA-compatible log returns over 1, 3, 5, 10, and 20 observations, cumulative geometric returns over 5, 10, and 20 observations, average one-observation log returns over 5, 10, and 20 observations, and sample log-return volatility over 5, 10, 20, and 40 observations; geometric-return columns retain the `_pct` suffix but store decimal fractions (`0.05` means 5%);
+- price-domain XETRA families are emitted only for positive-level series; signed/non-price levels such as `estr` remain available as raw levels and source-unit delta/momentum features but do not receive log, return, volatility, SMA-ratio, RSI, ROC, or drawdown columns;
 - the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
 - FedWatch snapshots use only CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/` in production, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;

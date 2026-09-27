@@ -392,7 +392,10 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
         assert f'"{column}_delta_20obs"' in ddl
         assert f'"{column}_zscore_60obs"' in ddl
         assert f'"{column}_momentum_autocorr_20_120obs"' in ddl
-    assert all(column.endswith("_log_level") for column in module._FEATURES_VIEW_COLUMNS[:13])
+    assert all(
+        column.endswith("_log_level")
+        for column in module._FEATURES_VIEW_COLUMNS[: len(module.PRICE_FEATURE_SERIES)]
+    )
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in ddl
     assert 'AS "vix_delta_1obs"' in ddl
     assert 'AS "vix9d_delta_1obs"' in ddl
@@ -410,7 +413,8 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'AS "vix_return_geom_25obs_pct"' not in ddl
     assert 'AS "usd_broad_log_return_20obs"' in ddl
     assert "WHERE FALSE" not in ddl
-    assert '"estr_return_geom_10obs_pct"' in ddl
+    assert '"estr_return_geom_10obs_pct"' not in ddl
+    assert 'raw."estr_level" AS "estr_level"' not in ddl
 
 
 def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:
