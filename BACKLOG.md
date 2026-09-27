@@ -36,14 +36,14 @@ than filled, interpolated, carried, or synthesized.
 ### PR-160: Follow Source Redirects In Cron HTTP Transport
 
 PR name: `follow-source-redirects`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #160
 Git branch: `pr-160/follow-source-redirects`
-Git status: in-progress
+Git status: merged
 Agent lane: HTTP transport redirect contract; one agent only
 Depends on: PR-159
-Commit: pending
+Commit: `1db4bda`
 Design patterns: Adapter, Fail-Closed Verification.
 
 Description:
@@ -60,14 +60,14 @@ Acceptance:
 ### PR-159: Make PostgreSQL Verification Match Market Gold Artifacts
 
 PR name: `verifier-market-artifact-contract`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #159
 Git branch: `pr-159/verifier-market-artifact-contract`
-Git status: in-progress
+Git status: merged
 Agent lane: PostgreSQL verification contract; one agent only
 Depends on: PR-158
-Commit: pending
+Commit: `fb3df0d`
 Design patterns: Adapter, Repository, Fail-Closed Verification.
 
 Description:
@@ -85,14 +85,14 @@ Acceptance:
 ### PR-158: Scope Gold Summaries To Market-Owned Rows
 
 PR name: `market-owned-summary-contract`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #158
 Git branch: `pr-158/market-owned-summary-contract`
-Git status: `in-progress`
+Git status: `merged`
 Agent lane: PostgreSQL market summary contract; one agent only
 Depends on: PR-157
-Commit: pending
+Commit: `375f6d1`
 Design patterns: Repository, Single Source of Truth, Fail-Closed Verification.
 
 Description:
@@ -110,14 +110,14 @@ Acceptance:
 ### PR-157: Bound The Production Feature Refresh Timeout
 
 PR name: `allow-production-feature-refresh-timeout`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #157
 Git branch: `pr-157/allow-production-feature-refresh-timeout`
-Git status: `in-progress`
+Git status: `merged`
 Agent lane: PostgreSQL operational timeout; one agent only
 Depends on: PR-156
-Commit: pending
+Commit: `c4e0df2`
 Design patterns: Unit of Work, Dependency Injection, Fail-Closed Verification.
 
 Description:
@@ -135,14 +135,14 @@ Acceptance:
 ### PR-156: Ignore Fed-Only Rows During Market Gold Reconciliation
 
 PR name: `ignore-fed-only-market-sync-rows`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #156
 Git branch: `pr-156/ignore-fed-only-market-sync-rows`
-Git status: `in-progress`
+Git status: `merged`
 Agent lane: PostgreSQL reconciliation edge cases; one agent only
 Depends on: PR-155
-Commit: pending
+Commit: `ab29a2e`
 Design patterns: Repository, Strategy, Unit of Work, Fail-Closed Verification.
 
 Description:
@@ -159,14 +159,14 @@ Acceptance:
 ### PR-155: Decouple Market Gold And Fed Policy PostgreSQL Ownership
 
 PR name: `decouple-market-fed-postgres-sync`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
-PR: pending
+PR: #155
 Git branch: `pr-155/decouple-market-fed-postgres-sync`
-Git status: `in-progress`
+Git status: `merged`
 Agent lane: PostgreSQL serving ownership and production repair; one agent only
 Depends on: PR-152
-Commit: pending
+Commit: `6025489`
 Design patterns: Repository, Single Source of Truth, Unit of Work, Fail-Closed Verification.
 
 Description:
