@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -17,7 +16,6 @@ from application.fed_policy_postgres import FED_POLICY_DATASET_ID
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
-    FEATURE_PARENT_COLUMNS,
     FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
@@ -250,13 +248,6 @@ _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _FED_POLICY_TABLE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(FED_POLICY_DATASET_ID)}"
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
-_PARENT_LINEAGE = {
-    name: parents[0] if len(parents) == 1 else list(parents)
-    for name, parents in FEATURE_PARENT_COLUMNS
-}
-_PARENT_JSONB_SQL = (
-    "'" + json.dumps(_PARENT_LINEAGE, sort_keys=True, separators=(",", ":")) + "'::jsonb"
-)
 _CONSUMER_COLUMNS = _FEATURE_COLUMNS
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
@@ -703,8 +694,7 @@ def _macro_features_view_query() -> str:
     return (
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH "
         f"{', '.join(source_ctes)} "
-        f'SELECT raw."timestamp_m1", {_PARENT_JSONB_SQL} AS "parent", '
-        f"{raw_select}, {', '.join(ordered_features)} "
+        f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
         f"FROM {_CONSUMER} raw {' '.join(joins)} "
         "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"
     )
@@ -770,11 +760,10 @@ def _normalize_view_definition(value: str) -> str:
 
 
 _FEATURES_VIEW_DEFINITION = _normalize_view_definition(_FEATURES_VIEW_DDL.split(" AS ", 1)[1])
-_FEATURES_VIEW_COLUMNS_EXPECTED = ("timestamp_m1", "parent") + tuple(_FEATURES_VIEW_COLUMNS)
+_FEATURES_VIEW_COLUMNS_EXPECTED = ("timestamp_m1",) + tuple(_FEATURES_VIEW_COLUMNS)
 _FEATURES_VIEW_DEFINITION_MARKERS = (
     "with vix_source as",
     "raw.timestamp_m1",
-    "parent",
     "vix9d_vix3m_log_ratio",
     "2010-01-01",
 )
@@ -1530,14 +1519,7 @@ class PostgresGoldSyncRepository:
         for ordinal, column in enumerate(columns, start=1):
             if len(column) != 4 or column[0] != ordinal:
                 raise ValueError("PostgreSQL macro feature view column order differs")
-            expected_type = (
-                "timestamp(6) with time zone"
-                if ordinal == 1
-                else "jsonb"
-                if ordinal == 2
-                else "double precision"
-            )
-            if column[2] != expected_type:
+            if column[2] != ("timestamp(6) with time zone" if ordinal == 1 else "double precision"):
                 raise ValueError("PostgreSQL macro feature view column type differs")
             if column[3] is not False:
                 raise ValueError("PostgreSQL macro feature view column nullability differs")

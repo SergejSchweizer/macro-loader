@@ -19,9 +19,7 @@ The executable Gold contract is currently schema version **7** and feature versi
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
 `macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
 rebuilt or refreshed from that table and is the serving projection for the causal
-feature catalog. Its non-null `parent` JSONB column maps each published feature name
-to its raw parent column; cross-series transformations map to an ordered array of raw
-parents.
+feature catalog.
 
 ## System Purpose
 
