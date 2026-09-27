@@ -429,6 +429,7 @@ def test_gold_sync_sql_preserves_fed_owned_columns() -> None:
     assert '"fed_next_expected_move_bp"' not in module._CONSUMER_ROWS_SQL
     assert '"vix_level" IS NOT NULL' in module._CONSUMER_ROWS_SQL
     assert 'ON CONFLICT ("timestamp_m1") DO UPDATE SET' in module._INSERT_ROW_SQL
+    assert '"vix_level" IS NOT NULL' in module._TARGET_SUMMARY_SQL
 
 
 def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:

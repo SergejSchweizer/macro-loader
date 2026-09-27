@@ -33,6 +33,31 @@ than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
+### PR-158: Scope Gold Summaries To Market-Owned Rows
+
+PR name: `market-owned-summary-contract`
+Status: In Progress
+Updated: 2026-09-27
+PR: pending
+Git branch: `pr-158/market-owned-summary-contract`
+Git status: `in-progress`
+Agent lane: PostgreSQL market summary contract; one agent only
+Depends on: PR-157
+Commit: pending
+Design patterns: Repository, Single Source of Truth, Fail-Closed Verification.
+
+Description:
+- R1: Gold post-write summaries count only rows containing at least one market-owned
+  level, matching the market digest and consumer-read contracts.
+- R2: Fed-only rows remain available to the Fed-policy synchronizer and do not make the
+  market Gold transaction fail its own checkpoint.
+
+Acceptance:
+- A1: Production Gold sync accepts the existing five Fed-only dates without rollback.
+- A2: Market count and timestamp bounds still fail closed when market-owned rows drift.
+- A3: Required lint, type, unit, integration, and coverage gates pass.
+- A4: Production table/view verification and the cron acceptance complete successfully.
+
 ### PR-157: Bound The Production Feature Refresh Timeout
 
 PR name: `allow-production-feature-refresh-timeout`
