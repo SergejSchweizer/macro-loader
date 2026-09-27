@@ -143,11 +143,11 @@ Acceptance:
 ### PR-135: Independent Mathematical QA For Trend And Momentum
 
 PR name: `xetra-compatible-trend-momentum-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #135
 Git branch: `pr-135/xetra-compatible-trend-momentum-qa`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Independent trend/momentum QA; one agent only
 Depends on: PR-133
 Commit: `test(pr-135): verify xetra-compatible trend momentum`
@@ -166,11 +166,11 @@ Acceptance:
 ### PR-136: Verify Complete View Contract And Legacy Removal
 
 PR name: `xetra-compatible-view-contract-qa`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
 PR: not opened
 Git branch: `pr-136/xetra-compatible-view-contract-qa`
-Git status: `not-started (branch absent)`
+Git status: `active-dirty: BACKLOG.md, tests/integration/test_postgres_real.py`
 Agent lane: PostgreSQL schema/conformance QA; one agent only
 Depends on: PR-134, PR-135
 Commit: `test(pr-136): verify xetra-compatible view contract`

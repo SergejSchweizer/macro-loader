@@ -530,6 +530,42 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
 
 
 @pytest.mark.integration
+def test_real_postgres_xetra_view_contract_is_closed_world(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        columns = connection.execute(
+            """SELECT ordinal_position, column_name, data_type
+               FROM information_schema.columns
+               WHERE table_schema = 'macro_loader' AND table_name = 'macro_features'
+               ORDER BY ordinal_position"""
+        ).fetchall()
+        comment = connection.execute(
+            "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
+        ).fetchone()
+        view_definition = connection.execute(
+            "SELECT pg_get_viewdef('macro_loader.macro_features'::regclass, true)"
+        ).fetchone()
+
+    assert tuple(column[1] for column in columns) == FEATURE_COLUMNS
+    assert columns[0][2] == "timestamp with time zone"
+    assert all(column[2] == "double precision" for column in columns[1:])
+    assert comment == (
+        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+    )
+    assert view_definition is not None
+    definition = view_definition[0]
+    assert all(f"return_geom_{window}obs_pct" not in definition for window in (25, 60, 120, 240))
+    assert "breadth" not in definition
+    assert "dispersion" not in definition
+
+
+@pytest.mark.integration
 def test_real_postgres_session_timeouts_bound_lock_and_statement(
     postgres_dsn: str, monkeypatch: pytest.MonkeyPatch, migrator: PostgresGoldSchemaMigrator
 ) -> None:
