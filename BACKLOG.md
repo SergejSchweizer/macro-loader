@@ -46,7 +46,7 @@ acceptance artifacts as proof of end-to-end mathematical correctness.
 PR name: `audit-remediation-plan`
 Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #146
 Git branch: `pr-146/audit-remediation-plan`
 Git status: `pushed-ci-running`
 Agent lane: Mathematical/contract audit governance; one agent only
