@@ -189,11 +189,11 @@ Acceptance:
 ### PR-137: Historical Data Quality, Revision, Replay, And Refresh QA
 
 PR name: `xetra-compatible-historical-quality-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-09-27
 PR: #137
 Git branch: `pr-137/xetra-compatible-historical-quality-qa`
-Git status: `pushed-ci-running`
+Git status: `merged`
 Agent lane: Historical PostgreSQL/data-quality QA; one agent only
 Depends on: PR-136
 Commit: `test(pr-137): verify xetra-compatible historical quality`
@@ -214,11 +214,11 @@ Acceptance:
 ### PR-138: Complete Pipeline And PostgreSQL Serving Acceptance
 
 PR name: `xetra-compatible-complete-run-acceptance`
-Status: Planned
+Status: In Progress
 Updated: 2026-09-27
-PR: not opened
+PR: #138
 Git branch: `pr-138/xetra-compatible-complete-run-acceptance`
-Git status: `not-started (branch absent)`
+Git status: `pushed-ci-running`
 Agent lane: Full production-like pipeline acceptance; one agent only
 Depends on: PR-137
 Commit: `test(pr-138): accept complete xetra-compatible run`
