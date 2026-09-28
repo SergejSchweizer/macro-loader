@@ -46,8 +46,22 @@ def validate_contract(branch: str, subjects: Sequence[str], *, event: str = "loc
     """Validate all implementation commit subjects for a feature branch."""
     if event == "merge_group" or branch == "main":
         return
-    expected = branch_pr_id(branch)
     implementation_subjects = _subjects_for_event(subjects, event)
+    review_match = REVIEW_BRANCH_RE.fullmatch(branch)
+    if review_match is not None:
+        if not implementation_subjects:
+            raise ValueError("no weekly review commits found for validation")
+        expected_subject = (
+            f"docs(review): weekly repository review {review_match.group('date')}"
+        )
+        for subject in implementation_subjects:
+            if subject != expected_subject:
+                raise ValueError(
+                    f"invalid weekly review commit subject: {subject!r}; "
+                    f"expected {expected_subject!r}"
+                )
+        return
+    expected = branch_pr_id(branch)
     if not implementation_subjects:
         raise ValueError("no implementation commits found for validation")
     for subject in implementation_subjects:
