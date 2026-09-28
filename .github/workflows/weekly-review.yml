@@ -44,4 +44,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
-        run: python .github/review/weekly_review.py
+        run: node .github/review/weekly_review.mjs
