@@ -55,6 +55,21 @@ def test_validate_subject_rejects_wrong_pr_scope() -> None:
         contract.validate_subject("feat(pr-07): ingest vstoxx history", "pr-06")
 
 
+def test_validate_contract_accepts_weekly_review_branch() -> None:
+    contract.validate_contract(
+        "review/weekly-2026-09-28",
+        ["docs(review): weekly repository review 2026-09-28"],
+    )
+
+
+def test_validate_contract_rejects_wrong_weekly_review_subject() -> None:
+    with pytest.raises(ValueError, match="invalid weekly review commit subject"):
+        contract.validate_contract(
+            "review/weekly-2026-09-28",
+            ["docs(review): weekly repository review 2026-09-21"],
+        )
+
+
 def test_validate_contract_validates_all_subjects() -> None:
     contract.validate_contract(
         "pr-01/repository-bootstrap-quality-gates",

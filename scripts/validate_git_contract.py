@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Sequence
 
 BRANCH_RE = re.compile(r"^pr-(?P<number>\d{2,3})/[a-z0-9][a-z0-9-]*$")
+REVIEW_BRANCH_RE = re.compile(r"^review/weekly-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})$")
 SUBJECT_RE = re.compile(
     r"^(?P<type>feat|fix|docs|test|refactor|perf|build|ci|chore)"
     r"\(pr-(?P<number>\d{2,3})\): (?P<description>[a-z0-9].+)$"
@@ -46,8 +47,20 @@ def validate_contract(branch: str, subjects: Sequence[str], *, event: str = "loc
     """Validate all implementation commit subjects for a feature branch."""
     if event == "merge_group" or branch == "main":
         return
-    expected = branch_pr_id(branch)
     implementation_subjects = _subjects_for_event(subjects, event)
+    review_match = REVIEW_BRANCH_RE.fullmatch(branch)
+    if review_match is not None:
+        if not implementation_subjects:
+            raise ValueError("no weekly review commits found for validation")
+        expected_subject = f"docs(review): weekly repository review {review_match.group('date')}"
+        for subject in implementation_subjects:
+            if subject != expected_subject:
+                raise ValueError(
+                    f"invalid weekly review commit subject: {subject!r}; "
+                    f"expected {expected_subject!r}"
+                )
+        return
+    expected = branch_pr_id(branch)
     if not implementation_subjects:
         raise ValueError("no implementation commits found for validation")
     for subject in implementation_subjects:
