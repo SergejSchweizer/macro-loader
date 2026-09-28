@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Sequence
 
 BRANCH_RE = re.compile(r"^pr-(?P<number>\d{2,3})/[a-z0-9][a-z0-9-]*$")
+REVIEW_BRANCH_RE = re.compile(r"^review/weekly-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})$")
 SUBJECT_RE = re.compile(
     r"^(?P<type>feat|fix|docs|test|refactor|perf|build|ci|chore)"
     r"\(pr-(?P<number>\d{2,3})\): (?P<description>[a-z0-9].+)$"
@@ -51,9 +52,7 @@ def validate_contract(branch: str, subjects: Sequence[str], *, event: str = "loc
     if review_match is not None:
         if not implementation_subjects:
             raise ValueError("no weekly review commits found for validation")
-        expected_subject = (
-            f"docs(review): weekly repository review {review_match.group('date')}"
-        )
+        expected_subject = f"docs(review): weekly repository review {review_match.group('date')}"
         for subject in implementation_subjects:
             if subject != expected_subject:
                 raise ValueError(
