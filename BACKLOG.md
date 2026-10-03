@@ -48,6 +48,7 @@ Design patterns: Repository, Reconciliation Strategy, Materialized View, Fail-Cl
 
 Acceptance criteria:
 - [ ] Replace complete refreshed Fed snapshot observation groups so revised CME distributions cannot be double-counted.
+- [ ] Run Fed-policy PostgreSQL writes through the provisioned synchronization role, not the read-only runtime role.
 - [ ] Attempt the authorized historical Fed reconcile and document every source gap that remains.
 - [ ] Remove the PostgreSQL view's `2010-01-01` lower bound and expose the complete `macro_raw` history, including pre-2010 rows with causal NULLs where Fed data is unavailable.
 - [ ] Repopulate production `macro_features`, produce exact missing-value statistics, run the complete cronjob, and pass `postgres-verify`.
