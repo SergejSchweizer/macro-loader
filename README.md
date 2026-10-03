@@ -291,7 +291,8 @@ The four signed Fed-policy origins are also stored in `macro_raw` unchanged.
 Because they may be zero or negative, their view transformations are limited to
 valid-observation deltas, causal population z-scores, and positive momentum
 autocorrelation; no Fed log or geometric-return transform is defined. The view
-is explicitly refreshed after a successful raw-table delta.
+is explicitly refreshed after a successful raw-table delta and exposes the complete
+available `macro_raw` timestamp history, including pre-2010 observations.
 
 The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 

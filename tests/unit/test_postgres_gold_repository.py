@@ -382,6 +382,7 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
+    assert "2010-01-01" not in ddl
     assert len(module._FEATURES_VIEW_COLUMNS) == len(module.FEATURE_COLUMNS) - 1
     for column in (
         "fed_next_expected_move_bp",
