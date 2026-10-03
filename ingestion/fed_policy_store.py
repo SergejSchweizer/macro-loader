@@ -41,6 +41,9 @@ class FedPolicySnapshotStore:
     def refresh(self, start: date, end: date) -> pl.DataFrame:
         incoming = self._provider.fetch(start, end)
         existing = self.read()
+        if incoming.height and existing.height:
+            incoming_dates = incoming.get_column("observation_date").unique()
+            existing = existing.filter(~pl.col("observation_date").is_in(incoming_dates.to_list()))
         merged = (
             pl.concat([existing, incoming], how="vertical_relaxed") if existing.height else incoming
         )

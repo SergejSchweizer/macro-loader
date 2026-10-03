@@ -74,3 +74,18 @@ def test_read_rejects_schema_order_drift(tmp_path: Path) -> None:
         assert "schema/order drift" in str(error)
     else:
         raise AssertionError("schema drift must be rejected")
+
+
+def test_refresh_replaces_all_existing_outcomes_for_refreshed_observation(
+    tmp_path: Path,
+) -> None:
+    old = _frame().with_columns(pl.lit(0.0).alias("move_bp"))
+    path = LakePaths(tmp_path).fed_policy_snapshots()
+    path.parent.mkdir(parents=True)
+    old.write_parquet(path)
+    incoming = _frame().with_columns(pl.lit(25.0).alias("move_bp"))
+    store = FedPolicySnapshotStore(LakePaths(tmp_path), FakeProvider(incoming))
+
+    result = store.refresh(date(2026, 1, 1), date(2026, 1, 3))
+
+    assert result.select("move_bp").to_series().to_list() == [25.0]

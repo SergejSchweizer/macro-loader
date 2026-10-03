@@ -19,7 +19,9 @@ The executable Gold contract is currently schema version **7** and feature versi
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
 `macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
 rebuilt or refreshed from that table and is the serving projection for the causal
-feature catalog.
+feature catalog. It uses every available `macro_raw.timestamp_m1`; pre-2010 rows are
+not filtered out and remain NULL where the source or causal warm-up does not provide a
+value.
 
 ## System Purpose
 

@@ -25,13 +25,34 @@ canonical Fed EOD features
         -> macro_loader.macro_features
 ```
 
-The target historical exposure boundary for both PostgreSQL relations is
-`2010-01-01` through the latest completed EOD source date. Values may remain NULL only
-where point-in-time source support is genuinely unavailable or a transformation has not
+The PostgreSQL serving relations expose the complete available `macro_raw` history
+through the latest completed EOD source date. Values may remain NULL only where
+point-in-time source support is genuinely unavailable or a transformation has not
 completed its causal warm-up; every such gap must be measured and explained by QA rather
 than filled, interpolated, carried, or synthesized.
 
 ## Audit Remediation Wave — Mathematical And Contract Correctness
+
+### PR-165: Reconcile Fed Gaps And Publish Full Raw History
+
+PR name: `fill-fed-gaps-full-history`
+Status: In Progress
+Updated: 2026-10-03
+PR: pending
+Git branch: `pr-165/fill-fed-gaps-full-history`
+Git status: in-progress
+Agent lane: Fed history reconciliation and full-view exposure; one agent only
+Depends on: PR-164
+Commit: pending
+Design patterns: Repository, Reconciliation Strategy, Materialized View, Fail-Closed Verification.
+
+Acceptance criteria:
+- [ ] Replace complete refreshed Fed snapshot observation groups so revised CME distributions cannot be double-counted.
+- [ ] Run Fed-policy PostgreSQL writes through the provisioned synchronization role, not the read-only runtime role.
+- [ ] Attempt the authorized historical Fed reconcile and document every source gap that remains.
+- [ ] Remove the PostgreSQL view's `2010-01-01` lower bound and expose the complete `macro_raw` history, including pre-2010 rows with causal NULLs where Fed data is unavailable.
+- [ ] Repopulate production `macro_features`, produce exact missing-value statistics, run the complete cronjob, and pass `postgres-verify`.
+- [ ] Pass lint, type, unit, offline integration, and coverage gates.
 
 ### PR-160: Follow Source Redirects In Cron HTTP Transport
 

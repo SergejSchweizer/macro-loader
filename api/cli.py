@@ -318,7 +318,11 @@ def build_postgres_sync_runtime(*, lake_root: Path, stderr: TextIO) -> PostgresS
 def build_fed_policy_postgres_sync_runtime(
     *, lake_root: Path, stderr: TextIO
 ) -> FedPolicyPostgresSyncRuntime:
-    config = PostgresSyncConfig.from_env()
+    sync_values = dict(os.environ)
+    if sync_values.get("PGSYNCUSER") and sync_values.get("PGSYNCPASSWORD"):
+        sync_values["PGUSER"] = sync_values["PGSYNCUSER"]
+        sync_values["PGPASSWORD"] = sync_values["PGSYNCPASSWORD"]
+    config = PostgresSyncConfig.from_mapping(sync_values)
     paths = LakePaths(lake_root)
     repository = FedPolicyPostgresRepository(config)
     event_sink = JsonEventSink(_logger(stderr), secrets=(config.password,))

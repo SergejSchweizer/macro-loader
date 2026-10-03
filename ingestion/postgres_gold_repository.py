@@ -695,8 +695,7 @@ def _macro_features_view_query() -> str:
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH "
         f"{', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
-        f"FROM {_CONSUMER} raw {' '.join(joins)} "
-        "WHERE raw.\"timestamp_m1\" >= '2010-01-01 00:00:00+00'::timestamptz"
+        f"FROM {_CONSUMER} raw {' '.join(joins)}"
     )
 
 
@@ -765,7 +764,6 @@ _FEATURES_VIEW_DEFINITION_MARKERS = (
     "with vix_source as",
     "raw.timestamp_m1",
     "vix9d_vix3m_log_ratio",
-    "2010-01-01",
 )
 
 
