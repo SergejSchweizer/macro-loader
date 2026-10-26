@@ -40,7 +40,7 @@ Status: In Progress
 Updated: 2026-10-26
 PR: #167
 Git branch: `pr-167/next-business-day-availability`
-Git status: pushed-ci-failing
+Git status: pushed-ci-green
 Agent lane: PostgreSQL serving schema and temporal availability contract; two agents
 Depends on: PR-166
 Commit: `1d92194`
