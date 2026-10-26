@@ -8,17 +8,100 @@ Last reviewed: 2026-10-26
 
 ## GOALS.md Implementation Wave
 
+### PR-173: Add Relative MACD Trend Features
+
+PR name: `add-relative-macd-features`
+Status: In Progress
+Updated: 2026-10-26
+PR: TBD
+Git branch: `pr-173/add-relative-macd-features`
+Git status: In Progress
+Agent lane: PostgreSQL MACD implementation and independent mathematical/schema QA; two agents
+Depends on: PR-172
+Commit: `2cdfab3` (`feat(pr-173): add relative MACD trend features`)
+Design patterns: Pure Transformation, Materialized View.
+
+Description:
+- R1: Add the three GOALS MACD outputs for each positive-level `PRICE_FEATURE_SERIES`:
+  `macd_line_relative`, `macd_hist_relative`, and `macd_hist_delta_3`, prefixed by
+  source-series ID. `estr` remains ineligible.
+- R2: Compute private EMA-12 and EMA-26 from positive source levels with alpha
+  `2/(period+1)`, arithmetic-mean seeds, and resets on missing/nonpositive source rows.
+  Define MACD line as `EMA12-EMA26`. Compute the private EMA-9 signal from consecutive
+  non-null MACD-line values with the same alpha/seed recurrence, accepting signed and
+  zero values; a NULL line resets the signal seed. Do not expose any intermediate.
+- R3: Define `macd_line_relative = (EMA12-EMA26)/level`,
+  `macd_hist_relative = (MACD line - EMA9 signal)/level`, and
+  `macd_hist_delta_3 = hist[t]-hist[t-3 source rows]`. Require a positive current level
+  and defined operands; the lag counts source rows and NULL endpoints propagate.
+- R4: Extend the closed-world PostgreSQL view catalog and generated SQL, update the view
+  version/fingerprint, and append migration 24. Do not change `macro_raw`, canonical Gold,
+  ingestion, or existing feature semantics.
+- R5: Document the XETRA-aligned EMA seeds, signal treatment for signed MACD values,
+  formulas, warm-up/reset rules, eligible series, and remaining OHLC/volume work.
+
+Acceptance:
+- A1 (verifies R1/R4): Exactly 36 new nullable `DOUBLE PRECISION` view columns appear
+  once in catalog order across all twelve eligible series; no outputs or internal
+  intermediates appear for `estr`, `macro_raw`, or canonical Gold.
+- A2 (verifies R2/R3): Independent hand-calculated reference tests prove EMA-12/26
+  seeds/recurrences, EMA-9 signed signal seed, negative/zero MACD-line values, NULL and
+  nonpositive-level resets, warm-up (MACD line from the 26th continuous level, signal and
+  histogram from the 34th), positive-level normalization, three-source-row delta, NULL
+  propagation, and truncation causality.
+- A3 (verifies R4): Clean-create and migration-23-to-24 disposable-PostgreSQL tests prove
+  exact ordered view schema, types, version 13/fingerprint, formula parity, and unchanged
+  raw/Gold schemas.
+- A4 (verifies R5): Docs match the executable contract; full local `make quality-gate`
+  passes without production DB writes, cron runs, or GitHub Actions.
+
+### PR-174: Preserve OHLC Inputs Through Gold And PostgreSQL
+
+PR name: `preserve-ohlc-fields`
+Status: Planned
+Updated: 2026-10-26
+PR: TBD
+Git branch: `pr-174/preserve-ohlc-fields`
+Git status: Planned
+Agent lane: canonical OHLC propagation implementation and independent Gold/PostgreSQL schema/data QA; two agents
+Depends on: PR-173
+Commit: Pending
+Design patterns: Registry-driven Projection, Repository, Versioned Migration.
+
+Description:
+- Preserve native `open`, `high`, `low`, and `close` values losslessly for each registered
+  OHLC series from Silver through canonical Gold and PostgreSQL `macro_raw`; expose them
+  via the closed-world `macro_features` projection for later transformations.
+- Derive eligible sources from the registry native-shape contract (currently `vix`,
+  `vix9d`, `vix3m`, `vix6m`, `vix1y`, and `move`). Scalar-series OHLC remain NULL; do not
+  fabricate observations. `close == value == <series>_level`.
+- Include OHLC values in Gold/PostgreSQL schema and row digests; bump Gold schema version
+  to 8 and add PostgreSQL migration 25. Preserve current level and generated
+  `available_at_utc` behavior; do not add derived OHLC features, volume, breadth, or
+  dispersion in this PR.
+
+Acceptance:
+- Independent fixtures prove all four Silver OHLC fields reach Gold unchanged for all
+  six OHLC series, scalar OHLC stays NULL, and no extra dates are created.
+- Gold sync payloads, row hashes, insert/update comparison, and PostgreSQL rows include
+  the values; an OHLC-only revision is detected.
+- Clean create and migration-24-to-25 disposable-PostgreSQL tests prove exact ordered raw
+  and view columns/types/nullability, ledger/version/fingerprint, and preservation of all
+  level and availability fields.
+- Docs are accurate and full local `make quality-gate` passes. No production migrations,
+  cron, GitHub Actions, or live database writes.
+
 ### PR-172: Add EMA-Level Trend Features
 
 PR name: `add-ema-level-trend-features`
-Status: Open
+Status: Merged
 Updated: 2026-10-26
 PR: #172
 Git branch: `pr-172/add-ema-level-trend-features`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: PostgreSQL EMA projection and independent mathematical/schema QA; two agents
 Depends on: PR-171
-Commit: `697cf21` (`feat(pr-172): add ema level trend features`)
+Commit: `3c8841f` (PR #172 squash merge; head `62ef91c`)
 Design patterns: Pure Transformation, Materialized View.
 
 Description:

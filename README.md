@@ -10,11 +10,11 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-171 status (2026-10-26): The level-only composite/statistical features are merged as
-GitHub PR #171. PR-170's scalar-level return/trend windows, PR-169's bounded daily-pipeline
-core budget, and PR-168's Fed-policy retirement are also merged. PR-172 is the active
-backlog implementation for EMA-level trend features; no production database migration or
-cron run is implied.
+PR-172 status (2026-10-26): The EMA-level trend features are merged as GitHub PR #172.
+PR-171's level-only composite/statistical features, PR-170's scalar-level return/trend
+windows, PR-169's bounded daily-pipeline core budget, and PR-168's Fed-policy retirement
+are also merged. PR-173 is the active backlog implementation for relative MACD features;
+no production database migration or cron run is implied.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
@@ -287,7 +287,7 @@ row digests:     macro_loader_sync.gold_row_hashes
 
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
 
-The PostgreSQL `macro_features` materialized view (feature-view contract version 11)
+The PostgreSQL `macro_features` materialized view (feature-view contract version 12)
 exposes one `*_log_level`
 column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
 the source is positive; non-positive or missing source values become `NULL`.
@@ -299,7 +299,7 @@ available `macro_raw` timestamp history, including pre-2010 observations.
 
 #### PR-171: Composite and Statistical Feature Semantics
 
-The version-11 PostgreSQL `macro_features` view adds the following series-prefixed,
+The version-12 PostgreSQL `macro_features` view adds the following series-prefixed,
 nullable `DOUBLE PRECISION` columns for every `PRICE_FEATURE_SERIES` (all positive-level
 price series; signed/non-price `estr` is excluded). These are serving-view transformations
 only: they do not add columns to `macro_raw` or canonical Gold. Every lag/window is measured
@@ -338,8 +338,15 @@ value (`1`, `-1`, or `0`). Each EMA seeds from the arithmetic mean of its first 
 consecutive positive levels, then recurs with alpha `2/(n+1)`; missing or nonpositive
 levels reset the seed. EMA intermediates are not view columns, and outputs remain NULL until
 the seed/endpoints exist. This follows XETRA's `exponential_moving_average` recurrence.
-MACD and source OHLC/volume remain follow-up work. Market breadth is excluded; dispersion
-requires a real cross-instrument panel.
+PR-173 is actively implementing the three relative MACD outputs; they are not yet in the
+merged view contract. Its specified formulas are `(EMA12-EMA26)/level`,
+`(MACD_line-EMA9_signal)/level`, and the three-source-row difference of the relative
+histogram. The signal EMA accepts signed and zero MACD-line values and resets only on a
+NULL MACD line, matching XETRA's `allow_nonpositive` EMA mode. See the
+[XETRA MACD CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
+and [output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
+Source OHLC/volume remain follow-up work. Market breadth is excluded; dispersion requires
+a real cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
 
