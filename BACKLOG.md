@@ -15,10 +15,10 @@ Status: In Progress
 Updated: 2026-10-26
 PR: not opened
 Git branch: `pr-169/parallel-daily-core-budget`
-Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md
+Git status: active-clean
 Agent lane: bounded Bronze execution and CLI/scheduled-runner core-budget wiring; two agents
 Depends on: PR-168
-Commit: not committed
+Commit: `e3ec97b`
 Design patterns: Strategy, Dependency Injection, Unit of Work.
 
 Description:
