@@ -15,13 +15,15 @@ Status: In Progress
 Updated: 2026-10-26
 PR: #171
 Git branch: `pr-171/level-only-composite-statistical-features`
-Git status: pushed-ci-pending
+Git status: pushed-ci-failing
 Agent lane: level-only SQL/catalog implementation and independent mathematical/schema QA; two agents
 Depends on: PR-170
-Commit: `feat(pr-171): add level-only composite statistical features` (PR head)
+Commit: `feat(pr-171): add level-only composite statistical features` (implementation commit)
 Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
 
 Description:
+- The remote integration gate was cancelled at the user's request to stop GitHub Actions;
+  all repository workflows are disabled, so the required remote quality gates are not green.
 - R1: For every eligible positive-level series, expose RSI-derived `rsi_ratio_5_15`,
   `rsi5_slope_3`, and `rsi5_delta_1` equivalents using a private Wilder RSI-15
   intermediate; do not expose RSI-15 itself. Guard undefined/zero denominators and
