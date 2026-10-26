@@ -266,6 +266,28 @@ def _qa_reference_features(levels: list[float]) -> dict[str, float | None]:
     return expected
 
 
+def _qa_public_feature_column(reference_name: str) -> str:
+    """Map an independent reference label to its frozen public SQL name."""
+    if reference_name.startswith("log_return_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("return_geom_"):
+        window = reference_name.removeprefix("return_geom_").removesuffix("_pct")
+        return f"vix_return_geom_{window}obs_pct"
+    if reference_name.startswith("return_mean_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("volatility_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("sma_ratio_"):
+        return f"vix_{reference_name}"
+    if reference_name.startswith("rsi_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("roc_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("drawdown_"):
+        return f"vix_{reference_name}obs"
+    raise AssertionError(f"unknown independent feature label: {reference_name}")
+
+
 def _independent_wilder_rsi(levels: list[float], period: int) -> float | None:
     """Small reference implementation independent of the SQL view builder."""
     average_gain: float | None = None
@@ -483,7 +505,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     )
     assert availability_column[4]
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
-    assert migrations[-1] == (20,)
+    assert migrations[-1] == (21,)
 
     timestamp = _timestamp(20)
     row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
@@ -1102,7 +1124,7 @@ def test_real_postgres_pr170_extended_windows_match_reference_and_ignore_future_
     target_index = 105
     target = timestamps[target_index]
     target_reference = _qa_reference_features(levels[: target_index + 1])
-    feature_names = tuple(f"vix_{name}" for name in target_reference)
+    feature_names = tuple(_qa_public_feature_column(name) for name in target_reference)
     select_columns = ", ".join('"' + column + '"' for column in feature_names)
 
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
@@ -1125,10 +1147,8 @@ def test_real_postgres_pr170_extended_windows_match_reference_and_ignore_future_
 
     assert full_history_row is not None and truncated_row is not None
     assert truncated_row == full_history_row, "future rows changed earlier view values"
-    reference = _qa_reference_features(levels[: target_index + 1])
-    assert tuple(reference) == tuple(name.removeprefix("vix_") for name in feature_names)
-    for column, actual, key in zip(feature_names, full_history_row, reference, strict=True):
-        expected_value = reference[key]
+    for key, actual, column in zip(target_reference, full_history_row, feature_names, strict=True):
+        expected_value = target_reference[key]
         assert expected_value is not None, column
         assert actual is not None and math.isfinite(actual), column
         assert math.isclose(actual, expected_value, rel_tol=1e-10, abs_tol=1e-12), column

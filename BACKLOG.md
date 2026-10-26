@@ -15,10 +15,10 @@ Status: In Progress
 Updated: 2026-10-26
 PR: #170
 Git branch: `pr-170/complete-scalar-level-feature-windows`
-Git status: pushed-ci-pending
+Git status: pushed-ci-failing
 Agent lane: level-only feature contract/SQL and independent math/schema QA; two agents
 Depends on: PR-169
-Commit: `f9b5dee`, `2a0961a`
+Commit: `f9b5dee`, `2a0961a`, `f676130`
 Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
 
 Description:
