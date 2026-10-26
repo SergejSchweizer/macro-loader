@@ -671,7 +671,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     )
     assert availability_column[4]
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
-    assert migrations[-1] == (22,)
+    assert migrations[-1] == (len(postgres_module._MIGRATIONS),)
 
     timestamp = _timestamp(20)
     row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
@@ -706,12 +706,12 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
 
 
 @pytest.mark.integration
-def test_real_postgres_pr171_upgrade_from_migration_21_uses_regular_runner(
+def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
     repository: PostgresGoldSyncRepository,
     migrator: PostgresGoldSchemaMigrator,
     postgres_dsn: str,
 ) -> None:
-    """Apply the real v1-v21 schema, then prove the regular runner upgrades it to v22."""
+    """Apply v1-v22, then prove the regular runner applies the EMA migration 23."""
     del repository
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
@@ -738,12 +738,12 @@ def test_real_postgres_pr171_upgrade_from_migration_21_uses_regular_runner(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
 
-    assert ledger_before_upgrade == [(version,) for version in range(1, 22)]
-    assert not any(column.endswith("_rsi_ratio_5_15") for column in pre_upgrade_columns)
+    assert ledger_before_upgrade == [(version,) for version in range(1, 23)]
+    assert not any(column.endswith("_ema5_distance") for column in pre_upgrade_columns)
     assert view_comment_before_upgrade is not None
-    assert view_comment_before_upgrade[0].startswith("macro feature view version=10; fingerprint=")
+    assert view_comment_before_upgrade[0].startswith("macro feature view version=11; fingerprint=")
 
-    # This call, not hand-executed migration-22 SQL, is the upgrade under test.
+    # This call, not hand-executed migration-23 SQL, is the upgrade under test.
     migrator.migrate()
 
     with psycopg.connect(postgres_dsn) as connection:
@@ -762,7 +762,7 @@ def test_real_postgres_pr171_upgrade_from_migration_21_uses_regular_runner(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
 
-    assert ledger_after_upgrade == [(version,) for version in range(1, 23)]
+    assert ledger_after_upgrade == [(version,) for version in range(1, 24)]
     assert {
         f"{series}_{feature}"
         for series in PRICE_FEATURE_SERIES
@@ -776,6 +776,18 @@ def test_real_postgres_pr171_upgrade_from_migration_21_uses_regular_runner(
             "momentum_autocorr_lag1_window96",
             "momentum_autocorr_lag4_window96",
             "momentum_autocorr_lag8_window192",
+        )
+    }.issubset(view_columns)
+    assert {
+        f"{series}_{feature}"
+        for series in PRICE_FEATURE_SERIES
+        for feature in (
+            "ema5_distance",
+            "ema9_distance",
+            "ema21_distance",
+            "ema5_ema21_spread",
+            "ema9_slope_3",
+            "ema5_ema9_cross",
         )
     }.issubset(view_columns)
     assert view_comment_after_upgrade == (

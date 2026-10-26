@@ -8,17 +8,64 @@ Last reviewed: 2026-10-26
 
 ## GOALS.md Implementation Wave
 
+### PR-172: Add EMA-Level Trend Features
+
+PR name: `add-ema-level-trend-features`
+Status: In Progress
+Updated: 2026-10-26
+PR: TBD
+Git branch: `pr-172/add-ema-level-trend-features`
+Git status: In Progress
+Agent lane: PostgreSQL EMA projection and independent mathematical/schema QA; two agents
+Depends on: PR-171
+Commit: Pending
+Design patterns: Pure Transformation, Materialized View.
+
+Description:
+- R1: Add the six GOALS EMA-derived outputs for each positive-level `PRICE_FEATURE_SERIES`:
+  `ema5_distance`, `ema9_distance`, `ema21_distance`, `ema5_ema21_spread`,
+  `ema9_slope_3`, and `ema5_ema9_cross`. Prefix each output with its source-series ID.
+- R2: Match the XETRA reference EMA contract: alpha is `2/(period+1)`; initialize with
+  the arithmetic mean of the first `period` consecutive valid positive levels; then use
+  `EMA[t] = alpha*level[t] + (1-alpha)*EMA[t-1]`. A missing or nonpositive level resets
+  the seed/recurrence; EMA remains NULL until a new complete seed exists. Private EMA-5,
+  EMA-9, and EMA-21 intermediates are not exposed.
+- R3: Define output formulas and NULL behavior exactly: distance is `level/EMA-1`;
+  spread is `(EMA5-EMA21)/level`; slope is `(EMA9[t]-EMA9[t-3 source rows])/(3*level)`;
+  cross is `1` for an upward EMA5/EMA9 crossing, `-1` for downward, and `0` otherwise,
+  but NULL until both current and immediately prior EMA pairs exist. Require positive
+  current level and defined denominator/endpoints.
+- R4: Extend the closed-world PostgreSQL view catalog and generated SQL, update the view
+  version/fingerprint, and add migration 23 to rebuild the view. Do not change
+  `macro_raw`, canonical Gold, source ingestion, or the existing feature semantics.
+- R5: Update README/ARCHITECTURE with the exact recurrence, seed/reset/warm-up rules,
+  eligible series, output domains, and the fact that MACD remains a later GOALS item.
+
+Acceptance:
+- A1 (verifies R1/R4): For all twelve `PRICE_FEATURE_SERIES`, the exact six prefixed
+  columns appear once in catalog order as nullable `DOUBLE PRECISION`; `estr` receives
+  none, and no EMA intermediate/helper column appears in the view.
+- A2 (verifies R2/R3): An independent reference and hand-calculable fixtures match all
+  six outputs across seed warm-up, recurrence, missing/nonpositive resets, distance and
+  spread normalization, three-row slope, upward/downward/neutral crossings, NULL
+  endpoints, and truncated-future causality.
+- A3 (verifies R4): PostgreSQL clean-create and migration-22-to-23 upgrade tests prove
+  exact ordered view schema, column types, version 12/fingerprint, executable formula
+  parity, and no EMA columns in `macro_raw` or canonical Gold.
+- A4 (verifies R5): README/ARCHITECTURE accurately describe the implemented contract;
+  the full local `make quality-gate` passes without production DB writes or cron runs.
+
 ### PR-171: Add Level-Only Composite And Statistical Features
 
 PR name: `level-only-composite-statistical-features`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-26
 PR: #171
 Git branch: `pr-171/level-only-composite-statistical-features`
-Git status: In Progress
+Git status: merged
 Agent lane: level-only SQL/catalog implementation and independent mathematical/schema QA; two agents
 Depends on: PR-170
-Commit: `feat(pr-171): add level-only composite statistical features` (implementation commit)
+Commit: `8a42dcb` (PR #171 squash merge; head `af93732`)
 Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
 
 Description:

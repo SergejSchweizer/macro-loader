@@ -25,6 +25,7 @@ from application.return_features import (
 )
 from application.trend_features import (
     DRAWDOWN_WINDOWS,
+    EMA_OUTPUT_SUFFIXES,
     ROC_WINDOWS,
     RSI_COMPOSITE_INTERNAL_WINDOW,
     RSI_WINDOWS,
@@ -32,7 +33,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 11
+MACRO_FEATURE_VIEW_VERSION = 12
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -49,6 +50,7 @@ PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "wilder_rsi",
     "roc",
     "drawdown",
+    "ema_trend",
     "rsi_composite",
     "roc_acceleration",
     "price_zscore",
@@ -155,6 +157,22 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 f"level(t)/rolling_max(level,{window})-1",
             )
             for window in DRAWDOWN_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_{suffix}",
+                "ema_trend",
+                series,
+                {
+                    "ema5_distance": "level/EMA(5)-1",
+                    "ema9_distance": "level/EMA(9)-1",
+                    "ema21_distance": "level/EMA(21)-1",
+                    "ema5_ema21_spread": "(EMA(5)-EMA(21))/level",
+                    "ema9_slope_3": "(EMA(9)(t)-EMA(9)(t-3 source rows))/(3*level)",
+                    "ema5_ema9_cross": "1/-1 for upward/downward EMA(5)/EMA(9) crossing, else 0",
+                }[suffix],
+            )
+            for suffix in EMA_OUTPUT_SUFFIXES
         )
         specs.extend(
             MacroFeatureSpec(

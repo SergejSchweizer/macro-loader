@@ -91,7 +91,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.event == "merge_group" or args.branch == "main":
         return 0
-    validate_contract(args.branch, git_subjects(args.base), event=args.event)
+    subjects = git_subjects(args.base)
+    if args.event == "local" and not subjects:
+        staged_changes = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            check=False,
+            capture_output=True,
+        )
+        if staged_changes.returncode == 1:
+            # A pre-commit hook runs before the candidate subject enters git history.
+            # The next local gate (after commit) validates the actual commit subject.
+            return 0
+        if staged_changes.returncode != 0:
+            raise RuntimeError("could not inspect staged changes for local validation")
+    validate_contract(args.branch, subjects, event=args.event)
     return 0
 
 

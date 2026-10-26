@@ -10,9 +10,11 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-170 status (2026-10-26): The scalar-level return/trend windows are merged as GitHub PR
-#170. PR-169's bounded daily-pipeline core budget is merged as GitHub PR #169. PR-168 retired
-Fed-policy runtime/acquisition and PostgreSQL serving as GitHub PR #168.
+PR-171 status (2026-10-26): The level-only composite/statistical features are merged as
+GitHub PR #171. PR-170's scalar-level return/trend windows, PR-169's bounded daily-pipeline
+core budget, and PR-168's Fed-policy retirement are also merged. PR-172 is the active
+backlog implementation for EMA-level trend features; no production database migration or
+cron run is implied.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
@@ -328,8 +330,16 @@ pair must be non-NULL. Output is NULL until the full pair window exists, or if e
 of the window has zero/undefined sample standard deviation (so Pearson correlation is
 undefined). Correlations retain their sign and are not clipped at zero. These return-based
 features are distinct from the existing positive-clipped autocorrelation of source-unit
-changes. All calculations are causal and use no future values. EMA/MACD and source
-OHLC/volume remain follow-up work; breadth and dispersion require a cross-instrument panel.
+changes. All calculations are causal and use no future values. The PR-172 contract adds
+private-recursive EMA intermediates and six series-prefixed nullable outputs for each
+`PRICE_FEATURE_SERIES` (excluding `estr`): EMA distance to periods 5, 9, and 21;
+`(EMA5-EMA21)/level`; normalized three-source-row EMA9 slope; and an EMA5/EMA9 crossover
+value (`1`, `-1`, or `0`). Each EMA seeds from the arithmetic mean of its first `n`
+consecutive positive levels, then recurs with alpha `2/(n+1)`; missing or nonpositive
+levels reset the seed. EMA intermediates are not view columns, and outputs remain NULL until
+the seed/endpoints exist. This follows XETRA's `exponential_moving_average` recurrence.
+MACD and source OHLC/volume remain follow-up work. Market breadth is excluded; dispersion
+requires a real cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
 

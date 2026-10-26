@@ -138,3 +138,33 @@ def test_main_validates_git_subjects(monkeypatch: pytest.MonkeyPatch) -> None:
         )
         == 0
     )
+
+
+def test_main_allows_staged_precommit_without_candidate_commit_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(contract, "git_subjects", lambda base: [])
+    monkeypatch.setattr(
+        contract.subprocess,
+        "run",
+        lambda *args, **kwargs: CompletedProcess(args=[], returncode=1, stdout="", stderr=""),
+    )
+
+    assert (
+        contract.main(["--branch", "pr-01/repository-bootstrap-quality-gates", "--event", "local"])
+        == 0
+    )
+
+
+def test_main_still_rejects_empty_history_without_staged_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(contract, "git_subjects", lambda base: [])
+    monkeypatch.setattr(
+        contract.subprocess,
+        "run",
+        lambda *args, **kwargs: CompletedProcess(args=[], returncode=0, stdout="", stderr=""),
+    )
+
+    with pytest.raises(ValueError, match="no implementation commits"):
+        contract.main(["--branch", "pr-01/repository-bootstrap-quality-gates", "--event", "local"])
