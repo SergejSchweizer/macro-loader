@@ -425,11 +425,16 @@ _FED_POLICY_RENAME_MIGRATION = (
              AND present.table_name = '{POSTGRES_CONSUMER_TABLE}'
              AND present.column_name = wanted.column_name;
             SELECT string_agg(
-                format('%I = COALESCE(EXCLUDED.%I, %I)', column_name, column_name, column_name),
+                format(
+                    '%I = COALESCE(EXCLUDED.%I, retired.%I)',
+                    column_name,
+                    column_name,
+                    column_name
+                ),
                 ', '
             ) INTO legacy_updates
             FROM unnest(ARRAY[{_RETIRED_FED_LEGACY_INFO_NAMES}]) AS legacy(column_name);
-            EXECUTE 'INSERT INTO {_RETIRED_LEGACY_ARCHIVE} '
+            EXECUTE 'INSERT INTO {_RETIRED_LEGACY_ARCHIVE} AS retired '
                  || '(timestamp_m1, {_RETIRED_FED_LEGACY_COLUMN_NAMES}) '
                  || 'SELECT timestamp_m1, ' || legacy_projection || ' FROM {_CONSUMER} '
                  || 'ON CONFLICT (timestamp_m1) DO UPDATE SET ' || legacy_updates;
@@ -871,7 +876,7 @@ _RETIRED_FED_ARCHIVE_MIGRATION = (
                   AND table_name = 'fed_policy_features_daily'
                   AND column_name IN ({_RETIRED_FED_ORIGIN_INFO_NAMES}, 'timestamp_m1'))
                = {len(_RETIRED_FED_ORIGIN_COLUMNS) + 1} THEN
-            EXECUTE 'INSERT INTO {_RETIRED_POLICY_ARCHIVE} '
+            EXECUTE 'INSERT INTO {_RETIRED_POLICY_ARCHIVE} AS retired '
                 '(timestamp_m1, {_RETIRED_FED_ORIGIN_COLUMN_NAMES}, available_at_utc) '
                 'SELECT timestamp_m1, {_RETIRED_FED_ORIGIN_COLUMN_NAMES}, ' ||
                 CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
@@ -881,8 +886,9 @@ _RETIRED_FED_ARCHIVE_MIGRATION = (
                      THEN 'available_at_utc' ELSE 'NULL::timestamptz' END ||
                 ' FROM "{POSTGRES_SYNC_SCHEMA}"."fed_policy_features_daily" '
                 'ON CONFLICT (timestamp_m1) DO UPDATE SET '
-                'available_at_utc = COALESCE(EXCLUDED.available_at_utc, ' ||
-                '{_RETIRED_POLICY_ARCHIVE}.available_at_utc), ' || {_RETIRED_FED_RAW_UPDATES};
+                'available_at_utc = COALESCE(EXCLUDED.available_at_utc, '
+                'retired.available_at_utc), ' ||
+                '{_RETIRED_FED_RAW_UPDATES}';
         END IF;
     END
     $$""",

@@ -12,6 +12,7 @@ from threading import Event, Thread
 import polars as pl
 import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
@@ -64,8 +65,23 @@ def postgres_dsn() -> str:
     return dsn
 
 
+def _postgres_target(dsn: str) -> tuple[str, int, str]:
+    """Resolve the disposable test target so local and CI ports both work."""
+    settings = conninfo_to_dict(dsn)
+    return (
+        settings.get("host", "localhost"),
+        int(settings.get("port", "5432")),
+        settings.get("dbname", "macro_loader_test"),
+    )
+
+
+def _runtime_dsn(dsn: str, user: str, password: str) -> str:
+    return make_conninfo(dsn, user=user, password=password)
+
+
 @pytest.fixture
 def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGoldSyncRepository:
+    host, port, database = _postgres_target(postgres_dsn)
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         connection.execute("DROP SCHEMA IF EXISTS macro_loader_retired CASCADE")
         connection.execute("DROP SCHEMA IF EXISTS macro_loader_sync CASCADE")
@@ -84,23 +100,22 @@ def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGo
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
         connection.execute("ALTER ROLE \"macro-loader-sync\" PASSWORD 'runtime-secret'")
-    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
-    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
+    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
+    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
     monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
     monkeypatch.setattr(postgres_module, "POSTGRES_SYNC_USER", "macro-loader-sync")
     return PostgresGoldSyncRepository(
-        PostgresSyncConfig(
-            "localhost", 5432, "macro-loader-sync", "macro_loader_test", "runtime-secret"
-        )
+        PostgresSyncConfig(host, port, "macro-loader-sync", database, "runtime-secret")
     )
 
 
 @pytest.fixture
 def migrator(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGoldSchemaMigrator:
-    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
-    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
+    host, port, database = _postgres_target(postgres_dsn)
+    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
+    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
     return PostgresGoldSchemaMigrator(
-        PostgresAdminConfig("localhost", 5432, "macro_loader_admin", "macro_loader_test", "admin"),
+        PostgresAdminConfig(host, port, "macro_loader_admin", database, "admin"),
         connection_factory=lambda _config: psycopg.connect(postgres_dsn),
     )
 
@@ -237,19 +252,16 @@ def test_real_postgres_independent_conformance_verifier_passes(
     assert _sync_service(repository, timestamp).sync().inserted == 1
 
     monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
-    runtime_config = PostgresSyncConfig(
-        "localhost", 5432, "macro-loader", "macro_loader_test", "runtime-secret"
-    )
+    host, port, database = _postgres_target(postgres_dsn)
+    runtime_config = PostgresSyncConfig(host, port, "macro-loader", database, "runtime-secret")
     inspector = PostgresLiveDatabaseConformanceInspector(
         runtime_config,
         connection_factory=lambda _: psycopg.connect(
-            postgres_dsn.replace(
-                "macro_loader_test:macro_loader_test", "macro-loader:runtime-secret"
-            )
+            _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
         ),
     )
     with psycopg.connect(
-        postgres_dsn.replace("macro_loader_test:macro_loader_test", "macro-loader:runtime-secret")
+        _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
     ) as connection:
         cursor = connection.cursor()
         try:
@@ -886,8 +898,9 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
         connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
-    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
-    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
+    host, port, database = _postgres_target(postgres_dsn)
+    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
+    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
     monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
     policy = PostgresTimeoutPolicy(
         connect_timeout_seconds=5,
@@ -897,10 +910,10 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     )
     repository = PostgresGoldSyncRepository(
         PostgresSyncConfig(
-            "localhost",
-            5432,
+            host,
+            port,
             "macro_loader_test",
-            "macro_loader_test",
+            database,
             "macro_loader_test",
             policy,
         )
@@ -976,14 +989,14 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         admin_connection.execute(
             provision_sql("macro_loader_test", "runtime-secret", "macro_loader_test")
         )
+        admin_connection.execute('DROP ROLE IF EXISTS "runtime-grant-probe"')
         admin_connection.execute('CREATE ROLE "runtime-grant-probe" NOLOGIN')
+        admin_connection.execute("DROP SCHEMA IF EXISTS unrelated CASCADE")
         admin_connection.execute("CREATE SCHEMA unrelated")
         admin_connection.execute("CREATE TABLE unrelated.private_data (id INTEGER)")
         admin_connection.commit()
 
-    runtime_dsn = postgres_dsn.replace(
-        "macro_loader_test:macro_loader_test", "macro-loader:runtime-secret"
-    )
+    runtime_dsn = _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
     with psycopg.connect(runtime_dsn) as runtime_connection:
         runtime_connection.execute("SELECT * FROM macro_loader_sync.schema_migrations")
         for operation, statement in (
@@ -1022,9 +1035,7 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         ).fetchone()
         assert grant_option == (False,)
 
-    sync_dsn = postgres_dsn.replace(
-        "macro_loader_test:macro_loader_test", "macro-loader-sync:runtime-secret"
-    )
+    sync_dsn = _runtime_dsn(postgres_dsn, "macro-loader-sync", "runtime-secret")
     with psycopg.connect(sync_dsn) as sync_connection:
         sync_connection.execute("DELETE FROM macro_loader_sync.gold_sync_state")
         sync_connection.rollback()
