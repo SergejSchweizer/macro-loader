@@ -11,14 +11,14 @@ Last reviewed: 2026-10-26
 ### PR-173: Add Relative MACD Trend Features
 
 PR name: `add-relative-macd-features`
-Status: In Progress
+Status: Open
 Updated: 2026-10-26
-PR: TBD
+PR: #173
 Git branch: `pr-173/add-relative-macd-features`
-Git status: In Progress
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL MACD implementation and independent mathematical/schema QA; two agents
 Depends on: PR-172
-Commit: `2cdfab3` (`feat(pr-173): add relative MACD trend features`)
+Commit: `2cdfab3` (implementation), `922504f` (documentation and independent QA)
 Design patterns: Pure Transformation, Materialized View.
 
 Description:
