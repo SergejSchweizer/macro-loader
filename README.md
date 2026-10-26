@@ -10,11 +10,12 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-172 status (2026-10-26): The EMA-level trend features are merged as GitHub PR #172.
-PR-171's level-only composite/statistical features, PR-170's scalar-level return/trend
-windows, PR-169's bounded daily-pipeline core budget, and PR-168's Fed-policy retirement
-are also merged. PR-173 is the active backlog implementation for relative MACD features;
-no production database migration or cron run is implied.
+PR-173 status (2026-10-26): The relative MACD features are merged as GitHub PR #173,
+following PR-172's EMA-level features and PR-171's level-only composite/statistical
+features. PR-170's scalar-level return/trend windows, PR-169's bounded daily-pipeline core
+budget, and PR-168's Fed-policy retirement are also merged. PR-174 is actively preserving
+native OHLC inputs through Gold and PostgreSQL; those fields are not yet available there.
+No production database migration or cron run is implied.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
@@ -22,11 +23,20 @@ or scheduling instructions. Historical Fed acceptance artifacts and backlog entr
 retained for audit. The independent FRED provider remains active for its registered macro
 series.
 
-The current Gold semantic contract is schema version **7** and feature version **6**;
+The current Gold semantic contract is schema version **8** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
 `application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL synchronization populates
 `macro_raw`, and the `macro_features` materialized view is refreshed from it,
 including the causal XETRA-compatible transformations.
+
+Gold columns are ordered as `timestamp_m1`, every registered `<series>_level` in
+registry order, then native OHLC fields in OHLC-series registry order and field order
+`open`, `high`, `low`, `close`. The OHLC series are `vix`, `vix9d`, `vix3m`, `vix6m`,
+`vix1y`, and `move` (24 nullable Float64 columns, for example `vix_open` and
+`move_close`). These values pass through to nullable PostgreSQL `DOUBLE PRECISION`
+columns in `macro_raw` and the closed-world `macro_features` view; scalar series have no
+OHLC columns. `available_at_utc` remains generated in `macro_raw` and exposed by the
+view. No OHLC-derived indicators are part of this raw-input change.
 
 Before implementing a backlog PR, coding agents must read `AGENTS.md`, `BACKLOG.md`, and `ARCHITECTURE.md`.
 
@@ -338,15 +348,16 @@ value (`1`, `-1`, or `0`). Each EMA seeds from the arithmetic mean of its first 
 consecutive positive levels, then recurs with alpha `2/(n+1)`; missing or nonpositive
 levels reset the seed. EMA intermediates are not view columns, and outputs remain NULL until
 the seed/endpoints exist. This follows XETRA's `exponential_moving_average` recurrence.
-PR-173 is actively implementing the three relative MACD outputs; they are not yet in the
-merged view contract. Its specified formulas are `(EMA12-EMA26)/level`,
+PR-173 adds three relative MACD outputs to the version-13 merged view. Their formulas are
+`(EMA12-EMA26)/level`,
 `(MACD_line-EMA9_signal)/level`, and the three-source-row difference of the relative
 histogram. The signal EMA accepts signed and zero MACD-line values and resets only on a
 NULL MACD line, matching XETRA's `allow_nonpositive` EMA mode. See the
 [XETRA MACD CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
 and [output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
-Source OHLC/volume remain follow-up work. Market breadth is excluded; dispersion requires
-a real cross-instrument panel.
+Native OHLC is not yet in Gold/PostgreSQL; PR-174 is the active prerequisite for later
+OHLC transforms. Volume remains follow-up work. Market breadth is excluded; dispersion
+requires a real cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
 

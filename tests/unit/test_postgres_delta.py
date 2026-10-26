@@ -57,8 +57,32 @@ def test_row_digest_is_deterministic_and_value_sensitive() -> None:
 
 def test_postgres_raw_sync_contract_contains_only_non_fed_source_levels() -> None:
     assert POSTGRES_RAW_COLUMNS[0] == "timestamp_m1"
-    assert len(POSTGRES_RAW_COLUMNS) == 14
+    assert len(POSTGRES_RAW_COLUMNS) == 38
+    assert POSTGRES_RAW_COLUMNS[-24:] == tuple(
+        f"{series}_{field}"
+        for series in ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
+        for field in ("open", "high", "low", "close")
+    )
     assert not any(column.startswith("fed_") for column in POSTGRES_RAW_COLUMNS)
+
+
+def test_ohlc_only_revision_changes_gold_row_digest_and_delta() -> None:
+    frame = _frame((1, 2))
+    _, target = source_rows_and_digests(frame)
+    revised = frame.with_columns(
+        pl.when(pl.col("timestamp_m1") == _ts(2))
+        .then(pl.col("vix_high") + 1.0)
+        .otherwise(pl.col("vix_high"))
+        .alias("vix_high")
+    )
+
+    plan = plan_gold_delta(revised, target, _state(frame))
+
+    assert [row.timestamp_m1 for row in plan.updates] == [_ts(2)]
+    assert not plan.inserts
+    assert plan.updates[0].values[POSTGRES_RAW_COLUMNS.index("vix_high") - 1] == pytest.approx(
+        frame.item(1, "vix_high") + 1.0
+    )
 
 
 def test_row_digest_has_explicit_null_and_normalizes_negative_zero() -> None:

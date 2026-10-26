@@ -433,6 +433,36 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert availability_migration_index < retirement_migration_index
 
 
+def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_order() -> None:
+    migration = "\n".join(module._MIGRATIONS[24])
+    raw_spec = next(
+        spec
+        for spec in module._SCHEMA_SPECIFICATION
+        if spec.schema == "macro_loader" and spec.name == "macro_raw"
+    )
+    names = tuple(column.name for column in raw_spec.columns)
+    expected_raw_ohlc = POSTGRES_RAW_COLUMNS[-24:]
+
+    assert names.index("available_at_utc") < names.index("vix_open")
+    assert names[-24:] == expected_raw_ohlc
+    assert all(
+        f'"{column}" DOUBLE PRECISION NULL' in module._CONSUMER_DDL for column in expected_raw_ohlc
+    )
+    assert tuple(
+        migration.index(f'ADD COLUMN IF NOT EXISTS "{column}" DOUBLE PRECISION NULL')
+        for column in expected_raw_ohlc
+    ) == tuple(
+        sorted(
+            migration.index(f'ADD COLUMN IF NOT EXISTS "{column}" DOUBLE PRECISION NULL')
+            for column in expected_raw_ohlc
+        )
+    )
+    assert "DROP TABLE" not in migration
+    assert "DELETE FROM" not in migration
+    assert module._FEATURES_VIEW_DDL in module._MIGRATIONS[24]
+    assert f"version={module.MACRO_FEATURE_VIEW_VERSION}" in migration
+
+
 @pytest.mark.parametrize(
     ("metadata", "error_message"),
     [

@@ -11,6 +11,7 @@ from application.macro_feature_catalog import (
     validate_feature_catalog,
 )
 from application.momentum_features import MOMENTUM_POLICY
+from application.registry import OHLC_FIELDS, OHLC_SERIES
 from application.return_features import (
     LOG_RETURN_WINDOWS,
     RETURN_MEAN_WINDOWS,
@@ -43,6 +44,9 @@ def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
     )
     assert {spec.series for spec in FEATURE_CATALOG if spec.family == "raw_log"} == set(
         PRICE_FEATURE_SERIES
+    )
+    assert tuple(spec.name for spec in FEATURE_CATALOG if spec.family == "raw_ohlc") == tuple(
+        f"{series}_{field}" for series in OHLC_SERIES for field in OHLC_FIELDS
     )
     assert len(FEATURE_COLUMNS) == len(set(FEATURE_COLUMNS))
     assert not any(name.startswith("foo_") for name in FEATURE_COLUMNS)
@@ -118,7 +122,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 13
+    assert MACRO_FEATURE_VIEW_VERSION == 14
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -145,6 +149,13 @@ def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert _FEATURES_VIEW_COLUMNS_EXPECTED[:2] == ("timestamp_m1", "available_at_utc")
     assert _FEATURES_VIEW_COLUMNS_EXPECTED[2:] == FEATURE_COLUMNS[1:]
     assert 'raw."available_at_utc" AS "available_at_utc"' in _FEATURES_VIEW_DDL
+    for series in OHLC_SERIES:
+        for field in OHLC_FIELDS:
+            name = f"{series}_{field}"
+            assert name in FEATURE_COLUMNS
+            assert f'raw."{name}" AS "{name}"' in _FEATURES_VIEW_DDL
+    assert len([spec for spec in FEATURE_CATALOG if spec.family == "raw_ohlc"]) == 24
+    assert not any("range" in spec.name or "stoch" in spec.name for spec in FEATURE_CATALOG)
     assert '"vix_log_level"' in _FEATURES_VIEW_DDL
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
@@ -176,8 +187,12 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert len([spec for spec in FEATURE_CATALOG if spec.family == "ema_trend"]) == (
         len(PRICE_FEATURE_SERIES) * len(EMA_OUTPUT_SUFFIXES)
     )
-    assert len(_MIGRATIONS) == 24
-    final_migration_sql = " ".join(_MIGRATIONS[23])
+    assert len(_MIGRATIONS) == 25
+    final_migration_sql = " ".join(_MIGRATIONS[24])
+    assert 'ALTER TABLE "macro_loader"."macro_raw"' in final_migration_sql
+    assert 'ADD COLUMN IF NOT EXISTS "vix_open" DOUBLE PRECISION NULL' in final_migration_sql
+    assert "DROP TABLE" not in final_migration_sql
+    assert "version=14" in final_migration_sql
     assert "DROP MATERIALIZED VIEW" in final_migration_sql
     assert f"version={MACRO_FEATURE_VIEW_VERSION}" in final_migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in final_migration_sql
@@ -212,8 +227,8 @@ def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> Non
     assert "lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3" in _FEATURES_VIEW_DDL
     signed_seed = "CASE WHEN input.levels[1] IS NOT NULL THEN 1 ELSE 0 END AS seed_count"
     assert signed_seed in _FEATURES_VIEW_DDL
-    assert len(_MIGRATIONS) == 24
+    assert len(_MIGRATIONS) == 25
     migration_sql = " ".join(_MIGRATIONS[-1])
     assert "DROP MATERIALIZED VIEW" in migration_sql
-    assert "version=13" in migration_sql
+    assert "version=14" in migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql

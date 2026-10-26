@@ -6,26 +6,36 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-172 is merged to `origin/main` as GitHub PR #172, following PR-171.
-PR-172 adds EMA-level trend features; PR-171 adds level-only composite/statistical features;
+As of 2026-10-26, PR-173 is merged to `origin/main` as GitHub PR #173, following PR-172.
+PR-173 adds relative MACD features; PR-172 adds EMA-level trend features; PR-171 adds
+level-only composite/statistical features;
 PR-170 completes the scalar-level return/trend windows; PR-169 adds the bounded daily-pipeline
 core budget. PR-168 retires Fed-policy
 acquisition/runtime paths and removes those features from the serving contract, but it
 does not establish production database or installed host-crontab state.
-PR-173 is the active backlog implementation for relative MACD trend features; no MACD
-view columns are available until that PR is merged.
+PR-174 is the active backlog implementation to preserve native OHLC inputs through Gold
+and PostgreSQL; OHLC fields are not yet in either schema.
 No production migration or host-crontab change has been performed as part of this work.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
 
-The executable Gold contract is currently schema version **7** and feature version
+The executable Gold contract is currently schema version **8** and feature version
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
 `macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
 rebuilt or refreshed from that table and is the serving projection for the causal
 feature catalog. It uses every available `macro_raw.timestamp_m1`; pre-2010 rows are
 not filtered out and remain NULL where the source or causal warm-up does not provide a
 value.
+
+Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
+then registry-derived native OHLC fields in series-major order with `open`, `high`,
+`low`, `close` per series. The OHLC series are `vix`, `vix9d`, `vix3m`, `vix6m`,
+`vix1y`, and `move`, yielding 24 nullable Float64 fields (`vix_open` through
+`move_close`). PostgreSQL `macro_raw` stores the same 24 nullable `DOUBLE PRECISION`
+values after its generated `available_at_utc` column; `macro_features` exposes these
+raw values through its closed-world feature catalog. Scalar series have no OHLC fields.
+These are inputs only; OHLC-derived indicators remain separate transformations.
 
 ## System Purpose
 
@@ -546,15 +556,16 @@ XETRA's `exponential_moving_average` helper.
 | `_ema9_slope_3` | `(EMA9[t]-EMA9[t-3 source rows])/(3*level)` | Requires positive current level and defined EMA9 at both endpoints. |
 | `_ema5_ema9_cross` | `1` upward, `-1` downward, otherwise `0` | NULL until EMA5 and EMA9 are defined for both current and immediately prior source rows. |
 
-All outputs are causal and use no calendar fill. PR-173 is actively implementing the
-relative MACD family; these outputs are not yet part of the merged version-12 view.
-The contract specifies `(EMA12-EMA26)/level`, `(MACD_line-EMA9_signal)/level`, and the
+All outputs are causal and use no calendar fill. Merged PR-173 adds relative MACD to the
+version-13 view. The outputs are `(EMA12-EMA26)/level`,
+`(MACD_line-EMA9_signal)/level`, and the
 three-source-row relative histogram delta. Price EMAs use positive-level arithmetic
 seeds; the EMA-9 signal seed accepts negative and zero MACD-line values and resets on NULL.
 This follows XETRA's [MACD EMA CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
 and [relative output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
-OHLC/volume-derived features and instrument-panel dispersion remain separate follow-up
-work; breadth is out of scope.
+PR-174 adds the raw OHLC inputs to Gold and PostgreSQL; OHLC-derived indicators remain
+follow-up work. Volume and instrument-panel dispersion remain separate follow-up work;
+breadth is out of scope.
 
 PR-168's merged runtime and serving contract removes Fed-policy acquisition,
 calculations, stores, commands, and serving columns. This merge does not assert production
