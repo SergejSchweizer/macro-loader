@@ -294,6 +294,22 @@ autocorrelation; no Fed log or geometric-return transform is defined. The view
 is explicitly refreshed after a successful raw-table delta and exposes the complete
 available `macro_raw` timestamp history, including pre-2010 observations.
 
+### PR-167 availability-time contract (implementation in progress)
+
+The PR-167 implementation contract adds a generated, non-null `available_at_utc`
+to PostgreSQL-serving table `macro_loader.macro_raw`; the `macro_features`
+materialized view exposes the same value. For a UTC observation date represented
+by `timestamp_m1`, availability is `00:00:00 UTC` on the first Monday-Friday date
+strictly after that observation date. Weekends therefore roll forward to Monday.
+Public holidays are not excluded: these data span market calendars and this
+serving contract uses a generic weekday-only calendar.
+
+This is PostgreSQL-serving metadata, not a canonical Gold timestamp or a change to
+the existing Fed source availability. FedWatch snapshots keep their source-specific
+end-of-observation-day availability (`23:59:59.999999Z`). This documents the PR's
+intended behavior; it does not claim the schema change has already been deployed
+to production.
+
 The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 
 A semantic `schema_version` or `feature_version` mismatch fails closed; it never triggers a hidden full rewrite. PostgreSQL delete semantics affect only the rebuildable serving replica and do not alter Bronze, Silver, immutable Gold, or source-history retention rules.
