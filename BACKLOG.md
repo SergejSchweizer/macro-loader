@@ -13,9 +13,9 @@ Last reviewed: 2026-10-26
 PR name: `retire-fed-policy-feature-pipeline`
 Status: In Progress
 Updated: 2026-10-26
-PR: pending
+PR: #168
 Git branch: `pr-168/retire-fed-policy-feature-pipeline`
-Git status: active-clean
+Git status: pushed-ci-green
 Agent lane: Fed runtime/download retirement and PostgreSQL serving retirement; two agents
 Depends on: PR-167
 Commit: `2e4b93e`, `8d89eba`
