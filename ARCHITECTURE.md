@@ -6,9 +6,10 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-168 is merged to `origin/main` as GitHub PR #168. It retires
-Fed-policy acquisition/runtime paths and removes those features from the serving
-contract, but it does not establish production database or installed host-crontab state.
+As of 2026-10-26, PR-169 is merged to `origin/main` as GitHub PR #169, following PR-168.
+PR-169 adds the bounded daily-pipeline core budget. PR-168 retires Fed-policy
+acquisition/runtime paths and removes those features from the serving contract, but it
+does not establish production database or installed host-crontab state.
 No production migration or host-crontab change has been performed as part of this work.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
@@ -464,6 +465,18 @@ The feature catalog uses an explicit domain policy: positive-level XETRA familie
 for `PRICE_FEATURE_SERIES`. Signed/non-price levels such as `estr` remain raw inputs and
 may receive source-unit delta/momentum features, but never silently enter a logarithmic
 or price-domain formula.
+
+The PostgreSQL `macro_features` view contract version 10 includes these observation
+windows for every `PRICE_FEATURE_SERIES`: log returns `1/2/3/4/5/8/10/20`, geometric
+returns `4/5/8/10/16/20`, mean log returns `5/10/20`, sample log-return volatility
+`5/8/10/20/32/40/96`, SMA ratios `5/15`, `5/20`, `10/20`, and `10/40`, Wilder RSI
+`3/5/7/14`, ROC `1/2/3/4/5/8/10/20`, and rolling drawdown `20/32/60/96`. Rolling
+calculations use causal complete valid-observation windows; RSI preserves its established
+Wilder recurrence and warm-up, with fully flat gain/loss windows as NULL and all-gain/all-loss
+windows as 100/0. Geometric-return values are decimal
+fractions despite their `_pct` suffix. This extension changes only the PostgreSQL
+serving-view catalog and SQL, not canonical Gold or `macro_raw`; it adds no OHLC, volume,
+market-breadth, or dispersion features.
 
 PR-168's merged runtime and serving contract removes Fed-policy acquisition,
 calculations, stores, commands, and serving columns. This merge does not assert production

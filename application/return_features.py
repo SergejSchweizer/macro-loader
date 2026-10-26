@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-LOG_RETURN_WINDOWS: tuple[int, ...] = (1, 3, 5, 10, 20)
-RETURN_WINDOWS: tuple[int, ...] = (5, 10, 20)
+LOG_RETURN_WINDOWS: tuple[int, ...] = (1, 2, 3, 4, 5, 8, 10, 20)
+RETURN_WINDOWS: tuple[int, ...] = (4, 5, 8, 10, 16, 20)
 RETURN_MEAN_WINDOWS: tuple[int, ...] = (5, 10, 20)
-VOLATILITY_WINDOWS: tuple[int, ...] = (5, 10, 20, 40)
+VOLATILITY_WINDOWS: tuple[int, ...] = (5, 8, 10, 20, 32, 40, 96)
 
 
 def _validate_windows(windows: Sequence[int]) -> None:

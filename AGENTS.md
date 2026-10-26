@@ -2,8 +2,9 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-26): PR-168 is merged to `origin/main` as GitHub PR
-#168. PR-169, `pr-169/parallel-daily-core-budget`, is the active implementation branch.
+Current delivery status (2026-10-26): PR-169 is merged to `origin/main` as GitHub PR
+#169. PR-170, `pr-170/complete-scalar-level-feature-windows`, is the active implementation
+branch.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization.
 
