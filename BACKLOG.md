@@ -11,14 +11,14 @@ Last reviewed: 2026-10-26
 ### PR-173: Add Relative MACD Trend Features
 
 PR name: `add-relative-macd-features`
-Status: Open
+Status: Merged
 Updated: 2026-10-26
 PR: #173
 Git branch: `pr-173/add-relative-macd-features`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: PostgreSQL MACD implementation and independent mathematical/schema QA; two agents
 Depends on: PR-172
-Commit: `2cdfab3` (implementation), `922504f` (documentation and independent QA)
+Commit: `17cbae3` (PR #173 squash merge; head `9f00814`)
 Design patterns: Pure Transformation, Materialized View.
 
 Description:
@@ -58,38 +58,49 @@ Acceptance:
 ### PR-174: Preserve OHLC Inputs Through Gold And PostgreSQL
 
 PR name: `preserve-ohlc-fields`
-Status: Planned
+Status: In Progress
 Updated: 2026-10-26
-PR: TBD
+PR: #174
 Git branch: `pr-174/preserve-ohlc-fields`
-Git status: Planned
+Git status: pushed-local-checks-passed
 Agent lane: canonical OHLC propagation implementation and independent Gold/PostgreSQL schema/data QA; two agents
 Depends on: PR-173
-Commit: Pending
+Commit: `a428c67` (OHLC implementation), `e77edd1` (migration and PostgreSQL QA), `dbe6f5b` (acceptance metadata)
 Design patterns: Registry-driven Projection, Repository, Versioned Migration.
 
 Description:
-- Preserve native `open`, `high`, `low`, and `close` values losslessly for each registered
-  OHLC series from Silver through canonical Gold and PostgreSQL `macro_raw`; expose them
-  via the closed-world `macro_features` projection for later transformations.
-- Derive eligible sources from the registry native-shape contract (currently `vix`,
-  `vix9d`, `vix3m`, `vix6m`, `vix1y`, and `move`). Scalar-series OHLC remain NULL; do not
-  fabricate observations. `close == value == <series>_level`.
-- Include OHLC values in Gold/PostgreSQL schema and row digests; bump Gold schema version
-  to 8 and add PostgreSQL migration 25. Preserve current level and generated
-  `available_at_utc` behavior; do not add derived OHLC features, volume, breadth, or
-  dispersion in this PR.
+- R1: Preserve native `open`, `high`, `low`, and `close` values losslessly for each
+  registry series with native shape `OHLC` from Silver through canonical Gold and
+  PostgreSQL `macro_raw`. The eligible set is registry-derived (currently `vix`,
+  `vix9d`, `vix3m`, `vix6m`, `vix1y`, `move`); scalar series receive no OHLC Gold/raw
+  columns. `close == value == <series>_level` for OHLC sources.
+- R2: Expose those 24 source OHLC fields as nullable `DOUBLE PRECISION` passthrough
+  columns in the closed-world `macro_features` view for subsequent feature PRs. Do not
+  add OHLC-derived indicators, `volume`, breadth, or dispersion in this PR.
+- R3: Include OHLC values in canonical Gold's ordered schema and PostgreSQL sync payload,
+  row digests, and insert/update comparison. Bump Gold schema version to 8, append
+  PostgreSQL migration 25, and bump the feature-view contract to version 14. Preserve
+  existing level and generated `available_at_utc` semantics; do not fabricate observations.
+  On a genuinely empty install, avoid rebuilding the same final materialized view for
+  superseded historical migrations; publish the current view once at migration 25. Keep
+  the PostgreSQL statement timeout finite but long enough for the current large view to
+  be planned during migration and refresh.
+- R4: Update README/ARCHITECTURE with the exact eligible series, field names, ordering,
+  nullability, and Gold/PostgreSQL propagation contract.
 
 Acceptance:
-- Independent fixtures prove all four Silver OHLC fields reach Gold unchanged for all
-  six OHLC series, scalar OHLC stays NULL, and no extra dates are created.
-- Gold sync payloads, row hashes, insert/update comparison, and PostgreSQL rows include
-  the values; an OHLC-only revision is detected.
-- Clean create and migration-24-to-25 disposable-PostgreSQL tests prove exact ordered raw
-  and view columns/types/nullability, ledger/version/fingerprint, and preservation of all
-  level and availability fields.
-- Docs are accurate and full local `make quality-gate` passes. No production migrations,
-  cron, GitHub Actions, or live database writes.
+- A1 (verifies R1): Independent fixtures prove all four Silver OHLC values reach the
+  corresponding Gold columns unchanged for all six registry-derived OHLC series;
+  `close == value == <series>_level`; scalar series add no OHLC columns; no extra dates
+  are created.
+- A2 (verifies R2/R3): PostgreSQL raw sync payloads, row hashes, insert/update comparison,
+  and view output include all 24 fields. An OHLC-only revision is detected. Clean-create
+  and migration-24-to-25 disposable-PostgreSQL tests prove exact ordered schemas, types,
+  nullability, ledger, version 14/fingerprint, and preservation of level and
+  `available_at_utc` fields.
+- A3 (verifies R4): Docs match executable contracts; full local `make quality-gate` passes.
+  Use only disposable PostgreSQL fixtures; no production migrations, live DB writes, cron,
+  or GitHub Actions.
 
 ### PR-172: Add EMA-Level Trend Features
 

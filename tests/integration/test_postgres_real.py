@@ -154,6 +154,34 @@ _QA_RAW_SERIES = (
     "usd_broad",
 )
 _QA_PRICE_SERIES = tuple(series for series in _QA_RAW_SERIES if series != "estr")
+# Frozen in catalog order (series, then open/high/low/close); intentionally
+# independent of the production registry/catalog.
+_QA_OHLC_COLUMNS = (
+    "vix_open",
+    "vix_high",
+    "vix_low",
+    "vix_close",
+    "vix9d_open",
+    "vix9d_high",
+    "vix9d_low",
+    "vix9d_close",
+    "vix3m_open",
+    "vix3m_high",
+    "vix3m_low",
+    "vix3m_close",
+    "vix6m_open",
+    "vix6m_high",
+    "vix6m_low",
+    "vix6m_close",
+    "vix1y_open",
+    "vix1y_high",
+    "vix1y_low",
+    "vix1y_close",
+    "move_open",
+    "move_high",
+    "move_low",
+    "move_close",
+)
 _QA_LOG_WINDOWS = (1, 2, 3, 4, 5, 8, 10, 20)
 _QA_GEOMETRIC_WINDOWS = (4, 5, 8, 10, 16, 20)
 _QA_MEAN_WINDOWS = (5, 10, 20)
@@ -168,6 +196,7 @@ def _qa_expected_view_columns() -> tuple[str, ...]:
     """Frozen complete consumer order, independent of the executable catalog."""
     columns = ["timestamp_m1", "available_at_utc"]
     columns.extend(f"{series}_log_level" for series in _QA_PRICE_SERIES)
+    columns.extend(_QA_OHLC_COLUMNS)
     for series in _QA_RAW_SERIES[:7]:
         columns.extend(f"{series}_delta_{lag}obs" for lag in (1, 5, 20))
         columns.append(f"{series}_zscore_60obs")

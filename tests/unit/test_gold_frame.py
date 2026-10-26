@@ -13,6 +13,7 @@ from application.gold_frame import (
     GoldSemanticVersions,
     assemble_gold_frame,
 )
+from application.registry import OHLC_FIELDS, OHLC_SERIES, SERIES_REGISTRY
 from application.silver import SILVER_SCHEMA
 
 START = date(2026, 1, 1)
@@ -51,9 +52,10 @@ def test_raw_gold_has_only_source_levels_and_provenance() -> None:
     assert build.frame.columns == [
         "timestamp_m1",
         *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
+        *(f"{series_id}_{field}" for series_id in OHLC_SERIES for field in OHLC_FIELDS),
     ]
     assert build.frame.item(1, "vix_level") == pytest.approx(2.0)
-    assert build.schema_version == GOLD_SCHEMA_VERSION == 7
+    assert build.schema_version == GOLD_SCHEMA_VERSION == 8
     assert build.feature_version == GOLD_FEATURE_VERSION == 6
     assert [item.series_id for item in build.inputs] == list(GOLD_SOURCE_SERIES)
     assert all(len(item.sha256) == 64 for item in build.inputs)
@@ -70,6 +72,51 @@ def test_gold_outer_joins_original_levels_without_calendar_fill() -> None:
     assert build.frame.height == 3
     assert build.frame.item(1, "vix_level") is None
     assert build.frame.item(1, "ciss_level") == pytest.approx(2.0)
+
+
+def test_gold_preserves_registry_ohlc_and_excludes_scalar_columns() -> None:
+    silver = _all_silver(2)
+    expected_dates = [START, START + timedelta(days=1)]
+    for index, series_id in enumerate(OHLC_SERIES, start=1):
+        silver[series_id] = silver[series_id].with_columns(
+            pl.Series("open", [index * 10.0 + 1, index * 10.0 + 2]),
+            pl.Series("high", [index * 10.0 + 3, index * 10.0 + 4]),
+            pl.Series("low", [index * 10.0 - 1, index * 10.0]),
+            pl.Series("close", [index * 10.0 + 5, index * 10.0 + 6]),
+            pl.Series("value", [index * 10.0 + 5, index * 10.0 + 6]),
+        )
+
+    build = assemble_gold_frame(silver)
+
+    assert build.frame.height == len(expected_dates)
+    assert build.frame.get_column("timestamp_m1").to_list() == [
+        datetime.combine(day, datetime.min.time(), tzinfo=UTC) for day in expected_dates
+    ]
+    for series_id in OHLC_SERIES:
+        registry_index = OHLC_SERIES.index(series_id) + 1
+        expected_values = {
+            "open": [registry_index * 10.0 + 1, registry_index * 10.0 + 2],
+            "high": [registry_index * 10.0 + 3, registry_index * 10.0 + 4],
+            "low": [registry_index * 10.0 - 1, registry_index * 10.0],
+            "close": [registry_index * 10.0 + 5, registry_index * 10.0 + 6],
+        }
+        for field in OHLC_FIELDS:
+            assert build.frame.schema[f"{series_id}_{field}"] == pl.Float64
+            assert (
+                build.frame.get_column(f"{series_id}_{field}").to_list() == expected_values[field]
+            )
+        close = build.frame.get_column(f"{series_id}_close")
+        level = build.frame.get_column(f"{series_id}_level")
+        assert close.to_list() == level.to_list()
+        assert close.null_count() == 0
+    scalar_series = tuple(
+        series_id for series_id, contract in SERIES_REGISTRY.items() if series_id not in OHLC_SERIES
+    )
+    assert all(
+        f"{series_id}_{field}" not in build.frame.columns
+        for series_id in scalar_series
+        for field in OHLC_FIELDS
+    )
 
 
 def test_gold_rejects_non_finite_source_levels() -> None:

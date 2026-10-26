@@ -12,7 +12,13 @@ from application.gold_catalog import (
     GoldCatalogRecord,
     GoldCompatibility,
 )
-from application.gold_frame import GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION, GOLD_SOURCE_SERIES
+from application.gold_frame import (
+    GOLD_COLUMNS,
+    GOLD_FEATURE_VERSION,
+    GOLD_SCHEMA_VERSION,
+    GOLD_SOURCE_SERIES,
+)
+from application.registry import OHLC_FIELDS, OHLC_SERIES
 
 POSTGRES_DATASET_ID = "macro_features_daily"
 POSTGRES_CONSUMER_SCHEMA = "macro_loader"
@@ -23,10 +29,11 @@ POSTGRES_ROW_HASH_TABLE = "gold_row_hashes"
 POSTGRES_TIMESTAMP_COLUMN = "timestamp_m1"
 POSTGRES_TIMESTAMP_SQL_TYPE = "TIMESTAMPTZ(6)"
 POSTGRES_SESSION_TIMEZONE = "UTC"
-POSTGRES_RAW_COLUMNS = (
-    "timestamp_m1",
-    *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
+POSTGRES_LEVEL_COLUMNS = tuple(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES)
+POSTGRES_OHLC_COLUMNS = tuple(
+    f"{series_id}_{field}" for series_id in OHLC_SERIES for field in OHLC_FIELDS
 )
+POSTGRES_RAW_COLUMNS = GOLD_COLUMNS
 TransactionResult = TypeVar("TransactionResult")
 
 
@@ -47,7 +54,7 @@ class GoldRowPayload:
         object.__setattr__(self, "timestamp_m1", _utc(self.timestamp_m1))
         if len(self.values) != len(POSTGRES_RAW_COLUMNS) - 1:
             raise ValueError(
-                "PostgreSQL raw row payload length does not match source level columns"
+                "PostgreSQL raw row payload length does not match canonical Gold columns"
             )
 
 

@@ -11,12 +11,12 @@ import polars as pl
 
 from application.macro_features import MACRO_SERIES
 from application.momentum_features import momentum_feature_columns
-from application.registry import SERIES_REGISTRY
+from application.registry import OHLC_FIELDS, OHLC_SERIES, SERIES_REGISTRY
 from application.return_features import return_feature_columns
 from application.silver import SILVER_SCHEMA
 from application.volatility_features import VOLATILITY_SERIES
 
-GOLD_SCHEMA_VERSION = 7
+GOLD_SCHEMA_VERSION = 8
 GOLD_FEATURE_VERSION = 6
 GOLD_SOURCE_SERIES = tuple(SERIES_REGISTRY)
 
@@ -70,6 +70,7 @@ MACRO_FEATURE_COLUMNS = momentum_feature_columns(MACRO_SERIES) + return_feature_
 GOLD_COLUMNS = (
     "timestamp_m1",
     *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
+    *(f"{series_id}_{field}" for series_id in OHLC_SERIES for field in OHLC_FIELDS),
 )
 
 
@@ -82,7 +83,7 @@ class GoldSemanticVersions:
 
     def __post_init__(self) -> None:
         if self.schema_version != GOLD_SCHEMA_VERSION:
-            raise ValueError("schema_version is source-controlled and fixed at 7")
+            raise ValueError("schema_version is source-controlled and fixed at 8")
         if self.feature_version != GOLD_FEATURE_VERSION:
             raise ValueError("feature_version is source-controlled and fixed at 6")
 
@@ -187,7 +188,7 @@ def assemble_gold_frame(
     *,
     versions: GoldSemanticVersions = GOLD_VERSIONS,
 ) -> GoldFrameBuild:
-    """Outer-join original Silver levels into the exact canonical Gold frame."""
+    """Outer-join Silver levels and native OHLC into Gold without filling dates."""
     frames = [
         _validate_silver(series_id, silver_by_series[series_id]).select(
             pl.col("observation_date")
@@ -195,6 +196,11 @@ def assemble_gold_frame(
             .dt.replace_time_zone("UTC")
             .alias("timestamp_m1"),
             pl.col("value").alias(f"{series_id}_level"),
+            *(
+                [pl.col(field).alias(f"{series_id}_{field}") for field in OHLC_FIELDS]
+                if series_id in OHLC_SERIES
+                else []
+            ),
         )
         for series_id in GOLD_SOURCE_SERIES
     ]

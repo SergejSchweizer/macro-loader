@@ -126,7 +126,7 @@ def test_feature_set_hash_covers_order_dtype_versions_and_formula_parameters() -
     base = feature_set_sha256(frame)
     assert len(base) == 64
     assert base == feature_set_sha256(frame)
-    assert base != feature_set_sha256(frame, schema_version=8)
+    assert base != feature_set_sha256(frame, schema_version=7)
     assert base != feature_set_sha256(frame, feature_version=7)
     changed_formula = gold_formula_parameters(
         volatility_policy=VolatilityFeaturePolicy(delta_lags=(1, 5, 20)),

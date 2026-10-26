@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
+from application.registry import OHLC_FIELDS, OHLC_SERIES
 from application.return_features import (
     LEVEL_ZSCORE_WINDOW,
     LOG_RETURN_WINDOWS,
@@ -34,7 +35,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 13
+MACRO_FEATURE_VIEW_VERSION = 14
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -83,6 +84,16 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 series,
                 "ln(source level) when source level is positive",
             )
+        )
+    for series in OHLC_SERIES:
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_{field}",
+                "raw_ohlc",
+                series,
+                f"source {field} passthrough from native OHLC observation",
+            )
+            for field in OHLC_FIELDS
         )
     for series in VOLATILITY_SERIES:
         specs.extend(
@@ -316,6 +327,9 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog contains incomplete metadata")
     if tuple(spec.name for spec in catalog if spec.family == "raw_log") != RAW_COLUMNS:
         raise ValueError("macro feature catalog raw-log order/coverage mismatch")
+    expected_ohlc = tuple(f"{series}_{field}" for series in OHLC_SERIES for field in OHLC_FIELDS)
+    if tuple(spec.name for spec in catalog if spec.family == "raw_ohlc") != expected_ohlc:
+        raise ValueError("macro feature catalog raw-OHLC order/coverage mismatch")
     for family in PRICE_FEATURE_FAMILIES:
         family_series = {spec.series for spec in catalog if spec.family == family}
         if family_series != set(PRICE_FEATURE_SERIES):

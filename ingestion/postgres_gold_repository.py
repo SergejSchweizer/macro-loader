@@ -26,6 +26,8 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
+    POSTGRES_LEVEL_COLUMNS,
+    POSTGRES_OHLC_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SESSION_TIMEZONE,
@@ -38,6 +40,7 @@ from application.postgres_sync import (
     GoldSyncTransaction,
     GoldTargetSummary,
 )
+from application.registry import OHLC_FIELDS, OHLC_SERIES
 from application.return_features import (
     LEVEL_ZSCORE_WINDOW,
     LOG_RETURN_WINDOWS,
@@ -103,7 +106,7 @@ class PostgresTimeoutPolicy:
 
     connect_timeout_seconds: int = 5
     lock_timeout_ms: int = 5_000
-    statement_timeout_ms: int = 120_000
+    statement_timeout_ms: int = 300_000
     idle_in_transaction_timeout_ms: int = 30_000
     application_name: str = POSTGRES_APPLICATION_NAME
 
@@ -358,7 +361,6 @@ _RETIRED_FED_VIEW_COLUMN_DEFS = ", ".join(
 _CONSUMER = f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(POSTGRES_CONSUMER_TABLE)}"
 _SYNC_STATE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_SYNC_STATE_TABLE)}"
 _ROW_HASHES = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_ROW_HASH_TABLE)}"
-_FEATURE_COLUMNS = POSTGRES_RAW_COLUMNS[1:]
 _RAW_FEATURE_COLUMNS = POSTGRES_RAW_COLUMNS[1:]
 _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
@@ -373,7 +375,6 @@ _RETIRED_LEGACY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_legacy_raw_co
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
-_CONSUMER_COLUMNS = _FEATURE_COLUMNS
 _AVAILABLE_AT_EXPRESSION = """(
     (
         ("timestamp_m1" AT TIME ZONE 'UTC')::date
@@ -389,11 +390,18 @@ _AVAILABLE_AT_COLUMN_DDL = (
     f"{_quote('available_at_utc')} TIMESTAMPTZ(6) "
     f"GENERATED ALWAYS AS ({_AVAILABLE_AT_EXPRESSION}) STORED NOT NULL"
 )
+_LEVEL_COLUMN_DEFS = ",\n    ".join(
+    f"{_quote(column)} DOUBLE PRECISION NULL" for column in POSTGRES_LEVEL_COLUMNS
+)
+_OHLC_COLUMN_DEFS = ",\n    ".join(
+    f"{_quote(column)} DOUBLE PRECISION NULL" for column in POSTGRES_OHLC_COLUMNS
+)
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
-    {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _CONSUMER_COLUMNS)},
-    {_AVAILABLE_AT_COLUMN_DDL}
+    {_LEVEL_COLUMN_DEFS},
+    {_AVAILABLE_AT_COLUMN_DDL},
+    {_OHLC_COLUMN_DEFS}
 )"""
 _SYNC_STATE_DDL = f"""CREATE TABLE IF NOT EXISTS {_SYNC_STATE} (
     dataset_id TEXT PRIMARY KEY,
@@ -420,6 +428,13 @@ _MIGRATION_LEDGER_DDL = f"""CREATE TABLE IF NOT EXISTS {_MIGRATION_LEDGER} (
 )"""
 _AVAILABLE_AT_COLUMN_MIGRATION = (
     f"ALTER TABLE {_CONSUMER} ADD COLUMN IF NOT EXISTS {_AVAILABLE_AT_COLUMN_DDL}",
+)
+_OHLC_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+        for column in POSTGRES_OHLC_COLUMNS
+    ),
 )
 _OWNERSHIP_MIGRATIONS = tuple(
     f"ALTER TABLE IF EXISTS {_quote(schema)}.{_quote(table)} "
@@ -1069,6 +1084,15 @@ def _macro_features_view_query() -> str:
     feature_expressions = {
         expression.rsplit(".", 1)[-1].strip('"'): expression for expression in feature_select
     }
+    feature_expressions.update(
+        {
+            f"{series}_{field}": (
+                f"raw.{_quote(f'{series}_{field}')} AS {_quote(f'{series}_{field}')}"
+            )
+            for series in OHLC_SERIES
+            for field in OHLC_FIELDS
+        }
+    )
     ordered_features = [
         feature_expressions.get(column, cross_expressions.get(column, ""))
         for column in _FEATURES_VIEW_COLUMNS
@@ -1345,9 +1369,13 @@ _SCHEMA_SPECIFICATION = (
         (_TIMESTAMPTZ6_NOT_NULL,)
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
-            for column in _FEATURE_COLUMNS
+            for column in POSTGRES_LEVEL_COLUMNS
         )
-        + (PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),),
+        + (PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),)
+        + tuple(
+            PostgresColumnSpecification(column, "double precision", None, True)
+            for column in POSTGRES_OHLC_COLUMNS
+        ),
         ("timestamp_m1",),
     ),
     PostgresTableSpecification(
@@ -1422,6 +1450,8 @@ _MIGRATIONS = (
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-173's private signed MACD signal EMA and relative outputs.
     _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Preserve native OHLC fields without dropping or rewriting existing raw rows.
+    _OHLC_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -1507,6 +1537,20 @@ def _session_configuration(policy: PostgresTimeoutPolicy) -> tuple[str, ...]:
         f"SET lock_timeout = '{policy.lock_timeout_ms}ms'",
         f"SET statement_timeout = '{policy.statement_timeout_ms}ms'",
         f"SET idle_in_transaction_session_timeout = '{policy.idle_in_transaction_timeout_ms}ms'",
+    )
+
+
+def _is_features_view_publication_statement(statement: str) -> bool:
+    """Identify migration SQL that publishes or alters the serving materialized view."""
+    return statement.startswith(
+        (
+            f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW}",
+            f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW}",
+            f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW}",
+            f"GRANT SELECT ON {_FEATURES_VIEW}",
+            f"REVOKE ALL ON {_FEATURES_VIEW}",
+            f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW}",
+        )
     )
 
 
@@ -2139,6 +2183,14 @@ class PostgresGoldSchemaMigrator:
                 applied_versions = tuple(
                     _as_int(row[0], "migration version") for row in cursor.fetchall()
                 )
+                cursor.execute(
+                    "SELECT to_regclass(%s), to_regclass(%s)",
+                    (_CONSUMER, _FEATURES_VIEW),
+                )
+                existing_market_objects = cursor.fetchone()
+                if existing_market_objects is None or len(existing_market_objects) != 2:
+                    raise ValueError("PostgreSQL fresh-schema probe returned unexpected shape")
+                fresh_install = not applied_versions and existing_market_objects == (None, None)
                 expected_versions = tuple(range(1, len(_MIGRATIONS) + 1))
                 if any(version not in expected_versions for version in applied_versions):
                     raise ValueError(
@@ -2148,6 +2200,12 @@ class PostgresGoldSchemaMigrator:
                     if version in applied_versions:
                         continue
                     for statement in statements:
+                        if (
+                            fresh_install
+                            and version < len(_MIGRATIONS)
+                            and _is_features_view_publication_statement(statement)
+                        ):
+                            continue
                         cursor.execute(statement)
                     cursor.execute(
                         f"INSERT INTO {_MIGRATION_LEDGER} (version, applied_at_utc) "

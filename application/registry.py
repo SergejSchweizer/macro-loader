@@ -146,6 +146,12 @@ INITIAL_SERIES: tuple[SeriesContract, ...] = (
 )
 
 SERIES_REGISTRY = validate_series_registry(INITIAL_SERIES)
+OHLC_SERIES = tuple(
+    series_id
+    for series_id, contract in SERIES_REGISTRY.items()
+    if contract.native_shape is NativeShape.OHLC
+)
+OHLC_FIELDS = ("open", "high", "low", "close")
 
 
 def series_contract(series_id: str) -> SeriesContract:
