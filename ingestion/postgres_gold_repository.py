@@ -49,6 +49,8 @@ from application.return_features import (
 )
 from application.trend_features import (
     DRAWDOWN_WINDOWS,
+    EMA_OUTPUT_SUFFIXES,
+    EMA_PERIODS,
     ROC_WINDOWS,
     RSI_COMPOSITE_INTERNAL_WINDOW,
     RSI_WINDOWS,
@@ -260,6 +262,40 @@ def _default_connection(config: PostgresConnectionConfig) -> ConnectionPort:
 
 def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _ema_state_cte(series: str, period: int) -> str:
+    """Build the private, resettable SMA-seeded EMA recurrence for one source series."""
+    cte = _quote(f"{series}_ema_{period}_state")
+    level = _quote(f"{series}_level")
+    alpha = f"2.0 / {period + 1}.0"
+    next_index = "state.observation_index + 1"
+    next_level = f"input.levels[{next_index}]"
+    next_timestamp = f"input.timestamps[{next_index}]"
+    return (
+        f"{cte} AS MATERIALIZED (WITH RECURSIVE input AS ("
+        f"SELECT array_agg(timestamp_m1 ORDER BY timestamp_m1) AS timestamps, "
+        f"array_agg({level} ORDER BY timestamp_m1) AS levels FROM {_CONSUMER}), state AS ("
+        "SELECT 1 AS observation_index, input.timestamps[1] AS timestamp_m1, "
+        "input.levels[1] AS level, "
+        f"CASE WHEN input.levels[1] > 0 THEN 1 ELSE 0 END AS seed_count, "
+        f"CASE WHEN input.levels[1] > 0 THEN input.levels[1] ELSE 0.0 END AS seed_sum, "
+        "NULL::double precision AS ema FROM input WHERE cardinality(input.timestamps) > 0 "
+        "UNION ALL SELECT state.observation_index + 1, "
+        f"{next_timestamp}, {next_level}, "
+        f"CASE WHEN {next_level} > 0 THEN CASE WHEN state.ema IS NULL "
+        f"THEN state.seed_count + 1 ELSE {period} END ELSE 0 END AS seed_count, "
+        f"CASE WHEN {next_level} > 0 AND state.ema IS NULL "
+        f"THEN state.seed_sum + {next_level} ELSE 0.0 END AS seed_sum, "
+        f"CASE WHEN {next_level} IS NULL OR {next_level} <= 0 THEN NULL "
+        f"WHEN state.ema IS NOT NULL THEN {alpha} * {next_level} "
+        f"+ (1.0 - {alpha}) * state.ema "
+        f"WHEN state.seed_count + 1 >= {period} "
+        f"THEN (state.seed_sum + {next_level}) / {period}.0 "
+        "ELSE NULL END AS ema FROM state CROSS JOIN input "
+        "WHERE state.observation_index < cardinality(input.timestamps)) "
+        "SELECT timestamp_m1, ema FROM state)"
+    )
 
 
 _RETIRED_FED_RAW_UPDATES = ", ".join(
@@ -834,6 +870,65 @@ def _macro_features_view_query() -> str:
                 )
                 helper_selects.append(f"return_ac_{lag}.value AS {pair_column}")
 
+            for period in EMA_PERIODS:
+                source_ctes.append(_ema_state_cte(series, period))
+            ema_aligned = _quote(f"{series}_ema_aligned")
+            ema_history = _quote(f"{series}_ema_history")
+            ema_features = _quote(f"{series}_ema_features")
+            ema5_state = _quote(f"{series}_ema_5_state")
+            ema9_state = _quote(f"{series}_ema_9_state")
+            ema21_state = _quote(f"{series}_ema_21_state")
+            source_ctes.append(
+                f"{ema_aligned} AS MATERIALIZED (SELECT raw.timestamp_m1, "
+                f"raw.{_quote(f'{series}_level')} AS level, "
+                f"ema5.ema AS ema5, ema9.ema AS ema9, ema21.ema AS ema21 "
+                f"FROM {_CONSUMER} AS raw "
+                f"LEFT JOIN {ema5_state} AS ema5 ON ema5.timestamp_m1 = raw.timestamp_m1 "
+                f"LEFT JOIN {ema9_state} AS ema9 ON ema9.timestamp_m1 = raw.timestamp_m1 "
+                f"LEFT JOIN {ema21_state} AS ema21 ON ema21.timestamp_m1 = raw.timestamp_m1)"
+            )
+            source_ctes.append(
+                f"{ema_history} AS MATERIALIZED (SELECT *, "
+                "lag(ema5, 1) OVER ordered AS previous_ema5, "
+                "lag(ema9, 1) OVER ordered AS previous_ema9, "
+                "lag(ema9, 3) OVER ordered AS ema9_lag_3 "
+                f"FROM {ema_aligned} WINDOW ordered AS (ORDER BY timestamp_m1))"
+            )
+            source_ctes.append(
+                f"{ema_features} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"CASE WHEN level > 0 AND ema5 IS NOT NULL "
+                f"THEN level / NULLIF(ema5, 0.0) - 1.0 END AS "
+                f"{_quote(f'{series}_ema5_distance')}, "
+                f"CASE WHEN level > 0 AND ema9 IS NOT NULL "
+                f"THEN level / NULLIF(ema9, 0.0) - 1.0 END AS "
+                f"{_quote(f'{series}_ema9_distance')}, "
+                f"CASE WHEN level > 0 AND ema21 IS NOT NULL "
+                f"THEN level / NULLIF(ema21, 0.0) - 1.0 END AS "
+                f"{_quote(f'{series}_ema21_distance')}, "
+                f"CASE WHEN level > 0 AND ema5 IS NOT NULL AND ema21 IS NOT NULL "
+                f"THEN (ema5 - ema21) / NULLIF(level, 0.0) END AS "
+                f"{_quote(f'{series}_ema5_ema21_spread')}, "
+                f"CASE WHEN level > 0 AND ema9 IS NOT NULL AND ema9_lag_3 IS NOT NULL "
+                f"THEN (ema9 - ema9_lag_3) / (3.0 * level) END AS "
+                f"{_quote(f'{series}_ema9_slope_3')}, "
+                f"CASE WHEN level > 0 AND ema5 IS NOT NULL AND ema9 IS NOT NULL "
+                f"AND previous_ema5 IS NOT NULL AND previous_ema9 IS NOT NULL THEN "
+                "CASE WHEN ema5 > ema9 AND previous_ema5 <= previous_ema9 "
+                "THEN 1.0::double precision "
+                "WHEN ema5 < ema9 AND previous_ema5 >= previous_ema9 "
+                "THEN -1.0::double precision "
+                "ELSE 0.0::double precision END END AS "
+                f"{_quote(f'{series}_ema5_ema9_cross')} FROM {ema_history})"
+            )
+            helper_joins.append(
+                f"LEFT JOIN {ema_features} AS ema_features "
+                "ON ema_features.timestamp_m1 = base.timestamp_m1"
+            )
+            helper_selects.extend(
+                f"ema_features.{_quote(f'{series}_{suffix}')} AS {_quote(f'{series}_{suffix}')}"
+                for suffix in EMA_OUTPUT_SUFFIXES
+            )
+
         feature_extra = f", {', '.join(helper_selects)}" if helper_selects else ""
         source_ctes.append(
             f"{features} AS MATERIALIZED (SELECT base.*{feature_extra} FROM {feature_base} AS base "
@@ -856,6 +951,7 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_level_zscore_")
                 or column.startswith(f"{series}_roc_")
                 or column.startswith(f"{series}_drawdown_")
+                or column.startswith(f"{series}_ema")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
@@ -1229,6 +1325,8 @@ _MIGRATIONS = (
     # the extended scalar-level feature catalog without rewriting historical migrations.
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-171's level-only composite and statistical feature contract.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Publish PR-172's private EMA recurrence and six EMA trend outputs.
     _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name

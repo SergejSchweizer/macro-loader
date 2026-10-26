@@ -2,9 +2,9 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-26): PR-170 is merged to `origin/main` as GitHub PR
-#170. PR-171, `pr-171/level-only-composite-statistical-features`, is the active implementation
-branch. Per the user's instruction, GitHub Actions must remain disabled and must not be
+Current delivery status (2026-10-26): PR-171 is merged to `origin/main` as GitHub PR #171.
+PR-172, `pr-172/add-ema-level-trend-features`, is the active implementation branch. Per
+the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization.
@@ -33,7 +33,10 @@ If documents conflict, stop and fix the documentation contract in the current PR
 - Keep `Git status` in the backlog accurate while work is active. With local-only checks,
   use `pushed-local-checks-passed` only after pushing a branch whose local gate passed;
   use `merged` only after GitHub reports the PR merged.
-- Stop after the PR is pushed, required CI is green, auto-merge is enabled, and the PR is waiting for or has completed merge. Do not start the next PR in the same task unless orchestration explicitly assigns another dependency-independent PR to a different agent lane.
+- With GitHub Actions and remote quality gates retired, stop after the PR branch is pushed
+  and the local `make quality-gate` passes, with the PR waiting for or having completed
+  merge. Do not start the next PR in the same task unless orchestration explicitly assigns
+  another dependency-independent PR to a different agent lane.
 
 ## Architecture rules
 
