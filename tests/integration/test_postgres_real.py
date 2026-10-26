@@ -303,6 +303,13 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     migrator.migrate()
     repository.preflight_schema()
     with psycopg.connect(postgres_dsn) as connection:
+        availability_column = connection.execute(
+            """SELECT data_type, datetime_precision, is_nullable, is_generated,
+                      generation_expression
+               FROM information_schema.columns
+               WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw'
+                 AND column_name = 'available_at_utc'"""
+        ).fetchone()
         columns = connection.execute(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema = %s AND table_name = %s",
@@ -314,7 +321,16 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     assert {column[0] for column in columns} == {
         *POSTGRES_RAW_COLUMNS,
         *POSTGRES_FED_RAW_COLUMNS,
+        "available_at_utc",
     }
+    assert availability_column is not None
+    assert availability_column[:4] == (
+        "timestamp with time zone",
+        6,
+        "NO",
+        "ALWAYS",
+    )
+    assert availability_column[4]
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
 
     timestamp = _timestamp(20)
@@ -347,6 +363,49 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         assert connection.execute(
             "SELECT COUNT(*) FROM macro_loader_sync.gold_sync_state WHERE dataset_id = 'rollback'"
         ).fetchone() == (0,)
+
+
+@pytest.mark.integration
+def test_real_postgres_generated_availability_uses_next_weekday_in_raw_and_view(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    observations = (
+        datetime(2026, 10, 26, tzinfo=UTC),  # Monday -> Tuesday
+        datetime(2026, 10, 30, tzinfo=UTC),  # Friday -> Monday
+        datetime(2026, 10, 31, tzinfo=UTC),  # Saturday -> Monday
+        datetime(2026, 11, 1, tzinfo=UTC),  # Sunday -> Monday
+        datetime(2026, 11, 11, tzinfo=UTC),  # Veterans Day -> Thursday; holiday ignored
+    )
+    expected = (
+        datetime(2026, 10, 27, tzinfo=UTC),
+        datetime(2026, 11, 2, tzinfo=UTC),
+        datetime(2026, 11, 2, tzinfo=UTC),
+        datetime(2026, 11, 2, tzinfo=UTC),
+        datetime(2026, 11, 12, tzinfo=UTC),
+    )
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1") VALUES (%s)',
+                ((timestamp,) for timestamp in observations),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        raw_values = connection.execute(
+            """SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_raw
+               ORDER BY timestamp_m1"""
+        ).fetchall()
+        view_values = connection.execute(
+            """SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_features
+               ORDER BY timestamp_m1"""
+        ).fetchall()
+
+    assert raw_values == list(zip(observations, expected, strict=True))
+    assert view_values == list(zip(observations, expected, strict=True))
 
 
 @pytest.mark.integration
@@ -467,7 +526,11 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
                WHERE attrelid = 'macro_loader.macro_features'::regclass
                  AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
         ).fetchall()
-        assert tuple(row[0] for row in columns) == FEATURE_COLUMNS
+        assert tuple(row[0] for row in columns) == (
+            "timestamp_m1",
+            "available_at_utc",
+            *FEATURE_COLUMNS[1:],
+        )
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
@@ -644,9 +707,14 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
             "SELECT pg_get_viewdef('macro_loader.macro_features'::regclass, true)"
         ).fetchone()
 
-    assert tuple(column[1] for column in columns) == FEATURE_COLUMNS
+    assert tuple(column[1] for column in columns) == (
+        "timestamp_m1",
+        "available_at_utc",
+        *FEATURE_COLUMNS[1:],
+    )
     assert columns[0][2] == "timestamp(6) with time zone"
-    assert all(column[2] == "double precision" for column in columns[1:])
+    assert columns[1][2] == "timestamp(6) with time zone"
+    assert all(column[2] == "double precision" for column in columns[2:])
     assert comment == (
         f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
         f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",

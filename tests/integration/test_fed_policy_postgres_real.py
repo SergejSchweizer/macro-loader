@@ -162,7 +162,7 @@ def test_real_fed_policy_schema_exposes_exact_columns(
             "WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw' "
             "ORDER BY ordinal_position"
         ).fetchall()
-        assert tuple(row[0] for row in raw_columns)[-4:] == FED_POLICY_FEATURE_COLUMNS
+        assert tuple(row[0] for row in raw_columns[:-1])[-4:] == FED_POLICY_FEATURE_COLUMNS
         raw_values = connection.execute(
             'SELECT "fed_next_expected_move_bp", "fed_path_slope_m3_bp", '
             '"fed_next_uncertainty_bp", "fed_repricing_5obs_bp" '

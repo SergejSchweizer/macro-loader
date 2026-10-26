@@ -21,7 +21,11 @@ from application.return_features import (
     VOLATILITY_WINDOWS,
 )
 from application.trend_features import DRAWDOWN_WINDOWS, ROC_WINDOWS, RSI_WINDOWS, SMA_RATIO_WINDOWS
-from ingestion.postgres_gold_repository import _FEATURES_VIEW_DDL, _MIGRATIONS
+from ingestion.postgres_gold_repository import (
+    _FEATURES_VIEW_COLUMNS_EXPECTED,
+    _FEATURES_VIEW_DDL,
+    _MIGRATIONS,
+)
 
 
 def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
@@ -98,7 +102,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 7
+    assert MACRO_FEATURE_VIEW_VERSION == 8
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -124,6 +128,9 @@ def test_fed_materialized_contract_has_exactly_four_origins_and_28_derived_colum
 def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert "WHERE FALSE" not in _FEATURES_VIEW_DDL
     assert "CREATE MATERIALIZED VIEW" in _FEATURES_VIEW_DDL
+    assert _FEATURES_VIEW_COLUMNS_EXPECTED[:2] == ("timestamp_m1", "available_at_utc")
+    assert _FEATURES_VIEW_COLUMNS_EXPECTED[2:] == FEATURE_COLUMNS[1:]
+    assert 'raw."available_at_utc" AS "available_at_utc"' in _FEATURES_VIEW_DDL
     assert '"vix_log_level"' in _FEATURES_VIEW_DDL
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL

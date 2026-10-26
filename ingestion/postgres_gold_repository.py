@@ -249,10 +249,26 @@ _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _FED_POLICY_TABLE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(FED_POLICY_DATASET_ID)}"
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
 _CONSUMER_COLUMNS = _FEATURE_COLUMNS
+_AVAILABLE_AT_EXPRESSION = """(
+    (
+        ("timestamp_m1" AT TIME ZONE 'UTC')::date
+        + CASE EXTRACT(ISODOW FROM "timestamp_m1" AT TIME ZONE 'UTC')::integer
+            WHEN 5 THEN 3
+            WHEN 6 THEN 2
+            WHEN 7 THEN 1
+            ELSE 1
+          END
+    )::timestamp AT TIME ZONE 'UTC'
+)"""
+_AVAILABLE_AT_COLUMN_DDL = (
+    f"{_quote('available_at_utc')} TIMESTAMPTZ(6) "
+    f"GENERATED ALWAYS AS ({_AVAILABLE_AT_EXPRESSION}) STORED NOT NULL"
+)
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
-    {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _CONSUMER_COLUMNS)}
+    {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _CONSUMER_COLUMNS)},
+    {_AVAILABLE_AT_COLUMN_DDL}
 )"""
 _FED_POLICY_DDL = f"""CREATE TABLE IF NOT EXISTS {_FED_POLICY_TABLE} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
@@ -286,6 +302,9 @@ _MIGRATION_LEDGER_DDL = f"""CREATE TABLE IF NOT EXISTS {_MIGRATION_LEDGER} (
     version INTEGER PRIMARY KEY,
     applied_at_utc TIMESTAMPTZ(6) NOT NULL
 )"""
+_AVAILABLE_AT_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} ADD COLUMN IF NOT EXISTS {_AVAILABLE_AT_COLUMN_DDL}",
+)
 _OWNERSHIP_MIGRATIONS = tuple(
     f"ALTER TABLE IF EXISTS {_quote(schema)}.{_quote(table)} "
     f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
@@ -694,7 +713,9 @@ def _macro_features_view_query() -> str:
     return (
         f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH "
         f"{', '.join(source_ctes)} "
-        f'SELECT raw."timestamp_m1", {raw_select}, {", ".join(ordered_features)} '
+        f'SELECT raw."timestamp_m1", '
+        'raw."available_at_utc" AS "available_at_utc", '
+        f"{raw_select}, {', '.join(ordered_features)} "
         f"FROM {_CONSUMER} raw {' '.join(joins)}"
     )
 
@@ -758,11 +779,32 @@ def _normalize_view_definition(value: str) -> str:
     return " ".join(value.strip().rstrip(";").split()).lower()
 
 
+def _assert_generated_availability(cursor: CursorPort) -> None:
+    cursor.execute(
+        _GENERATED_AVAILABILITY_SQL,
+        (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
+    )
+    row = cursor.fetchone()
+    if row is None or len(row) != 2 or row[0] != "ALWAYS" or not isinstance(row[1], str):
+        raise ValueError("PostgreSQL available_at_utc is not a generated column")
+    expression = " ".join(row[1].lower().replace('"', "").split())
+    timezone_expression_present = "timezone(" in expression or "at time zone" in expression
+    if not timezone_expression_present or any(
+        marker not in expression for marker in _AVAILABILITY_EXPRESSION_MARKERS
+    ):
+        raise ValueError("PostgreSQL available_at_utc generation expression differs")
+
+
 _FEATURES_VIEW_DEFINITION = _normalize_view_definition(_FEATURES_VIEW_DDL.split(" AS ", 1)[1])
-_FEATURES_VIEW_COLUMNS_EXPECTED = ("timestamp_m1",) + tuple(_FEATURES_VIEW_COLUMNS)
+_FEATURES_VIEW_COLUMNS_EXPECTED = (
+    "timestamp_m1",
+    "available_at_utc",
+    *_FEATURES_VIEW_COLUMNS,
+)
 _FEATURES_VIEW_DEFINITION_MARKERS = (
     "with vix_source as",
     "raw.timestamp_m1",
+    "raw.available_at_utc",
     "vix9d_vix3m_log_ratio",
 )
 
@@ -794,7 +836,8 @@ _SCHEMA_SPECIFICATION = (
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
             for column in _FEATURE_COLUMNS
-        ),
+        )
+        + (PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),),
         ("timestamp_m1",),
     ),
     PostgresTableSpecification(
@@ -868,6 +911,8 @@ _MIGRATIONS = (
     # Older layout migrations could recreate macro_raw before the Fed columns existed.
     (_FED_POLICY_COLUMN_MIGRATION,),
     _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Add deterministic serving availability and rebuild the public projection.
+    _AVAILABLE_AT_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -878,6 +923,17 @@ _OWNED_COLUMNS_SQL = """SELECT table_schema, table_name, ordinal_position, colum
 FROM information_schema.columns
 WHERE table_schema IN (%s, %s)
 ORDER BY table_schema, table_name, ordinal_position"""
+_GENERATED_AVAILABILITY_SQL = """SELECT is_generated, generation_expression
+FROM information_schema.columns
+WHERE table_schema = %s AND table_name = %s AND column_name = 'available_at_utc'"""
+_AVAILABILITY_EXPRESSION_MARKERS = (
+    "timestamp_m1",
+    "extract(isodow",
+    "when 5 then 3",
+    "when 6 then 2",
+    "when 7 then 1",
+    "else 1",
+)
 _OWNED_KEYS_SQL = """SELECT namespaces.nspname, classes.relname, constraints.contype,
     array_agg(attributes.attname::text ORDER BY keys.ordinality)
 FROM pg_constraint AS constraints
@@ -1433,6 +1489,8 @@ class PostgresGoldSyncRepository:
             ):
                 raise ValueError("PostgreSQL column contract does not match specification")
 
+        _assert_generated_availability(cursor)
+
         cursor.execute(_OWNED_KEYS_SQL, schemas)
         actual_keys: dict[tuple[str, str], tuple[str, ...]] = {}
         for row in cursor.fetchall():
@@ -1517,7 +1575,10 @@ class PostgresGoldSyncRepository:
         for ordinal, column in enumerate(columns, start=1):
             if len(column) != 4 or column[0] != ordinal:
                 raise ValueError("PostgreSQL macro feature view column order differs")
-            if column[2] != ("timestamp(6) with time zone" if ordinal == 1 else "double precision"):
+            expected_type = (
+                "timestamp(6) with time zone" if ordinal in {1, 2} else "double precision"
+            )
+            if column[2] != expected_type:
                 raise ValueError("PostgreSQL macro feature view column type differs")
             if column[3] is not False:
                 raise ValueError("PostgreSQL macro feature view column nullability differs")

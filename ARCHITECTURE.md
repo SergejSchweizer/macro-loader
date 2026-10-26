@@ -488,6 +488,27 @@ positive momentum-autocorrelation pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`.
 Fed log-level, shifted-log, geometric-return, and ratio-return transformations
 are forbidden because the origins may be zero or negative.
 
+### PR-167 PostgreSQL Serving Availability Contract
+
+PR-167 defines `available_at_utc` as PostgreSQL-serving metadata, not as a new
+canonical Gold column. The implementation contract is that `macro_loader.macro_raw`
+contains a generated, non-null `available_at_utc` and that the
+`macro_loader.macro_features` materialized view exposes that same value for each
+`timestamp_m1` row. It is `00:00:00 UTC` on the first Monday-Friday date strictly
+after the UTC observation date represented by `timestamp_m1`: Monday through
+Thursday map to the following date, while Friday, Saturday, and Sunday map to
+Monday. This generic weekday-only rule does not exclude public holidays because
+the serving data spans sources and market calendars without one common holiday
+calendar.
+
+This generated serving timestamp is distinct from both `timestamp_m1`, which
+remains canonical Gold observation-day identity, and the existing Fed source
+availability timestamp. FedWatch snapshots retain their source-specific
+observation-day EOD availability (`23:59:59.999999Z`); PR-167 does not replace or
+reinterpret it. The contract describes the intended schema and behavior for the
+PR implementation and does not assert that the PostgreSQL migration or production
+deployment has already occurred.
+
 Forbidden:
 
 - forward fill;

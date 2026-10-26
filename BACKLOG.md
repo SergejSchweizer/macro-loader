@@ -31,6 +31,47 @@ point-in-time source support is genuinely unavailable or a transformation has no
 completed its causal warm-up; every such gap must be measured and explained by QA rather
 than filled, interpolated, carried, or synthesized.
 
+## Serving Availability-Time Contract
+
+### PR-167: Add Next-Business-Day Availability To PostgreSQL Serving
+
+PR name: `next-business-day-availability`
+Status: In Progress
+Updated: 2026-10-26
+PR: #167
+Git branch: `pr-167/next-business-day-availability`
+Git status: pushed-ci-green
+Agent lane: PostgreSQL serving schema and temporal availability contract; two agents
+Depends on: PR-166
+Commit: `1d92194`
+Design patterns: Repository, Materialized View, Fail-Closed Verification.
+
+Description:
+- R1: Add a UTC `available_at_utc` column to `macro_loader.macro_raw` that identifies
+  the next Monday-Friday business date after each UTC observation date.
+- R2: Expose the same non-null availability timestamp as a column in
+  `macro_loader.macro_features`.
+- R3: Existing rows are backfilled deterministically by the schema migration; new rows
+  derive availability from their `timestamp_m1` without changing the canonical Gold
+  source payload or its row digests.
+
+Acceptance criteria:
+- [ ] A UTC observation on Monday-Thursday maps to the following UTC date; Friday,
+  Saturday, and Sunday map to the following Monday, at 00:00:00 UTC.
+- [ ] Both `macro_raw` and `macro_features` expose a non-null `available_at_utc`
+  `TIMESTAMPTZ(6)` column, with the view contract checking its position and type.
+- [ ] An idempotent PostgreSQL migration adds/backfills the raw column and rebuilds the
+  materialized view for already-provisioned databases.
+- [ ] Insert/update paths cannot supply a conflicting availability value; the value is
+  derived from the observation key and does not alter canonical Gold digests.
+- [ ] Tests cover every weekday/weekend boundary, migration and view metadata contracts,
+  full repository behavior, and migration replay/idempotence.
+- [ ] README and ARCHITECTURE describe the availability convention and its generic
+  weekday-only calendar limitation.
+- [ ] Required lint, type, unit, offline integration, and coverage gates pass.
+- [ ] Guarded production migration/repopulation/cron acceptance is not run without
+  explicit deployment authorization.
+
 ## Audit Remediation Wave — Mathematical And Contract Correctness
 
 ### PR-165: Reconcile Fed Gaps And Publish Full Raw History

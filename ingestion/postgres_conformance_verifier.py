@@ -15,6 +15,7 @@ from ingestion.postgres_gold_repository import (
     PostgresGoldRepositoryError,
     PostgresGoldSyncRepository,
     PostgresSyncConfig,
+    _assert_generated_availability,
     _default_connection,
     _session_configuration,
 )
@@ -139,6 +140,8 @@ class PostgresLiveDatabaseConformanceInspector:
             )
             if tuple(columns.get((table.schema, table.name), ())) != expected_columns:
                 raise ValueError("owned columns differ")
+
+        _assert_generated_availability(cursor)
 
         cursor.execute(_OWNED_KEYS_SQL, schemas)
         actual_keys: dict[tuple[str, str], tuple[str, ...]] = {}

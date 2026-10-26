@@ -51,6 +51,13 @@ class FakeCursor:
                 for table in _SCHEMA_SPECIFICATION
                 for ordinal, column in enumerate(table.columns, start=1)
             ]
+        elif "generation_expression" in query:
+            self._one = (
+                "ALWAYS",
+                "timezone('UTC'::text, timestamp_m1)::date + CASE "
+                "EXTRACT(isodow FROM timezone('UTC'::text, timestamp_m1))::integer "
+                "WHEN 5 THEN 3 WHEN 6 THEN 2 WHEN 7 THEN 1 ELSE 1 END",
+            )
         elif "FROM pg_constraint" in query:
             self._many = [
                 (table.schema, table.name, "p", table.primary_key)
@@ -82,7 +89,7 @@ class FakeCursor:
                 (
                     ordinal,
                     name,
-                    "timestamp(6) with time zone" if ordinal == 1 else "double precision",
+                    "timestamp(6) with time zone" if ordinal in {1, 2} else "double precision",
                     False,
                 )
                 for ordinal, name in enumerate(_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)

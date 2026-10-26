@@ -107,6 +107,13 @@ class FakeCursor:
                 for specification in module._SCHEMA_SPECIFICATION
                 for ordinal, column in enumerate(specification.columns, start=1)
             ]
+        elif "generation_expression" in query:
+            self.one = (
+                "ALWAYS",
+                "timezone('UTC'::text, timestamp_m1)::date + CASE "
+                "EXTRACT(isodow FROM timezone('UTC'::text, timestamp_m1))::integer "
+                "WHEN 5 THEN 3 WHEN 6 THEN 2 WHEN 7 THEN 1 ELSE 1 END",
+            )
         elif "FROM pg_constraint" in query:
             self.many = [
                 (
@@ -130,7 +137,7 @@ class FakeCursor:
                 (
                     ordinal,
                     name,
-                    "timestamp(6) with time zone" if ordinal == 1 else "double precision",
+                    "timestamp(6) with time zone" if ordinal in (1, 2) else "double precision",
                     False,
                 )
                 for ordinal, name in enumerate(module._FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
@@ -373,8 +380,72 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
 
 
 def test_latest_migration_adds_fed_raw_columns_before_rebuilding_the_view() -> None:
-    assert module._MIGRATIONS[-2] == (module._FED_POLICY_COLUMN_MIGRATION,)
-    assert module._MIGRATIONS[-1] == module._FEATURES_VIEW_REBUILD_MIGRATION
+    fed_migration_index = next(
+        index
+        for index, migration in enumerate(module._MIGRATIONS)
+        if module._FED_POLICY_COLUMN_MIGRATION in migration
+    )
+    availability_migration_index = next(
+        index
+        for index, migration in enumerate(module._MIGRATIONS)
+        if migration[: len(module._AVAILABLE_AT_COLUMN_MIGRATION)]
+        == module._AVAILABLE_AT_COLUMN_MIGRATION
+    )
+    assert fed_migration_index < availability_migration_index
+    assert module._FEATURES_VIEW_REBUILD_MIGRATION[0] in module._MIGRATIONS[-1]
+
+
+def test_latest_migrations_add_generated_availability_before_rebuilding_the_view() -> None:
+    migration_sql = "\n".join(
+        statement for migration in module._MIGRATIONS[-2:] for statement in migration
+    )
+
+    assert '"available_at_utc"' in migration_sql
+    assert "GENERATED ALWAYS AS" in migration_sql
+    assert "TIMESTAMPTZ(6)" in migration_sql
+    assert module._FEATURES_VIEW_REBUILD_MIGRATION[0] in module._MIGRATIONS[-1]
+
+
+@pytest.mark.parametrize(
+    ("metadata", "error_message"),
+    [
+        (None, "not a generated column"),
+        (("NEVER", "timestamp_m1"), "not a generated column"),
+        (("ALWAYS", "timestamp_m1 + 1"), "generation expression differs"),
+    ],
+)
+def test_generated_availability_contract_fails_closed(
+    metadata: tuple[str, str] | None, error_message: str
+) -> None:
+    class MetadataCursor:
+        def execute(self, query: str, params: object = None) -> None:
+            assert query == module._GENERATED_AVAILABILITY_SQL
+            assert params == ("macro_loader", "macro_raw")
+
+        def fetchone(self) -> tuple[str, str] | None:
+            return metadata
+
+    with pytest.raises(ValueError, match=error_message):
+        module._assert_generated_availability(MetadataCursor())
+
+
+def test_generated_availability_accepts_postgres_at_time_zone_deparser() -> None:
+    expression = (
+        "((timestamp_m1 AT TIME ZONE 'UTC')::date + CASE "
+        "EXTRACT(ISODOW FROM timestamp_m1 AT TIME ZONE 'UTC')::integer "
+        "WHEN 5 THEN 3 WHEN 6 THEN 2 WHEN 7 THEN 1 ELSE 1 END)::timestamp "
+        "AT TIME ZONE 'UTC'"
+    )
+
+    class MetadataCursor:
+        def execute(self, query: str, params: object = None) -> None:
+            assert query == module._GENERATED_AVAILABILITY_SQL
+            assert params == ("macro_loader", "macro_raw")
+
+        def fetchone(self) -> tuple[str, str]:
+            return ("ALWAYS", expression)
+
+    module._assert_generated_availability(MetadataCursor())
 
 
 def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:
@@ -382,6 +453,11 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
     assert 'FROM "macro_loader"."macro_raw"' in ddl
+    assert module._FEATURES_VIEW_COLUMNS_EXPECTED[:2] == (
+        "timestamp_m1",
+        "available_at_utc",
+    )
+    assert 'raw."available_at_utc" AS "available_at_utc"' in ddl
     assert "2010-01-01" not in ddl
     assert len(module._FEATURES_VIEW_COLUMNS) == len(module.FEATURE_COLUMNS) - 1
     for column in (
