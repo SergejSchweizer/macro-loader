@@ -5,11 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from threading import Lock
 
 import polars as pl
 
 from application.contracts import Provider, SeriesContract
 from application.operational_records import IngestionRunRecord, RunMode, RunStatus
+from application.parallelism import PolarsExecutionPolicy
 from application.planner import FetchInstruction, OperationMode, PlannerConfig, build_plan
 from application.ports.bronze import BronzeUnitOfWork, PreparedBronze
 from application.ports.market_data import MarketDataProvider, ProviderRequest
@@ -51,6 +53,12 @@ class BatchRunResult:
     failures: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _SeriesOutcome:
+    result: SeriesRunResult | None = None
+    failed: bool = False
+
+
 class BronzeOrchestrator:
     """Application service coordinating providers through injected registries and a UoW."""
 
@@ -63,6 +71,7 @@ class BronzeOrchestrator:
         planner_config: PlannerConfig | None = None,
         clock: Clock | None = None,
         run_id_factory: RunIdFactory | None = None,
+        execution_policy: PolarsExecutionPolicy | None = None,
     ) -> None:
         self._series_registry = series_registry
         self._providers = providers
@@ -70,6 +79,12 @@ class BronzeOrchestrator:
         self._planner_config = planner_config if planner_config is not None else PlannerConfig()
         self._clock = clock if clock is not None else _system_utc_now
         self._run_id_factory = run_id_factory if run_id_factory is not None else _default_run_id
+        self._execution_policy = (
+            execution_policy
+            if execution_policy is not None
+            else PolarsExecutionPolicy.all_available_cores()
+        )
+        self._uow_write_lock = Lock()
 
     def run_series(
         self,
@@ -133,7 +148,8 @@ class BronzeOrchestrator:
                 durable_bronze=True,
                 durable_success_manifest=True,
             )
-            self._uow.commit_success(prepared, success_run, next_state)
+            with self._uow_write_lock:
+                self._uow.commit_success(prepared, success_run, next_state)
             return SeriesRunResult(
                 series_id=series_id,
                 provider=contract.provider,
@@ -165,7 +181,8 @@ class BronzeOrchestrator:
                 error_category=type(exc).__name__,
                 error_message="series ingestion failed",
             )
-            self._uow.record_failure(failed)
+            with self._uow_write_lock:
+                self._uow.record_failure(failed)
             raise
 
     def run_many(
@@ -175,14 +192,34 @@ class BronzeOrchestrator:
         operation: OperationMode = OperationMode.UPDATE,
         today: date,
     ) -> BatchRunResult:
-        successes: list[SeriesRunResult] = []
-        failures: list[str] = []
-        for series_id in series_ids:
+        """Run distinct series independently and preserve input order in each result group.
+
+        Duplicate IDs are rejected before work starts because concurrent runs for the same
+        series would invalidate the per-series read/prepare/commit isolation boundary.
+        """
+        selected = tuple(series_ids)
+        if len(set(selected)) != len(selected):
+            raise ValueError("run_many requires distinct series IDs")
+
+        def run_one(series_id: str) -> _SeriesOutcome:
             try:
-                successes.append(self.run_series(series_id, operation=operation, today=today))
+                return _SeriesOutcome(
+                    result=self.run_series(series_id, operation=operation, today=today)
+                )
             except Exception:
-                failures.append(series_id)
-        return BatchRunResult(tuple(successes), tuple(failures))
+                return _SeriesOutcome(failed=True)
+
+        outcomes = self._execution_policy.map(run_one, selected)
+        successes: list[SeriesRunResult] = []
+        for outcome in outcomes:
+            if outcome.result is not None:
+                successes.append(outcome.result)
+        failures = tuple(
+            series_id
+            for series_id, outcome in zip(selected, outcomes, strict=True)
+            if outcome.failed
+        )
+        return BatchRunResult(tuple(successes), failures)
 
     def _resolve_series(self, series_id: str) -> SeriesContract:
         try:

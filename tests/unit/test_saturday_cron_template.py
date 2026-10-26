@@ -42,7 +42,7 @@ def test_sunday_gold_sync_cron_template_is_operational() -> None:
     assert "exit 3" in runner
     assert 'mkdir -p "$LOG_DIR"' in runner
     assert 'exec >>"$LOG_PATH" 2>&1' in runner
-    assert '"$CLI" --lake-root "$LAKE_ROOT" run-daily' in runner
+    assert '"$CLI" --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily' in runner
     assert '"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres' in runner
     assert runner.index("run-daily") < runner.index("gold-sync-postgres")
     assert "/var/log" not in job
@@ -108,7 +108,7 @@ def test_sunday_runner_uses_repository_root_and_exports_one_git_identity(tmp_pat
     unrelated_cwd = tmp_path / "unrelated"
     unrelated_cwd.mkdir()
     environment = {
-        **os.environ,
+        **{key: value for key, value in os.environ.items() if key != "MACRO_LOADER_CORES"},
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "RUNNER_RECORD": str(record_path),
     }
@@ -124,7 +124,33 @@ def test_sunday_runner_uses_repository_root_and_exports_one_git_identity(tmp_pat
 
     assert completed.returncode == 0
     assert record_path.read_text(encoding="utf-8").splitlines() == [
-        f"{project_root}|fixture-sha|--lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--cores 6 --lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
+    ]
+
+
+def test_sunday_runner_passes_environment_core_override_to_daily_command(
+    tmp_path: Path,
+) -> None:
+    project_root, bin_dir = _runner_fixture(tmp_path)
+    record_path = tmp_path / "runner-record"
+    completed = subprocess.run(
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "RUNNER_RECORD": str(record_path),
+            "MACRO_LOADER_CORES": "3",
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0
+    assert record_path.read_text(encoding="utf-8").splitlines() == [
+        f"{project_root}|fixture-sha|--cores 3 --lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
 
@@ -135,7 +161,7 @@ def test_sunday_runner_stops_before_commands_when_git_identity_is_unavailable(
     project_root, bin_dir = _runner_fixture(tmp_path, git_exit_code=1)
     record_path = tmp_path / "runner-record"
     environment = {
-        **os.environ,
+        **{key: value for key, value in os.environ.items() if key != "MACRO_LOADER_CORES"},
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "RUNNER_RECORD": str(record_path),
     }
@@ -218,7 +244,46 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
         project_root / ".logs" / "macro-loader.log"
     ).read_text(encoding="utf-8")
     assert verified.returncode == 0
+
+
+def test_sunday_runner_dry_verification_reports_default_and_override_cores(
+    tmp_path: Path,
+) -> None:
+    project_root, bin_dir = _runner_fixture(tmp_path)
+    record_path = tmp_path / "runner-record"
+    unrelated_cwd = tmp_path / "unrelated"
+    unrelated_cwd.mkdir()
+    base_environment = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "RUNNER_RECORD": str(record_path),
+        "MACRO_LOADER_SUNDAY_VERIFY_ONLY": "true",
+    }
+
+    default = subprocess.run(
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        cwd=unrelated_cwd,
+        env={key: value for key, value in base_environment.items() if key != "MACRO_LOADER_CORES"},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    override = subprocess.run(
+        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        cwd=unrelated_cwd,
+        env={**base_environment, "MACRO_LOADER_CORES": "3"},
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert default.returncode == override.returncode == 0
+    assert "--cores 6" in default.stdout
+    assert "--cores 3" in override.stdout
+    assert "without data operations" in default.stdout + override.stdout
     assert not record_path.exists()
+    assert not (project_root / ".locks").exists()
+    assert not (project_root / ".logs").exists()
 
 
 def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync(
@@ -227,7 +292,7 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
     project_root, bin_dir = _runner_fixture(tmp_path)
     record_path = tmp_path / "runner-record"
     environment = {
-        **os.environ,
+        **{key: value for key, value in os.environ.items() if key != "MACRO_LOADER_CORES"},
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "RUNNER_RECORD": str(record_path),
         "RUNNER_FAIL_DAILY": "true",
@@ -253,8 +318,8 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
     assert failed.returncode == 7
     assert retry.returncode == 0
     assert record_path.read_text(encoding="utf-8").splitlines() == [
-        f"{project_root}|fixture-sha|--lake-root fixture-lake run-daily",
-        f"{project_root}|fixture-sha|--lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--cores 6 --lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--cores 6 --lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
 

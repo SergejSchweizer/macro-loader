@@ -15,6 +15,7 @@ LOG_PATH="$LOG_DIR/macro-loader.log"
 LOCK_DIR="$PROJECT_ROOT/.locks"
 LOCK_PATH="$LOCK_DIR/macro-loader-sunday.lock"
 MAINTENANCE_PATH="$PROJECT_ROOT/.maintenance/macro-loader-reconstruction"
+CORES=${MACRO_LOADER_CORES:-6}
 
 if ! MACRO_LOADER_GIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD); then
 	printf 'Unable to resolve repository Git identity\n' >&2
@@ -23,7 +24,7 @@ fi
 export MACRO_LOADER_GIT_SHA
 
 if [[ "${MACRO_LOADER_SUNDAY_VERIFY_ONLY:-}" == "true" ]]; then
-	printf 'Sunday runner verification completed without data operations\n'
+	printf 'Sunday runner verification completed without data operations (--cores %s)\n' "$CORES"
 	exit 0
 fi
 
@@ -53,7 +54,7 @@ fi
 eval "$("$PYTHON" "$PROJECT_ROOT/scripts/export_cron_config.py" "$CONFIG_FILE")"
 
 printf '[%s] Running delta-only daily pipeline\n' "$(date --iso-8601=seconds)"
-"$CLI" --lake-root "$LAKE_ROOT" run-daily
+"$CLI" --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily
 
 printf '[%s] Synchronizing canonical Gold to PostgreSQL\n' "$(date --iso-8601=seconds)"
 PGUSER="${PGSYNCUSER:-macro-loader-sync}" \

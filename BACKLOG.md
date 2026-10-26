@@ -8,17 +8,57 @@ Last reviewed: 2026-10-26
 
 ## GOALS.md Implementation Wave
 
+### PR-169: Run The Daily Pipeline With A Bounded Core Budget
+
+PR name: `parallel-daily-core-budget`
+Status: In Progress
+Updated: 2026-10-26
+PR: not opened
+Git branch: `pr-169/parallel-daily-core-budget`
+Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md
+Agent lane: bounded Bronze execution and CLI/scheduled-runner core-budget wiring; two agents
+Depends on: PR-168
+Commit: not committed
+Design patterns: Strategy, Dependency Injection, Unit of Work.
+
+Description:
+- R1: Add a positive `--cores` execution option with default `6` and inject the same
+  bounded policy through all parallelizable phases of `run-daily` and applicable source,
+  Silver, and Gold-build commands.
+- R2: Execute independent series work concurrently up to the configured limit while
+  preserving input-ordered results, per-series failure isolation, and lossless serialized
+  updates to shared ingestion manifests/state at each Bronze Unit-of-Work commit boundary.
+- R3: Preserve normal max-date-derived delta windows, selected-series behavior, canonical
+  full-Gold assembly, and deterministic logical output for every core count.
+- R4: Make the Sunday runner pass a configurable core count whose default is `6`; keep
+  runner verification dry and do not execute production ingestion or installed cron.
+- R5: Update the operator/architecture contracts and verify the implementation with the
+  required quality gates and deterministic offline end-to-end tests.
+
+Acceptance:
+- A1 (verifies R1): CLI tests prove `--cores` defaults to 6, accepts a positive explicit
+  value, and rejects zero/negative values before runtime side effects.
+- A2 (verifies R2): concurrency tests prove the configured maximum is never exceeded,
+  returned results and failures follow input order, shared run/state writes are not lost,
+  and a failed series does not roll back an independently committed series.
+- A3 (verifies R3): end-to-end runs at one and multiple cores produce identical canonical
+  Gold data and exact source requests; the max-date delta regression remains green.
+- A4 (verifies R4): Sunday-runner acceptance proves the default and environment override
+  are passed as `--cores`, without running source ingestion or changing installed cron.
+- A5 (verifies R5): `lint`, `type`, `unit`, `integration`, and `coverage` pass, with no
+  production database or scheduled-job execution.
+
 ### PR-168: Retire Fed Policy Features And Acquisition
 
 PR name: `retire-fed-policy-feature-pipeline`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-26
 PR: #168
 Git branch: `pr-168/retire-fed-policy-feature-pipeline`
-Git status: pushed-ci-green
+Git status: merged
 Agent lane: Fed runtime/download retirement and PostgreSQL serving retirement; two agents
 Depends on: PR-167
-Commit: `2e4b93e`, `8d89eba`
+Commit: `91e068c` (PR head), `2a7d06e` (squash merge)
 Design patterns: Adapter, Repository, Materialized View, Versioned Migration, Fail-Closed Verification.
 
 Description:
@@ -56,14 +96,12 @@ Acceptance:
 
 ## Current repository and production status
 
-As of 2026-10-26, PR-168 is in progress on
-`pr-168/retire-fed-policy-feature-pipeline`; it is pending and has not been merged to
-`main` or deployed. The working branch contains runtime/acquisition retirement and
-PostgreSQL serving-retirement changes, but branch contents are not evidence of deployed
-database or host-crontab state. No production migration or installed-crontab change has
-been performed as part of this work. Earlier Fed-policy backlog entries and acceptance
-artifacts remain historical audit records. The independent FRED provider remains active
-for its registered ordinary macro series.
+As of 2026-10-26, PR-168 is merged to `origin/main` as GitHub PR #168. Its runtime and
+serving-contract changes do not establish deployed database or host-crontab state. No
+production migration or installed-crontab change has been performed as part of this work.
+Earlier Fed-policy backlog entries and acceptance artifacts remain historical audit
+records. The independent FRED provider remains active for its registered ordinary macro
+series.
 
 The active serving lineage is:
 
@@ -1003,9 +1041,9 @@ Acceptance:
 
 The following serving contract, dependency chain, and PR-113–118 specifications are
 retained as delivery and acceptance history. They describe the former Fed-serving
-program, not the current target contract or active operator procedure. PR-168 is the
-in-progress retirement scope; it is not yet merged or deployed. Historical PR details
-and acceptance records below are intentionally preserved.
+program, not the current target contract or active operator procedure. PR-168 merged the
+retirement on 2026-10-26; this does not assert production deployment. Historical PR
+details and acceptance records below are intentionally preserved.
 
 The four canonical Fed-policy EOD origins are:
 

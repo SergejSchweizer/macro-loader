@@ -88,11 +88,40 @@ def test_parser_exposes_exact_operational_command_surface() -> None:
     }
 
 
+@pytest.mark.parametrize(("arguments", "expected"), [([], 6), (["--cores", "9"], 9)])
+def test_parser_cores_default_and_explicit_positive_value(
+    arguments: list[str], expected: int
+) -> None:
+    parsed = cli.build_parser().parse_args([*arguments, "run-daily"])
+    assert parsed.cores == expected
+
+
+@pytest.mark.parametrize("cores", ["0", "-1"])
+def test_non_positive_cores_are_rejected_before_runtime_side_effects(
+    cores: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_runtime(**kwargs: object) -> DummyRuntime:
+        pytest.fail(f"runtime was constructed for invalid --cores: {kwargs}")
+
+    monkeypatch.setattr(cli, "build_runtime", unexpected_runtime)
+    stderr = io.StringIO()
+
+    code = cli.main(["--cores", cores, "run-daily"], stdout=io.StringIO(), stderr=stderr)
+
+    assert code == cli.EXIT_INPUT
+
+
 def test_main_dispatches_run_daily_with_injected_today_and_series(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pipeline = DummyPipeline()
-    runtime = _patched_runtime(monkeypatch, pipeline)
+    runtime = DummyRuntime(pipeline, DummyTransport())
+    runtime_arguments: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli,
+        "build_runtime",
+        lambda **kwargs: runtime_arguments.update(kwargs) or runtime,
+    )
     stdout = io.StringIO()
     stderr = io.StringIO()
     code = cli.main(
@@ -101,6 +130,8 @@ def test_main_dispatches_run_daily_with_injected_today_and_series(
             "/tmp/lake",
             "--today",
             "2026-08-19",
+            "--cores",
+            "3",
             "run-daily",
             "--series",
             "vix",
@@ -112,6 +143,7 @@ def test_main_dispatches_run_daily_with_injected_today_and_series(
     )
     assert code == cli.EXIT_SUCCESS
     assert pipeline.calls == [("run-daily", ("vix", "us_10y"), date(2026, 8, 19))]
+    assert runtime_arguments["cores"] == 3
     assert runtime.transport.closed
 
 
@@ -184,3 +216,37 @@ def test_overlap_days_and_git_config_errors_are_input_failures(
             overlap_days=-1,
             stderr=io.StringIO(),
         )
+
+
+def test_runtime_injects_one_core_policy_into_bronze_and_daily_pipeline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+    transport = DummyTransport()
+
+    class Bronze:
+        def __init__(self, **kwargs: object) -> None:
+            captured["bronze_policy"] = kwargs["execution_policy"]
+
+    class Pipeline:
+        def __init__(self, **kwargs: object) -> None:
+            captured["pipeline_policy"] = kwargs["polars_execution"]
+
+    monkeypatch.setattr(cli, "HttpxTransport", lambda: transport)
+    monkeypatch.setattr(cli, "BronzeOrchestrator", Bronze)
+    monkeypatch.setattr(cli, "DailyMedallionPipeline", Pipeline)
+    monkeypatch.setattr(cli, "_git_commit_hash", lambda: "f" * 40)
+
+    cli.build_runtime(
+        lake_root=tmp_path / "lake",
+        command="inventory",
+        series_ids=(),
+        overlap_days=7,
+        cores=3,
+        stderr=io.StringIO(),
+    )
+
+    policy = captured["bronze_policy"]
+    assert isinstance(policy, cli.PolarsExecutionPolicy)
+    assert policy is captured["pipeline_policy"]
+    assert policy.workers == 3
