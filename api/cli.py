@@ -17,7 +17,6 @@ from api.inventory import render_json, render_text
 from application.bronze_orchestration import BronzeOrchestrator
 from application.contracts import Provider
 from application.daily_pipeline import DailyMedallionPipeline, ProviderBatchError
-from application.fed_policy_orchestration import FedPolicyEodOrchestrator
 from application.gold_publication import GoldPublisher
 from application.gold_retention import GoldRetentionService
 from application.gold_sidecars import GoldSidecarBuilder
@@ -33,11 +32,6 @@ from application.registry import SERIES_REGISTRY
 from ingestion.bronze_uow import FilesystemBronzeUnitOfWork
 from ingestion.cboe_provider import CboeProvider
 from ingestion.ecb_provider import EcbProvider
-from ingestion.fed_policy_feature_store import FedPolicyFeatureStore
-from ingestion.fed_policy_postgres_repository import FedPolicyPostgresRepository
-from ingestion.fed_policy_provider import FedPolicyProvider
-from ingestion.fed_policy_settlement_store import FedPolicySettlementStore
-from ingestion.fed_policy_store import FedPolicySnapshotStore
 from ingestion.fred_provider import FredProvider
 from ingestion.gold_build_store import GoldBuildStore
 from ingestion.gold_catalog_repository import GoldCatalogRepository
@@ -70,7 +64,6 @@ EXIT_PIPELINE = 20
 _SOURCE_COMMANDS = frozenset({"bootstrap", "update", "reconcile", "run-daily"})
 _GOLD_COMMANDS = frozenset({"gold-build", "run-daily"})
 _POSTGRES_SYNC_COMMAND = "gold-sync-postgres"
-_FED_POLICY_POSTGRES_SYNC_COMMAND = "fed-policy-sync-postgres"
 _POSTGRES_MIGRATE_COMMAND = "postgres-migrate"
 _POSTGRES_VERIFY_COMMAND = "postgres-verify"
 _POSTGRES_RECONSTRUCT_COMMAND = "postgres-reconstruct"
@@ -106,7 +99,6 @@ class Runtime:
     pipeline: DailyMedallionPipeline
     transport: HttpxTransport
     paths: LakePaths
-    fed_policy: FedPolicyEodOrchestrator
 
     def close(self) -> None:
         self.transport.close()
@@ -115,13 +107,6 @@ class Runtime:
 @dataclass(frozen=True, slots=True)
 class PostgresSyncRuntime:
     sync: GoldPostgresDeltaSync
-    event_sink: JsonEventSink
-
-
-@dataclass(frozen=True, slots=True)
-class FedPolicyPostgresSyncRuntime:
-    features: FedPolicyFeatureStore
-    sync: FedPolicyPostgresRepository
     event_sink: JsonEventSink
 
 
@@ -150,16 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("bootstrap", "update", "reconcile", "silver-build", "run-daily"):
         child = subparsers.add_parser(command)
         child.add_argument("--series", action="append", default=[])
-    for command in (
-        "fed-policy-bootstrap",
-        "fed-policy-update",
-        "fed-policy-reconcile",
-        "run-fed-policy-eod",
-    ):
-        subparsers.add_parser(command)
     subparsers.add_parser("gold-build")
     subparsers.add_parser(_POSTGRES_SYNC_COMMAND)
-    subparsers.add_parser(_FED_POLICY_POSTGRES_SYNC_COMMAND)
     subparsers.add_parser(_POSTGRES_MIGRATE_COMMAND)
     subparsers.add_parser(_POSTGRES_VERIFY_COMMAND)
     reconstruction = subparsers.add_parser(_POSTGRES_RECONSTRUCT_COMMAND)
@@ -258,17 +235,6 @@ def build_runtime(
     )
     silver = SilverSeriesRepository(paths)
     inventory = InventoryRefreshService(paths)
-    # Production FedWatch ingestion is browser-only and uses the approved
-    # Chinese CME public page; never fall back to the blocked direct endpoint.
-    fed_policy_source = FedPolicySnapshotStore(
-        paths, FedPolicyProvider(transport, browser_only=True)
-    )
-    fed_policy = FedPolicyEodOrchestrator(
-        snapshots=fed_policy_source,
-        settlements=FedPolicySettlementStore(paths),
-        features=FedPolicyFeatureStore(paths),
-    )
-
     git_hash = _git_commit_hash() if command in _GOLD_COMMANDS else _UNUSED_GIT_IDENTITY
     build_store = GoldBuildStore(paths)
     sidecar_store = GoldSidecarStore(
@@ -291,10 +257,9 @@ def build_runtime(
         publisher=publisher,
         retention=retention,
         inventory=inventory,
-        fed_policy_source=fed_policy_source,
         event_sink=event_sink,
     )
-    return Runtime(pipeline=pipeline, transport=transport, paths=paths, fed_policy=fed_policy)
+    return Runtime(pipeline=pipeline, transport=transport, paths=paths)
 
 
 def build_postgres_sync_runtime(*, lake_root: Path, stderr: TextIO) -> PostgresSyncRuntime:
@@ -313,24 +278,6 @@ def build_postgres_sync_runtime(*, lake_root: Path, stderr: TextIO) -> PostgresS
         clock=lambda: datetime.now(UTC),
     )
     return PostgresSyncRuntime(sync=sync, event_sink=event_sink)
-
-
-def build_fed_policy_postgres_sync_runtime(
-    *, lake_root: Path, stderr: TextIO
-) -> FedPolicyPostgresSyncRuntime:
-    sync_values = dict(os.environ)
-    if sync_values.get("PGSYNCUSER") and sync_values.get("PGSYNCPASSWORD"):
-        sync_values["PGUSER"] = sync_values["PGSYNCUSER"]
-        sync_values["PGPASSWORD"] = sync_values["PGSYNCPASSWORD"]
-    config = PostgresSyncConfig.from_mapping(sync_values)
-    paths = LakePaths(lake_root)
-    repository = FedPolicyPostgresRepository(config)
-    event_sink = JsonEventSink(_logger(stderr), secrets=(config.password,))
-    return FedPolicyPostgresSyncRuntime(
-        features=FedPolicyFeatureStore(paths),
-        sync=repository,
-        event_sink=event_sink,
-    )
 
 
 def build_postgres_migration_runtime(*, stderr: TextIO) -> PostgresMigrationRuntime:
@@ -414,13 +361,7 @@ def _dispatch(
     command = str(args.command)
     series = tuple(getattr(args, "series", []))
     today = _today(args.today)
-    if command == "fed-policy-bootstrap":
-        runtime.fed_policy.bootstrap(today=today)
-    elif command in {"fed-policy-update", "run-fed-policy-eod"}:
-        runtime.fed_policy.update(today=today)
-    elif command == "fed-policy-reconcile":
-        runtime.fed_policy.reconcile(today=today)
-    elif command == "bootstrap":
+    if command == "bootstrap":
         runtime.pipeline.bootstrap(series, today=today)
     elif command == "update":
         runtime.pipeline.update(series, today=today)
@@ -463,29 +404,6 @@ def _dispatch_postgres_sync(runtime: PostgresSyncRuntime) -> int:
             "updated": result.updated,
             "deleted": result.deleted,
             "unchanged": result.unchanged,
-        }
-    )
-    return EXIT_SUCCESS
-
-
-def _dispatch_fed_policy_postgres_sync(runtime: FedPolicyPostgresSyncRuntime) -> int:
-    result = runtime.sync.sync(
-        runtime.features.read(),
-        source_build_id=_git_commit_hash(),
-        schema_version=1,
-        feature_version=1,
-        synced_at_utc=datetime.now(UTC),
-    )
-    runtime.event_sink(
-        {
-            "command": _FED_POLICY_POSTGRES_SYNC_COMMAND,
-            "stage": "fed_policy_postgres_sync",
-            "status": "success",
-            "dataset_id": "fed_policy_features_daily",
-            "inserted": len(result.inserts),
-            "updated": len(result.updates),
-            "deleted": len(result.deletes),
-            "unchanged": len(result.unchanged),
         }
     )
     return EXIT_SUCCESS
@@ -569,10 +487,6 @@ def main(
         if command == _POSTGRES_SYNC_COMMAND:
             return _dispatch_postgres_sync(
                 build_postgres_sync_runtime(lake_root=args.lake_root, stderr=error)
-            )
-        if command == _FED_POLICY_POSTGRES_SYNC_COMMAND:
-            return _dispatch_fed_policy_postgres_sync(
-                build_fed_policy_postgres_sync_runtime(lake_root=args.lake_root, stderr=error)
             )
         if command == _POSTGRES_MIGRATE_COMMAND:
             return _dispatch_postgres_migration(build_postgres_migration_runtime(stderr=error))

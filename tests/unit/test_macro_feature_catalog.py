@@ -3,9 +3,6 @@ import pytest
 from application.macro_feature_catalog import (
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
-    FED_POLICY_DERIVED_COLUMNS,
-    FED_POLICY_MATERIALIZED_COLUMNS,
-    FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     PRICE_FEATURE_SERIES,
@@ -89,20 +86,11 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
         for name in names
     )
     assert set(SIGNED_LEVEL_SERIES) == {"estr"}
-    for origin in FED_POLICY_ORIGIN_COLUMNS:
-        assert origin in names
-        for lag in (1, 5, 20):
-            assert f"{origin}_delta_{lag}obs" in names
-        assert f"{origin}_zscore_60obs" in names
-        for lag, window in MOMENTUM_POLICY.lag_windows:
-            assert f"{origin}_momentum_autocorr_{lag}_{window}obs" in names
-        assert not any(
-            name.startswith(f"{origin}_log_") or f"{origin}_return_" in name for name in names
-        )
+    assert not any(name.startswith("fed_") for name in names)
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 8
+    assert MACRO_FEATURE_VIEW_VERSION == 9
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -112,17 +100,15 @@ def test_catalog_rejects_duplicate_columns() -> None:
         validate_feature_catalog(FEATURE_CATALOG[:-1] + (FEATURE_CATALOG[0],))
 
 
-def test_fed_materialized_contract_has_exactly_four_origins_and_28_derived_columns() -> None:
-    assert len(FED_POLICY_ORIGIN_COLUMNS) == 4
-    assert len(FED_POLICY_DERIVED_COLUMNS) == 28
-    assert len(FED_POLICY_MATERIALIZED_COLUMNS) == 32
-    assert all(
-        "log" not in column and "return" not in column for column in FED_POLICY_MATERIALIZED_COLUMNS
+def test_catalog_and_view_exclude_all_retired_fed_features() -> None:
+    retired = (
+        "fed_next_expected_move_bp",
+        "fed_path_slope_m3_bp",
+        "fed_next_uncertainty_bp",
+        "fed_repricing_5obs_bp",
     )
-    for origin in FED_POLICY_ORIGIN_COLUMNS:
-        assert f'raw."{origin}" AS "{origin}"' in _FEATURES_VIEW_DDL
-    for derived in FED_POLICY_DERIVED_COLUMNS:
-        assert f'"{derived}"' in _FEATURES_VIEW_DDL
+    assert not any(name.startswith("fed_") for name in FEATURE_COLUMNS)
+    assert all(origin not in _FEATURES_VIEW_DDL for origin in retired)
 
 
 def test_postgres_view_migration_is_populated_and_versioned() -> None:
@@ -137,3 +123,7 @@ def test_postgres_view_migration_is_populated_and_versioned() -> None:
     migration_sql = " ".join(statement for migration in _MIGRATIONS[-2:] for statement in migration)
     assert f"version={MACRO_FEATURE_VIEW_VERSION}" in migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql
+    assert '"fed_macro_raw"' in migration_sql
+    assert '"fed_macro_features"' in migration_sql
+    assert 'DROP COLUMN IF EXISTS "fed_next_expected_move_bp"' in migration_sql
+    assert 'raw."available_at_utc" AS "available_at_utc"' in _FEATURES_VIEW_DDL

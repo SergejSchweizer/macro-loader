@@ -55,12 +55,10 @@ def test_row_digest_is_deterministic_and_value_sensitive() -> None:
     assert gold_row_sha256(row) != gold_row_sha256(later)
 
 
-def test_row_digest_ignores_fed_owned_values() -> None:
-    values = tuple(float(index) for index in range(len(POSTGRES_RAW_COLUMNS) - 1))
-    changed_fed = (*values[:-4], values[-4] + 100.0, values[-3] + 100.0, None, None)
-    assert gold_row_sha256(GoldRowPayload(_ts(1), values)) == gold_row_sha256(
-        GoldRowPayload(_ts(1), changed_fed)
-    )
+def test_postgres_raw_sync_contract_contains_only_non_fed_source_levels() -> None:
+    assert POSTGRES_RAW_COLUMNS[0] == "timestamp_m1"
+    assert len(POSTGRES_RAW_COLUMNS) == 14
+    assert not any(column.startswith("fed_") for column in POSTGRES_RAW_COLUMNS)
 
 
 def test_row_digest_has_explicit_null_and_normalizes_negative_zero() -> None:

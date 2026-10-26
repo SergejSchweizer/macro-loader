@@ -11,12 +11,9 @@ from typing import NoReturn, Protocol, TypeVar, cast
 
 import psycopg
 
-from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
-from application.fed_policy_postgres import FED_POLICY_DATASET_ID
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
-    FED_POLICY_ORIGIN_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     PRICE_FEATURE_SERIES,
@@ -29,7 +26,6 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
-    POSTGRES_MARKET_RAW_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SESSION_TIMEZONE,
@@ -55,6 +51,32 @@ from application.trend_features import (
     SMA_RATIO_WINDOWS,
 )
 from application.volatility_features import VOLATILITY_SERIES
+
+_RETIRED_FED_DATASET_ID = "fed_policy_features_daily"
+_RETIRED_FED_ORIGIN_COLUMNS = (
+    "fed_next_expected_move_bp",
+    "fed_path_slope_m3_bp",
+    "fed_next_uncertainty_bp",
+    "fed_repricing_5obs_bp",
+)
+_RETIRED_FED_VIEW_COLUMNS = tuple(
+    column
+    for origin in _RETIRED_FED_ORIGIN_COLUMNS
+    for column in (
+        origin,
+        *(f"{origin}_delta_{lag}obs" for lag in (1, 5, 20)),
+        f"{origin}_zscore_60obs",
+        *(
+            f"{origin}_momentum_autocorr_{lag}_{window}obs"
+            for lag, window in ((1, 60), (5, 60), (20, 120))
+        ),
+    )
+)
+_RETIRED_FED_LEGACY_COLUMNS = (
+    "fed_3m_expected_move_bp",
+    "fed_next_expected_move_bp_delta_5obs",
+    "fomc_business_days_to_next",
+)
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
@@ -236,17 +258,56 @@ def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+_RETIRED_FED_RAW_UPDATES = ", ".join(
+    f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in _RETIRED_FED_ORIGIN_COLUMNS
+)
+_RETIRED_FED_VIEW_UPDATES = ", ".join(
+    f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in _RETIRED_FED_VIEW_COLUMNS
+)
+_RETIRED_FED_ORIGIN_COLUMN_NAMES = ", ".join(
+    _quote(column) for column in _RETIRED_FED_ORIGIN_COLUMNS
+)
+_RETIRED_FED_ORIGIN_INFO_NAMES = ", ".join(repr(column) for column in _RETIRED_FED_ORIGIN_COLUMNS)
+_RETIRED_FED_VIEW_COLUMN_NAMES = ", ".join(_quote(column) for column in _RETIRED_FED_VIEW_COLUMNS)
+_RETIRED_FED_VIEW_INFO_NAMES = ", ".join(repr(column) for column in _RETIRED_FED_VIEW_COLUMNS)
+_RETIRED_FED_LEGACY_COLUMN_NAMES = ", ".join(
+    _quote(column) for column in _RETIRED_FED_LEGACY_COLUMNS
+)
+_RETIRED_FED_LEGACY_COLUMN_DEFS = ", ".join(
+    f"{_quote(column)} DOUBLE PRECISION NULL" for column in _RETIRED_FED_LEGACY_COLUMNS
+)
+_RETIRED_FED_LEGACY_INFO_NAMES = ", ".join(repr(column) for column in _RETIRED_FED_LEGACY_COLUMNS)
+_RETIRED_FED_LEGACY_VALUE_ROWS = ", ".join(
+    f"({index}, '{column}')" for index, column in enumerate(_RETIRED_FED_LEGACY_COLUMNS, start=1)
+)
+_RETIRED_FED_LEGACY_DROP_CLAUSES = ", ".join(
+    f"DROP COLUMN IF EXISTS {_quote(column)}" for column in _RETIRED_FED_LEGACY_COLUMNS
+)
+_RETIRED_FED_ORIGIN_COLUMN_DEFS = ", ".join(
+    f"{_quote(column)} DOUBLE PRECISION NULL" for column in _RETIRED_FED_ORIGIN_COLUMNS
+)
+_RETIRED_FED_VIEW_COLUMN_DEFS = ", ".join(
+    f"{_quote(column)} DOUBLE PRECISION NULL" for column in _RETIRED_FED_VIEW_COLUMNS
+)
+
+
 _CONSUMER = f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(POSTGRES_CONSUMER_TABLE)}"
 _SYNC_STATE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_SYNC_STATE_TABLE)}"
 _ROW_HASHES = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_ROW_HASH_TABLE)}"
 _FEATURE_COLUMNS = POSTGRES_RAW_COLUMNS[1:]
-_MARKET_FEATURE_COLUMNS = POSTGRES_MARKET_RAW_COLUMNS[1:]
+_RAW_FEATURE_COLUMNS = POSTGRES_RAW_COLUMNS[1:]
 _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
 _POSTGRES_OWNER_ROLE = "macro-loader-owner"
+_RETIRED_ARCHIVE_SCHEMA = "macro_loader_retired"
+_RETIRED_RAW_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_macro_raw"'
+_RETIRED_FEATURE_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_macro_features"'
+_RETIRED_POLICY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_policy_features_daily"'
+_RETIRED_STATE_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_policy_sync_state"'
+_RETIRED_HASH_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_policy_row_hashes"'
+_RETIRED_LEGACY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_legacy_raw_columns"'
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
-_FED_POLICY_TABLE = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(FED_POLICY_DATASET_ID)}"
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
 _CONSUMER_COLUMNS = _FEATURE_COLUMNS
 _AVAILABLE_AT_EXPRESSION = """(
@@ -269,15 +330,6 @@ _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
     {",\n    ".join(f"{_quote(column)} DOUBLE PRECISION NULL" for column in _CONSUMER_COLUMNS)},
     {_AVAILABLE_AT_COLUMN_DDL}
-)"""
-_FED_POLICY_DDL = f"""CREATE TABLE IF NOT EXISTS {_FED_POLICY_TABLE} (
-    {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
-    {
-    ",\n    ".join(
-        f"{_quote(column)} DOUBLE PRECISION NULL" for column in FED_POLICY_FEATURE_COLUMNS
-    )
-},
-    {_quote("available_at_utc")} TIMESTAMPTZ(6) NOT NULL
 )"""
 _SYNC_STATE_DDL = f"""CREATE TABLE IF NOT EXISTS {_SYNC_STATE} (
     dataset_id TEXT PRIMARY KEY,
@@ -310,7 +362,6 @@ _OWNERSHIP_MIGRATIONS = tuple(
     f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
     for schema, table in (
         (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
-        (POSTGRES_SYNC_SCHEMA, FED_POLICY_DATASET_ID),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
         (POSTGRES_SYNC_SCHEMA, _MIGRATION_LEDGER_TABLE),
@@ -336,26 +387,67 @@ _RETURN_COLUMN_MIGRATION = (
     if _RETURN_COLUMNS
     else "SELECT 1"
 )
-_FED_POLICY_COLUMNS = tuple(
-    column
-    for column in GOLD_COLUMNS
-    if column.startswith("fed_") or column == "fomc_business_days_to_next"
-)
-_FED_POLICY_COLUMN_MIGRATION = f"ALTER TABLE {_CONSUMER} " + ", ".join(
-    f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
-    for column in FED_POLICY_ORIGIN_COLUMNS
-)
 _FED_POLICY_RENAME_MIGRATION = (
-    "ALTER TABLE "
-    + _CONSUMER
-    + " "
-    + ", ".join(
-        [
-            'DROP COLUMN IF EXISTS "fed_3m_expected_move_bp"',
-            'DROP COLUMN IF EXISTS "fed_next_expected_move_bp_delta_5obs"',
-            'DROP COLUMN IF EXISTS "fomc_business_days_to_next"',
-        ]
-    )
+    f"CREATE SCHEMA IF NOT EXISTS {_quote(_RETIRED_ARCHIVE_SCHEMA)}",
+    f"ALTER SCHEMA {_quote(_RETIRED_ARCHIVE_SCHEMA)} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"REVOKE ALL ON SCHEMA {_quote(_RETIRED_ARCHIVE_SCHEMA)} FROM PUBLIC, "
+    f"{_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_LEGACY_ARCHIVE} (
+        timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
+        {_RETIRED_FED_LEGACY_COLUMN_DEFS}
+    )""",
+    f"ALTER TABLE {_RETIRED_LEGACY_ARCHIVE} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"REVOKE ALL ON TABLE {_RETIRED_LEGACY_ARCHIVE} FROM PUBLIC, "
+    f"{_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"""DO $$
+    DECLARE
+        legacy_projection TEXT;
+        legacy_updates TEXT;
+    BEGIN
+        IF to_regclass('{POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_CONSUMER_TABLE}') IS NOT NULL
+           AND EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema = '{POSTGRES_CONSUMER_SCHEMA}'
+                         AND table_name = '{POSTGRES_CONSUMER_TABLE}'
+                         AND column_name = 'timestamp_m1')
+           AND EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema = '{POSTGRES_CONSUMER_SCHEMA}'
+                         AND table_name = '{POSTGRES_CONSUMER_TABLE}'
+                         AND column_name IN ({_RETIRED_FED_LEGACY_INFO_NAMES}))
+        THEN
+            SELECT string_agg(
+                CASE WHEN present.column_name IS NOT NULL THEN format('%I', wanted.column_name)
+                     ELSE 'NULL::double precision' END, ', ' ORDER BY wanted.ordinal
+            ) INTO legacy_projection
+            FROM (VALUES {_RETIRED_FED_LEGACY_VALUE_ROWS})
+                 AS wanted(ordinal, column_name)
+            LEFT JOIN information_schema.columns present
+              ON present.table_schema = '{POSTGRES_CONSUMER_SCHEMA}'
+             AND present.table_name = '{POSTGRES_CONSUMER_TABLE}'
+             AND present.column_name = wanted.column_name;
+            SELECT string_agg(
+                format(
+                    '%I = COALESCE(EXCLUDED.%I, retired.%I)',
+                    column_name,
+                    column_name,
+                    column_name
+                ),
+                ', '
+            ) INTO legacy_updates
+            FROM unnest(ARRAY[{_RETIRED_FED_LEGACY_INFO_NAMES}]) AS legacy(column_name);
+            EXECUTE 'INSERT INTO {_RETIRED_LEGACY_ARCHIVE} AS retired '
+                 || '(timestamp_m1, {_RETIRED_FED_LEGACY_COLUMN_NAMES}) '
+                 || 'SELECT timestamp_m1, ' || legacy_projection || ' FROM {_CONSUMER} '
+                 || 'ON CONFLICT (timestamp_m1) DO UPDATE SET ' || legacy_updates;
+        END IF;
+    END
+    $$""",
+    f"""DO $$
+    BEGIN
+        IF to_regclass('{POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_CONSUMER_TABLE}') IS NOT NULL THEN
+            ALTER TABLE {_CONSUMER} {_RETIRED_FED_LEGACY_DROP_CLAUSES};
+        END IF;
+    END
+    $$""",
 )
 _CONSUMER_LAYOUT_MIGRATION = (
     f"DROP TABLE IF EXISTS {_CONSUMER}",
@@ -612,65 +704,6 @@ def _macro_features_view_query() -> str:
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
-    for origin in FED_POLICY_ORIGIN_COLUMNS:
-        level = _quote(origin)
-        source = _quote(f"{origin}_source")
-        changes = _quote(f"{origin}_changes")
-        features = _quote(f"{origin}_features")
-        lag_sql = ", ".join(
-            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in (1, 5, 20)
-        )
-        delta_sql = ", ".join(
-            f"level - {_quote(f'lag_{lag}')} AS {_quote(f'delta_{lag}')}" for lag in (1, 5, 20)
-        )
-        change_lags = ", ".join(
-            f"lag(level - {_quote('lag_1')}, {lag}) OVER (ORDER BY timestamp_m1) "
-            f"AS {_quote(f'change_lag_{lag}')}"
-            for lag in (1, 5, 20)
-        )
-        source_ctes.append(
-            f"{source} AS (SELECT timestamp_m1, {level} AS level, {lag_sql} "
-            f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
-            "WINDOW ordered AS (ORDER BY timestamp_m1))"
-        )
-        source_ctes.append(
-            f"{changes} AS (SELECT *, {delta_sql}, level - {_quote('lag_1')} AS change, "
-            f"{change_lags} FROM {source})"
-        )
-        expressions = [
-            f"{_quote('delta_' + str(lag))} AS {_quote(f'{origin}_delta_{lag}obs')}"
-            for lag in (1, 5, 20)
-        ]
-        expressions.append(
-            f"CASE WHEN count(level) OVER window_60 = 60 "
-            f"AND stddev_pop(level) OVER window_60 <> 0 "
-            f"THEN (level - avg(level) OVER window_60) / stddev_pop(level) OVER window_60 "
-            f"END AS {_quote(f'{origin}_zscore_60obs')}"
-        )
-        for lag, window in MOMENTUM_POLICY.lag_windows:
-            expressions.append(
-                f"CASE WHEN count(change) OVER window_{window} = {window} "
-                f"AND count({_quote(f'change_lag_{lag}')}) OVER window_{window} = {window} "
-                f"THEN CASE WHEN corr(change, {_quote(f'change_lag_{lag}')}) "
-                f"OVER window_{window} IS NULL THEN NULL ELSE greatest(corr(change, "
-                f"{_quote(f'change_lag_{lag}')}) OVER window_{window}, 0.0) END END AS "
-                f"{_quote(f'{origin}_momentum_autocorr_{lag}_{window}obs')}"
-            )
-        source_ctes.append(
-            f"{features} AS (SELECT timestamp_m1, {', '.join(expressions)} FROM {changes} "
-            "WINDOW window_60 AS (ORDER BY timestamp_m1 ROWS BETWEEN 59 PRECEDING "
-            "AND CURRENT ROW), "
-            "window_120 AS (ORDER BY timestamp_m1 ROWS BETWEEN 119 PRECEDING AND CURRENT ROW))"
-        )
-        joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
-        for column in _FEATURES_VIEW_COLUMNS:
-            if (
-                column.startswith(f"{origin}_delta_")
-                or column.startswith(f"{origin}_zscore_")
-                or column.startswith(f"{origin}_momentum_")
-            ):
-                feature_select.append(f"{features}.{_quote(column)}")
-
     cross_expressions = {
         "vix9d_vix_ratio": (
             'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" '
@@ -693,13 +726,8 @@ def _macro_features_view_query() -> str:
     feature_expressions = {
         expression.rsplit(".", 1)[-1].strip('"'): expression for expression in feature_select
     }
-    fed_expressions = {
-        column: f"raw.{_quote(column)} AS {_quote(column)}" for column in FED_POLICY_ORIGIN_COLUMNS
-    }
     ordered_features = [
-        feature_expressions.get(
-            column, cross_expressions.get(column, fed_expressions.get(column, ""))
-        )
+        feature_expressions.get(column, cross_expressions.get(column, ""))
         for column in _FEATURES_VIEW_COLUMNS
         if column not in {f"{series}_log_level" for series in PRICE_FEATURE_SERIES}
     ]
@@ -763,14 +791,153 @@ _FEATURES_VIEW_REFRESH_MIGRATION = (
     f"{_quote(POSTGRES_USER)}, {_quote(_POSTGRES_OWNER_ROLE)}",
     f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_SYNC_STATE}, {_ROW_HASHES} "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
-    f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {_FED_POLICY_TABLE} "
-    f"TO {_quote(POSTGRES_SYNC_USER)}",
-    f"GRANT SELECT ON TABLE {_FED_POLICY_TABLE} TO {_quote(POSTGRES_USER)}",
     f"GRANT SELECT ON TABLE {_MIGRATION_LEDGER} TO {_quote(POSTGRES_SYNC_USER)}",
     f"REVOKE ALL ON {_FEATURES_VIEW} FROM PUBLIC",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
     "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
+
+_RETIRED_FED_ARCHIVE_MIGRATION = (
+    f"CREATE SCHEMA IF NOT EXISTS {_quote(_RETIRED_ARCHIVE_SCHEMA)}",
+    f"ALTER SCHEMA {_quote(_RETIRED_ARCHIVE_SCHEMA)} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"REVOKE ALL ON SCHEMA {_quote(_RETIRED_ARCHIVE_SCHEMA)} FROM PUBLIC, "
+    f"{_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_RAW_ARCHIVE} (
+        timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
+        available_at_utc TIMESTAMPTZ(6) NOT NULL,
+        {_RETIRED_FED_ORIGIN_COLUMN_DEFS}
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_FEATURE_ARCHIVE} (
+        timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
+        available_at_utc TIMESTAMPTZ(6) NOT NULL,
+        {_RETIRED_FED_VIEW_COLUMN_DEFS}
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_POLICY_ARCHIVE} (
+        timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
+        {_RETIRED_FED_ORIGIN_COLUMN_DEFS},
+        available_at_utc TIMESTAMPTZ(6) NULL
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_STATE_ARCHIVE} (
+        dataset_id TEXT PRIMARY KEY,
+        source_build_id TEXT NOT NULL,
+        data_sha256 CHAR(64) NOT NULL,
+        schema_version INTEGER NOT NULL,
+        feature_version INTEGER NOT NULL,
+        row_count BIGINT NOT NULL,
+        min_timestamp TIMESTAMPTZ(6) NULL,
+        max_timestamp TIMESTAMPTZ(6) NULL,
+        synced_at_utc TIMESTAMPTZ(6) NOT NULL
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_HASH_ARCHIVE} (
+        dataset_id TEXT NOT NULL,
+        timestamp_m1 TIMESTAMPTZ(6) NOT NULL,
+        row_sha256 CHAR(64) NOT NULL,
+        PRIMARY KEY (dataset_id, timestamp_m1)
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS {_RETIRED_LEGACY_ARCHIVE} (
+        timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
+        {_RETIRED_FED_LEGACY_COLUMN_DEFS}
+    )""",
+    *(
+        f"ALTER TABLE {_quote(_RETIRED_ARCHIVE_SCHEMA)}.{_quote(table)} "
+        f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
+        for table in (
+            "fed_macro_raw",
+            "fed_macro_features",
+            "fed_policy_features_daily",
+            "fed_policy_sync_state",
+            "fed_policy_row_hashes",
+            "fed_legacy_raw_columns",
+        )
+    ),
+    f"""DO $$
+    BEGIN
+        IF (SELECT count(*) FROM information_schema.columns
+            WHERE table_schema = '{POSTGRES_CONSUMER_SCHEMA}'
+              AND table_name = '{POSTGRES_CONSUMER_TABLE}'
+              AND column_name IN (
+                  {_RETIRED_FED_ORIGIN_INFO_NAMES}, 'available_at_utc', 'timestamp_m1'
+              ))
+           = {len(_RETIRED_FED_ORIGIN_COLUMNS) + 2} THEN
+            EXECUTE 'INSERT INTO {_RETIRED_RAW_ARCHIVE} '
+                '(timestamp_m1, available_at_utc, {_RETIRED_FED_ORIGIN_COLUMN_NAMES}) '
+                'SELECT timestamp_m1, available_at_utc, {_RETIRED_FED_ORIGIN_COLUMN_NAMES} '
+                'FROM {_CONSUMER} ON CONFLICT (timestamp_m1) DO UPDATE SET '
+                'available_at_utc = EXCLUDED.available_at_utc, {_RETIRED_FED_RAW_UPDATES}';
+        END IF;
+    END
+    $$""",
+    f"""DO $$
+    BEGIN
+        IF to_regclass('{POSTGRES_SYNC_SCHEMA}.fed_policy_features_daily') IS NOT NULL
+           AND (SELECT count(*) FROM information_schema.columns
+                WHERE table_schema = '{POSTGRES_SYNC_SCHEMA}'
+                  AND table_name = 'fed_policy_features_daily'
+                  AND column_name IN ({_RETIRED_FED_ORIGIN_INFO_NAMES}, 'timestamp_m1'))
+               = {len(_RETIRED_FED_ORIGIN_COLUMNS) + 1} THEN
+            EXECUTE 'INSERT INTO {_RETIRED_POLICY_ARCHIVE} AS retired '
+                '(timestamp_m1, {_RETIRED_FED_ORIGIN_COLUMN_NAMES}, available_at_utc) '
+                'SELECT timestamp_m1, {_RETIRED_FED_ORIGIN_COLUMN_NAMES}, ' ||
+                CASE WHEN EXISTS (SELECT 1 FROM information_schema.columns
+                                  WHERE table_schema = '{POSTGRES_SYNC_SCHEMA}'
+                                    AND table_name = 'fed_policy_features_daily'
+                                    AND column_name = 'available_at_utc')
+                     THEN 'available_at_utc' ELSE 'NULL::timestamptz' END ||
+                ' FROM "{POSTGRES_SYNC_SCHEMA}"."fed_policy_features_daily" '
+                'ON CONFLICT (timestamp_m1) DO UPDATE SET '
+                'available_at_utc = COALESCE(EXCLUDED.available_at_utc, '
+                'retired.available_at_utc), ' ||
+                '{_RETIRED_FED_RAW_UPDATES}';
+        END IF;
+    END
+    $$""",
+    f"""DO $$
+    BEGIN
+        IF (SELECT count(*) FROM pg_attribute
+            WHERE attrelid = to_regclass('{POSTGRES_CONSUMER_SCHEMA}.macro_features')
+              AND attnum > 0 AND NOT attisdropped
+              AND attname IN ({_RETIRED_FED_VIEW_INFO_NAMES}, 'available_at_utc', 'timestamp_m1'))
+           = {len(_RETIRED_FED_VIEW_COLUMNS) + 2} THEN
+            EXECUTE 'INSERT INTO {_RETIRED_FEATURE_ARCHIVE} '
+                '(timestamp_m1, available_at_utc, {_RETIRED_FED_VIEW_COLUMN_NAMES}) '
+                'SELECT timestamp_m1, available_at_utc, {_RETIRED_FED_VIEW_COLUMN_NAMES} '
+                'FROM "{POSTGRES_CONSUMER_SCHEMA}"."macro_features" '
+                'ON CONFLICT (timestamp_m1) DO UPDATE SET '
+                'available_at_utc = EXCLUDED.available_at_utc, {_RETIRED_FED_VIEW_UPDATES}';
+        END IF;
+    END
+    $$""",
+    f"""INSERT INTO {_RETIRED_STATE_ARCHIVE}
+        SELECT * FROM {_SYNC_STATE} WHERE dataset_id = '{_RETIRED_FED_DATASET_ID}'
+        ON CONFLICT (dataset_id) DO UPDATE SET
+            source_build_id = EXCLUDED.source_build_id,
+            data_sha256 = EXCLUDED.data_sha256,
+            schema_version = EXCLUDED.schema_version,
+            feature_version = EXCLUDED.feature_version,
+            row_count = EXCLUDED.row_count,
+            min_timestamp = EXCLUDED.min_timestamp,
+            max_timestamp = EXCLUDED.max_timestamp,
+            synced_at_utc = EXCLUDED.synced_at_utc""",
+    f"""INSERT INTO {_RETIRED_HASH_ARCHIVE}
+        SELECT * FROM {_ROW_HASHES} WHERE dataset_id = '{_RETIRED_FED_DATASET_ID}'
+        ON CONFLICT (dataset_id, timestamp_m1) DO UPDATE SET row_sha256 = EXCLUDED.row_sha256""",
+    f"REVOKE ALL ON ALL TABLES IN SCHEMA {_quote(_RETIRED_ARCHIVE_SCHEMA)} FROM PUBLIC, "
+    f"{_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"DELETE FROM {_SYNC_STATE} WHERE dataset_id = '{_RETIRED_FED_DATASET_ID}'",
+    f"DELETE FROM {_ROW_HASHES} WHERE dataset_id = '{_RETIRED_FED_DATASET_ID}'",
+    f'DROP TABLE IF EXISTS {_quote(POSTGRES_SYNC_SCHEMA)}."fed_policy_features_daily"',
+    f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW} CASCADE",
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"DROP COLUMN IF EXISTS {_quote(column)}" for column in _RETIRED_FED_ORIGIN_COLUMNS
+    ),
+    _FEATURES_VIEW_DDL,
+    f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
+    f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+    f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
+    f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
 )
 
 
@@ -842,19 +1009,6 @@ _SCHEMA_SPECIFICATION = (
     ),
     PostgresTableSpecification(
         POSTGRES_SYNC_SCHEMA,
-        FED_POLICY_DATASET_ID,
-        (
-            _TIMESTAMPTZ6_NOT_NULL,
-            *tuple(
-                PostgresColumnSpecification(column, "double precision", None, True)
-                for column in FED_POLICY_FEATURE_COLUMNS
-            ),
-            PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),
-        ),
-        ("timestamp_m1",),
-    ),
-    PostgresTableSpecification(
-        POSTGRES_SYNC_SCHEMA,
         POSTGRES_SYNC_STATE_TABLE,
         (
             PostgresColumnSpecification("dataset_id", "text", None, False),
@@ -890,13 +1044,13 @@ _SCHEMA_SPECIFICATION = (
     ),
 )
 _MIGRATIONS = (
-    (_CONSUMER_DDL, _FED_POLICY_DDL),
+    (_CONSUMER_DDL,),
     (_SYNC_STATE_DDL,),
     (_ROW_HASH_DDL,),
     (_MOMENTUM_COLUMN_MIGRATION,),
     (_RETURN_COLUMN_MIGRATION,),
-    (_FED_POLICY_COLUMN_MIGRATION,),
-    (_FED_POLICY_RENAME_MIGRATION,),
+    ("SELECT 1",),
+    _FED_POLICY_RENAME_MIGRATION,
     _CONSUMER_LAYOUT_MIGRATION,
     (_CONSUMER_RENAME_MIGRATION,),
     _FEATURES_VIEW_MIGRATION,
@@ -907,12 +1061,15 @@ _MIGRATIONS = (
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Rebuild again for the explicit *_log_level column-name contract.
     _FEATURES_VIEW_REBUILD_MIGRATION,
-    (_FED_POLICY_DDL,),
+    ("SELECT 1",),
     # Older layout migrations could recreate macro_raw before the Fed columns existed.
-    (_FED_POLICY_COLUMN_MIGRATION,),
+    ("SELECT 1",),
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Add deterministic serving availability and rebuild the public projection.
     _AVAILABLE_AT_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Archive legacy Fed data under a schema absent from runtime grants, then
+    # remove it from the active raw table and materialized serving view.
+    _RETIRED_FED_ARCHIVE_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -948,16 +1105,14 @@ ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 
 _INSERT_ROW_SQL = (
     f"INSERT INTO {_CONSUMER} ("
-    f"{', '.join(_quote(column) for column in POSTGRES_MARKET_RAW_COLUMNS)}) "
-    f"VALUES ({', '.join('%s' for _ in POSTGRES_MARKET_RAW_COLUMNS)}) "
+    f"{', '.join(_quote(column) for column in POSTGRES_RAW_COLUMNS)}) "
+    f"VALUES ({', '.join('%s' for _ in POSTGRES_RAW_COLUMNS)}) "
     f'ON CONFLICT ("timestamp_m1") DO UPDATE SET '
-    + ", ".join(
-        f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in _MARKET_FEATURE_COLUMNS
-    )
+    + ", ".join(f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in _RAW_FEATURE_COLUMNS)
 )
 _UPDATE_ROW_SQL = (
     f"UPDATE {_CONSUMER} SET "
-    + ", ".join(f"{_quote(column)} = %s" for column in _MARKET_FEATURE_COLUMNS)
+    + ", ".join(f"{_quote(column)} = %s" for column in _RAW_FEATURE_COLUMNS)
     + f" WHERE {_quote('timestamp_m1')} = %s"
 )
 _DELETE_ROW_SQL = f"DELETE FROM {_CONSUMER} WHERE {_quote('timestamp_m1')} = %s"
@@ -967,15 +1122,15 @@ ON CONFLICT (dataset_id, timestamp_m1)
 DO UPDATE SET row_sha256 = EXCLUDED.row_sha256"""
 _DELETE_DIGEST_SQL = f"DELETE FROM {_ROW_HASHES} WHERE dataset_id = %s AND timestamp_m1 = %s"
 _CONSUMER_ROWS_SQL = (
-    f"SELECT {', '.join(_quote(column) for column in POSTGRES_MARKET_RAW_COLUMNS)} "
+    f"SELECT {', '.join(_quote(column) for column in POSTGRES_RAW_COLUMNS)} "
     f"FROM {_CONSUMER} WHERE ("
-    + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _MARKET_FEATURE_COLUMNS)
+    + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _RAW_FEATURE_COLUMNS)
     + f") ORDER BY {_quote('timestamp_m1')}"
 )
 _TARGET_SUMMARY_SQL = (
     f"SELECT COUNT(*), MIN({_quote('timestamp_m1')}), MAX({_quote('timestamp_m1')}) "
     f"FROM {_CONSUMER} WHERE ("
-    + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _MARKET_FEATURE_COLUMNS)
+    + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _RAW_FEATURE_COLUMNS)
     + ")"
 )
 _UPSERT_STATE_SQL = f"""INSERT INTO {_SYNC_STATE} (
@@ -1059,7 +1214,7 @@ def _summary_from_row(row: tuple[object, ...]) -> GoldTargetSummary:
 
 
 def _payload_from_row(row: tuple[object, ...]) -> GoldRowPayload:
-    if len(row) != len(POSTGRES_MARKET_RAW_COLUMNS):
+    if len(row) != len(POSTGRES_RAW_COLUMNS):
         raise ValueError("PostgreSQL Gold consumer row has unexpected width")
     timestamp = _as_datetime(row[0], "timestamp_m1")
     if timestamp is None:
@@ -1069,7 +1224,6 @@ def _payload_from_row(row: tuple[object, ...]) -> GoldRowPayload:
         if value is not None and not isinstance(value, float):
             raise TypeError("PostgreSQL Gold consumer feature must be float or null")
         values.append(value)
-    values.extend(None for _ in POSTGRES_RAW_COLUMNS[len(POSTGRES_MARKET_RAW_COLUMNS) :])
     return GoldRowPayload(timestamp, tuple(values))
 
 
@@ -1094,13 +1248,13 @@ def _state_params(state: GoldSyncState) -> tuple[object, ...]:
 def _row_insert_params(row: GoldRowPayload) -> tuple[object, ...]:
     return (
         row.timestamp_m1,
-        *row.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1],
+        *row.values,
     )
 
 
 def _row_update_params(row: GoldRowPayload) -> tuple[object, ...]:
     return (
-        *row.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1],
+        *row.values,
         row.timestamp_m1,
     )
 
@@ -1648,7 +1802,6 @@ class PostgresGoldSchemaMigrator:
                         "VALUES (%s, CURRENT_TIMESTAMP)",
                         (version,),
                     )
-                cursor.execute(_FED_POLICY_DDL)
                 for statement in _OWNERSHIP_MIGRATIONS:
                     cursor.execute(statement)
                 PostgresGoldSyncRepository._assert_schema_contract(cursor)
@@ -1712,7 +1865,6 @@ class PostgresGoldSchemaReconstructor:
                 cursor.execute("RESET ROLE")
                 for schema, table in (
                     (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
-                    (POSTGRES_SYNC_SCHEMA, FED_POLICY_DATASET_ID),
                     (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
                     (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
                 ):

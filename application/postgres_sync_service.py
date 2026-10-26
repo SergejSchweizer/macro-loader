@@ -10,6 +10,7 @@ from typing import Protocol
 import polars as pl
 
 from application.gold_catalog import GoldCatalogRecord
+from application.gold_frame import GOLD_COLUMNS
 from application.postgres_delta import plan_gold_delta
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
@@ -101,11 +102,6 @@ class GoldPostgresDeltaSync:
 
         frame = self.source.read_path(data_path)
         self._validate_frame_metadata(frame, record)
-        missing_fed = [column for column in POSTGRES_RAW_COLUMNS[1:] if column not in frame.columns]
-        if missing_fed:
-            frame = frame.with_columns(
-                [pl.lit(None, dtype=pl.Float64).alias(column) for column in missing_fed]
-            )
         plan = plan_gold_delta(
             frame.select(list(POSTGRES_RAW_COLUMNS)), target_digests, prior_state
         )
@@ -285,6 +281,16 @@ class GoldPostgresDeltaSync:
 
     @staticmethod
     def _validate_frame_metadata(frame: pl.DataFrame, record: GoldCatalogRecord) -> None:
+        if frame.columns != list(GOLD_COLUMNS):
+            raise GoldSyncSourceError("current Gold columns differ from the canonical schema")
+        if frame.schema["timestamp_m1"] != pl.Datetime("us", "UTC"):
+            raise GoldSyncSourceError(
+                "current Gold timestamp dtype differs from the canonical schema"
+            )
+        if any(frame.schema[column] != pl.Float64 for column in GOLD_COLUMNS[1:]):
+            raise GoldSyncSourceError(
+                "current Gold feature dtype differs from the canonical schema"
+            )
         row_count = record.row_count
         if row_count is None:
             raise GoldSyncSourceError("current complete Gold catalog row has no row_count")

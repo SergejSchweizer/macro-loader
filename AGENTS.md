@@ -2,9 +2,9 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-09-27): backlog PR-145 through PR-150 are merged to
-`origin/main` as GitHub PRs #145 through #150. The current remediation wave continues
-with PR-151 and PR-152; the guarded acceptance runners document
+Current delivery status (2026-10-26): PR-167 is merged to `origin/main` as GitHub PR
+#167. PR-168, `pr-168/retire-fed-policy-feature-pipeline`, is in progress and its PR is
+pending; it has not been merged or deployed. The guarded acceptance runners document
 production-like verification but must only be executed with explicit deployment
 authorization.
 

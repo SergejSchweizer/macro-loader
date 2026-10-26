@@ -393,6 +393,28 @@ def test_catalog_metadata_mismatch_fails_before_repository_mutation() -> None:
     assert repository.applied == []
 
 
+@pytest.mark.parametrize(
+    "frame_change",
+    [
+        lambda frame: frame.drop("vix_level"),
+        lambda frame: frame.with_columns(pl.lit(1.0).alias("fed_next_expected_move_bp")),
+    ],
+    ids=("missing-current-column", "retired-extra-column"),
+)
+def test_source_must_match_exact_current_gold_column_contract(
+    frame_change: Callable[[pl.DataFrame], pl.DataFrame],
+) -> None:
+    canonical = _frame((0, 1))
+    changed = frame_change(canonical)
+    repository = FakeRepository()
+    service, _ = _service(changed, repository)
+
+    with pytest.raises(GoldSyncSourceError, match="columns differ from the canonical schema"):
+        service.sync()
+
+    assert repository.applied == []
+
+
 def test_failed_atomic_apply_preserves_prior_state_and_retry_converges() -> None:
     frame = _frame((0, 1, 2))
     repository = FakeRepository(fail_apply=True)

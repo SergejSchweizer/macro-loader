@@ -16,7 +16,6 @@ from application.gold_publication import GoldPublisher
 from application.gold_retention import GoldRetentionResult, GoldRetentionService
 from application.parallelism import PolarsExecutionPolicy
 from application.planner import OperationMode
-from application.ports.fed_policy import FedPolicySnapshotSource
 
 RunIdFactory = Callable[[str], str]
 EventSink = Callable[[dict[str, object]], None]
@@ -71,7 +70,6 @@ class DailyMedallionPipeline:
         publisher: GoldPublisher,
         retention: GoldRetentionService,
         inventory: InventoryRefreshPort,
-        fed_policy_source: FedPolicySnapshotSource | None = None,
         run_id_factory: RunIdFactory | None = None,
         event_sink: EventSink | None = None,
         polars_execution: PolarsExecutionPolicy | None = None,
@@ -82,7 +80,6 @@ class DailyMedallionPipeline:
         self._publisher = publisher
         self._retention = retention
         self._inventory = inventory
-        self._fed_policy_source = fed_policy_source
         self._run_id_factory = run_id_factory if run_id_factory is not None else _default_run_id
         self._event_sink = event_sink if event_sink is not None else _no_event
         self._polars_execution = (

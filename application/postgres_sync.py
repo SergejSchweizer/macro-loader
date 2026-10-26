@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol, TypeVar
 
-from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 from application.gold_catalog import (
     STRICT_CURRENT,
     GoldCatalogRecord,
@@ -27,20 +26,7 @@ POSTGRES_SESSION_TIMEZONE = "UTC"
 POSTGRES_RAW_COLUMNS = (
     "timestamp_m1",
     *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
-    *FED_POLICY_FEATURE_COLUMNS,
 )
-POSTGRES_MARKET_RAW_COLUMNS = (
-    "timestamp_m1",
-    *(f"{series_id}_level" for series_id in GOLD_SOURCE_SERIES),
-)
-POSTGRES_FED_RAW_COLUMNS = (
-    "timestamp_m1",
-    "fed_next_expected_move_bp",
-    "fed_path_slope_m3_bp",
-    "fed_next_uncertainty_bp",
-    "fed_repricing_5obs_bp",
-)
-
 TransactionResult = TypeVar("TransactionResult")
 
 

@@ -4,23 +4,72 @@ This backlog is the implementation source of truth for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-09-27
+Last reviewed: 2026-10-26
+
+## GOALS.md Implementation Wave
+
+### PR-168: Retire Fed Policy Features And Acquisition
+
+PR name: `retire-fed-policy-feature-pipeline`
+Status: In Progress
+Updated: 2026-10-26
+PR: #168
+Git branch: `pr-168/retire-fed-policy-feature-pipeline`
+Git status: pushed-ci-green
+Agent lane: Fed runtime/download retirement and PostgreSQL serving retirement; two agents
+Depends on: PR-167
+Commit: `2e4b93e`, `8d89eba`
+Design patterns: Adapter, Repository, Materialized View, Versioned Migration, Fail-Closed Verification.
+
+Description:
+- R1: Remove the FedWatch/Fed-policy acquisition, download, calculation, persistence,
+  orchestration, CLI, and scheduled-runtime paths from active application code; preserve
+  the independent FRED provider and its ordinary macro series.
+- R2: Remove the four Fed-policy origins and their 28 derived columns from the active
+  PostgreSQL `macro_raw` and `macro_features` contracts, catalogs, sync/conformance paths,
+  and apply an idempotent migration for existing deployments. Preserve
+  `available_at_utc` and all non-Fed source columns/features.
+- R3: Remove Fed-policy-only commands, scripts, cron templates, dependencies, and active
+  operator documentation. Preserve prior Fed acceptance artifacts and historical backlog
+  entries as historical records; do not uninstall host crontabs or mutate production.
+- R4: Make the surviving runtime and serving schema fail closed on retired Fed objects,
+  while proving FRED ingestion, normal `macro_raw` synchronization,
+  `available_at_utc`, and the non-Fed `macro_features` view remain supported.
+- R5: Pass the required automated quality gates without executing production migrations,
+  data repopulation, or installed-cron actions absent separate authorization.
+
+Acceptance:
+- A1 (verifies R1): import/CLI/runtime composition checks find no Fed-policy acquisition
+  or download path; FRED provider registry entries and FRED tests remain intact.
+- A2 (verifies R2): clean-create and upgrade PostgreSQL tests expose no Fed origin or
+  Fed-derived columns in `macro_raw`/`macro_features`, do not require the private
+  `fed_policy_features_daily` relation, retain `available_at_utc`, and prove repeated
+  migration is idempotent.
+- A3 (verifies R3): no Fed-only command or checked-in cron path remains active; historical
+  acceptance evidence is preserved; current README/ARCHITECTURE/operator docs describe
+  the retired runtime without claiming a production migration or host-cron uninstall.
+- A4 (verifies R4): exact remaining schema/catalog/conformance contracts and real-Postgres
+  regressions prove the FRED/non-Fed sync/view path is unchanged and retired Fed columns
+  or tables fail the active schema contract.
+- A5 (verifies R5): `lint`, `type`, `unit`, `integration`, and `coverage` all pass; no
+  production migration or installed-cron action is run without separate authorization.
 
 ## Current repository and production status
 
-As of 2026-09-27, the Fed-policy reconstruction, four canonical Fed origins,
-PostgreSQL synchronization, EOD orchestration, raw-to-feature serving lineage, and the
-installed cron path are merged. The production FedWatch acquisition path is browser-only
-and uses `https://www.cmegroup.cn/fed-watch/`; the direct CME transport endpoint is not
-a fallback because it returns HTTP 403 in this environment. The CBOE CDN endpoints are
-also currently unavailable with HTTP 403; this is an external provider-access issue,
-not a parser failure, and failed CBOE observations remain `NULL`.
+As of 2026-10-26, PR-168 is in progress on
+`pr-168/retire-fed-policy-feature-pipeline`; it is pending and has not been merged to
+`main` or deployed. The working branch contains runtime/acquisition retirement and
+PostgreSQL serving-retirement changes, but branch contents are not evidence of deployed
+database or host-crontab state. No production migration or installed-crontab change has
+been performed as part of this work. Earlier Fed-policy backlog entries and acceptance
+artifacts remain historical audit records. The independent FRED provider remains active
+for its registered ordinary macro series.
 
-The delivery wave below changes the serving lineage to one consistent path:
+The active serving lineage is:
 
 ```text
-canonical Fed EOD features
-        -> canonical Gold/origin serving contract
+canonical market and macro source levels
+        -> canonical Gold/source serving contract
         -> macro_loader.macro_raw
         -> macro_loader.macro_features
 ```
@@ -36,11 +85,11 @@ than filled, interpolated, carried, or synthesized.
 ### PR-167: Add Next-Business-Day Availability To PostgreSQL Serving
 
 PR name: `next-business-day-availability`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-26
 PR: #167
 Git branch: `pr-167/next-business-day-availability`
-Git status: pushed-ci-green
+Git status: merged
 Agent lane: PostgreSQL serving schema and temporal availability contract; two agents
 Depends on: PR-166
 Commit: `1d92194`
@@ -77,14 +126,14 @@ Acceptance criteria:
 ### PR-165: Reconcile Fed Gaps And Publish Full Raw History
 
 PR name: `fill-fed-gaps-full-history`
-Status: In Progress
-Updated: 2026-10-03
-PR: pending
+Status: Merged
+Updated: 2026-10-26
+PR: #166
 Git branch: `pr-165/fill-fed-gaps-full-history`
-Git status: in-progress
+Git status: merged
 Agent lane: Fed history reconciliation and full-view exposure; one agent only
 Depends on: PR-164
-Commit: pending
+Commit: `3909951`, `c69acf8`
 Design patterns: Repository, Reconciliation Strategy, Materialized View, Fail-Closed Verification.
 
 Acceptance criteria:
@@ -950,7 +999,13 @@ Acceptance:
 - A5 (verifies R5): revision/no-op tests prove exact affected windows, exactly one refresh on semantic mutation, zero refresh on unchanged replay, and stable fingerprint.
 - A6 (verifies R6): the sanitized artifact is deterministic and PASS is impossible unless A1-A5 all pass.
 
-## Active Delivery Program — Fed Policy In `macro_raw` And `macro_features`
+## Historical Fed Policy Serving Program — Superseded By PR-168
+
+The following serving contract, dependency chain, and PR-113–118 specifications are
+retained as delivery and acceptance history. They describe the former Fed-serving
+program, not the current target contract or active operator procedure. PR-168 is the
+in-progress retirement scope; it is not yet merged or deployed. Historical PR details
+and acceptance records below are intentionally preserved.
 
 The four canonical Fed-policy EOD origins are:
 
@@ -961,12 +1016,12 @@ fed_next_uncertainty_bp
 fed_repricing_5obs_bp
 ```
 
-Their canonical formulas and point-in-time availability semantics remain those delivered by
-PR-97–105. This wave changes only their serving placement and downstream transformations:
+Their canonical formulas and point-in-time availability semantics were delivered by
+PR-97–105. The former serving wave changed their serving placement and downstream transformations:
 the four origins must be first-class columns in `macro_raw`, and `macro_features` must
 consume those columns from `macro_raw` rather than directly joining a private Fed table.
 
-Both serving relations expose the requested history from `2010-01-01` through the latest
+Under the former contract, both serving relations exposed the requested history from `2010-01-01` through the latest
 completed EOD source date. `2010-01-01` is the lower serving boundary; the first actual
 eligible Fed observation is source/calendar dependent and must be verified. No QA may turn
 a public-source gap into an invented value.
@@ -983,11 +1038,11 @@ momentum_autocorr_5_60obs
 momentum_autocorr_20_120obs
 ```
 
-Thus `macro_features` exposes 4 canonical Fed origins plus 28 derived Fed columns = 32
+Thus the former `macro_features` contract exposed 4 canonical Fed origins plus 28 derived Fed columns = 32
 Fed columns. Natural-log levels, shifted-log workarounds, and geometric/percentage returns
 are intentionally excluded because the Fed basis-point origins can be zero or negative.
 
-The active dependency chain is:
+The historical dependency chain was:
 
 ```text
 PR-114 serving contract/schema
@@ -1562,7 +1617,10 @@ because replacement/cleanup PRs were occasionally opened under the same backlog 
 - PR-96: Raw source exposure in `macro_features` was changed to explicit logarithmic `*_log_level` columns; GitHub PRs #93–#95 were superseded/closed attempts of the same scope and #96 is the merged implementation.
 - PR-97–105: Fed-policy EOD contract, ZQ persistence/acquisition, point-in-time Fed references, probability reconstruction, four canonical features, private PostgreSQL synchronization, delta orchestration, and installed daily cron were delivered; the next serving-layout wave moves those origins into `macro_raw` and derives `macro_features` from that table.
 
-The detailed active backlog above contains only open/planned Fed serving work. Completed PR-97–105 are intentionally condensed in this Closed Delivery Summary and must not be reopened or silently rewritten to implement PR-113+ work.
+The detailed Fed-serving backlog above is retained as historical scope and acceptance
+evidence; it is no longer an active delivery program. Completed PR-97–105 are condensed
+in this Closed Delivery Summary. PR-168 supersedes the former Fed-serving contract; old
+Fed PR records must not be reopened or silently rewritten to implement unrelated work.
 
 ## Condensed Existing PR Register
 

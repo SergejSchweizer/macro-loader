@@ -7,7 +7,6 @@ import pytest
 import ingestion.postgres_gold_repository as module
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
-    POSTGRES_MARKET_RAW_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
@@ -375,35 +374,59 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert 'DROP TABLE IF EXISTS "macro_loader"."macro_raw"' in ddl
     assert "to_regclass('macro_loader.macro_features_daily')" in ddl
     assert 'ALTER TABLE "macro_loader"."macro_features_daily" RENAME TO "macro_raw"' in ddl
-    assert "CREATE SCHEMA" not in ddl
+    assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader_retired"' in ddl
+    assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader"' not in ddl
+    assert all(table.name != "fed_policy_features_daily" for table in module._SCHEMA_SPECIFICATION)
     assert ("commit", None, None) in connection.events
 
 
-def test_latest_migration_adds_fed_raw_columns_before_rebuilding_the_view() -> None:
-    fed_migration_index = next(
-        index
-        for index, migration in enumerate(module._MIGRATIONS)
-        if module._FED_POLICY_COLUMN_MIGRATION in migration
+def test_retirement_migration_archives_fed_data_before_removing_active_columns() -> None:
+    migration = module._MIGRATIONS[-1]
+    sql = "\n".join(migration)
+    assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader_retired"' in sql
+    assert '"fed_macro_raw"' in sql
+    assert '"fed_macro_features"' in sql
+    assert '"fed_policy_features_daily"' in sql
+    assert 'INSERT INTO "macro_loader_retired"."fed_policy_sync_state"' in sql
+    assert 'INSERT INTO "macro_loader_retired"."fed_policy_row_hashes"' in sql
+    assert 'DELETE FROM "macro_loader_sync"."gold_sync_state"' in sql
+    assert 'DELETE FROM "macro_loader_sync"."gold_row_hashes"' in sql
+    assert 'REVOKE ALL ON SCHEMA "macro_loader_retired" FROM PUBLIC' in sql
+    assert '"macro-loader"' in sql and '"macro-loader-sync"' in sql
+    assert sql.index('INSERT INTO "macro_loader_retired"."fed_macro_raw"') < sql.index(
+        'DROP COLUMN IF EXISTS "fed_next_expected_move_bp"'
     )
-    availability_migration_index = next(
-        index
-        for index, migration in enumerate(module._MIGRATIONS)
-        if migration[: len(module._AVAILABLE_AT_COLUMN_MIGRATION)]
-        == module._AVAILABLE_AT_COLUMN_MIGRATION
+    assert sql.index('INSERT INTO "macro_loader_retired"."fed_policy_features_daily"') < sql.index(
+        'DROP TABLE IF EXISTS "macro_loader_sync"."fed_policy_features_daily"'
     )
-    assert fed_migration_index < availability_migration_index
-    assert module._FEATURES_VIEW_REBUILD_MIGRATION[0] in module._MIGRATIONS[-1]
+    assert 'DROP COLUMN IF EXISTS "available_at_utc"' not in sql
+    assert module._FEATURES_VIEW_DDL in migration
+    legacy_migration = "\n".join(module._FED_POLICY_RENAME_MIGRATION)
+    assert (
+        'CREATE TABLE IF NOT EXISTS "macro_loader_retired"."fed_legacy_raw_columns"'
+        in legacy_migration
+    )
+    assert legacy_migration.index("INSERT INTO") < legacy_migration.index(
+        'DROP COLUMN IF EXISTS "fed_3m_expected_move_bp"'
+    )
+    assert "to_regclass('macro_loader.macro_raw') IS NOT NULL" in legacy_migration
 
 
 def test_latest_migrations_add_generated_availability_before_rebuilding_the_view() -> None:
-    migration_sql = "\n".join(
-        statement for migration in module._MIGRATIONS[-2:] for statement in migration
+    availability_migration_index = next(
+        index
+        for index, migration in enumerate(module._MIGRATIONS)
+        if any(module._AVAILABLE_AT_COLUMN_MIGRATION[0] in statement for statement in migration)
     )
+    retirement_migration_index = len(module._MIGRATIONS) - 1
+    availability_sql = "\n".join(module._MIGRATIONS[availability_migration_index])
+    retirement_sql = "\n".join(module._MIGRATIONS[retirement_migration_index])
 
-    assert '"available_at_utc"' in migration_sql
-    assert "GENERATED ALWAYS AS" in migration_sql
-    assert "TIMESTAMPTZ(6)" in migration_sql
-    assert module._FEATURES_VIEW_REBUILD_MIGRATION[0] in module._MIGRATIONS[-1]
+    assert '"available_at_utc"' in availability_sql
+    assert "GENERATED ALWAYS AS" in availability_sql
+    assert "TIMESTAMPTZ(6)" in availability_sql
+    assert module._FEATURES_VIEW_DDL in retirement_sql
+    assert availability_migration_index < retirement_migration_index
 
 
 @pytest.mark.parametrize(
@@ -448,7 +471,7 @@ def test_generated_availability_accepts_postgres_at_time_zone_deparser() -> None
     module._assert_generated_availability(MetadataCursor())
 
 
-def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:
+def test_macro_features_materialized_view_projects_non_fed_derived_features() -> None:
     ddl = module._FEATURES_VIEW_DDL
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
@@ -460,16 +483,8 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'raw."available_at_utc" AS "available_at_utc"' in ddl
     assert "2010-01-01" not in ddl
     assert len(module._FEATURES_VIEW_COLUMNS) == len(module.FEATURE_COLUMNS) - 1
-    for column in (
-        "fed_next_expected_move_bp",
-        "fed_path_slope_m3_bp",
-        "fed_next_uncertainty_bp",
-        "fed_repricing_5obs_bp",
-    ):
-        assert f'raw."{column}" AS "{column}"' in ddl
-        assert f'"{column}_delta_20obs"' in ddl
-        assert f'"{column}_zscore_60obs"' in ddl
-        assert f'"{column}_momentum_autocorr_20_120obs"' in ddl
+    assert not any(column.startswith("fed_") for column in module._FEATURES_VIEW_COLUMNS)
+    assert not any(origin in ddl for origin in module._RETIRED_FED_ORIGIN_COLUMNS)
     assert all(
         column.endswith("_log_level")
         for column in module._FEATURES_VIEW_COLUMNS[: len(module.PRICE_FEATURE_SERIES)]
@@ -500,10 +515,16 @@ def test_macro_features_materialized_view_projects_qualifying_derived_features()
     assert 'raw."estr_level" AS "estr_level"' not in ddl
 
 
-def test_gold_sync_sql_preserves_fed_owned_columns() -> None:
-    assert '"fed_next_expected_move_bp"' not in module._INSERT_ROW_SQL
-    assert '"fed_next_expected_move_bp"' not in module._UPDATE_ROW_SQL
-    assert '"fed_next_expected_move_bp"' not in module._CONSUMER_ROWS_SQL
+def test_gold_sync_sql_contains_only_non_fed_raw_columns() -> None:
+    assert not any(
+        f'"{column}"' in module._INSERT_ROW_SQL for column in module._RETIRED_FED_ORIGIN_COLUMNS
+    )
+    assert not any(
+        f'"{column}"' in module._UPDATE_ROW_SQL for column in module._RETIRED_FED_ORIGIN_COLUMNS
+    )
+    assert not any(
+        f'"{column}"' in module._CONSUMER_ROWS_SQL for column in module._RETIRED_FED_ORIGIN_COLUMNS
+    )
     assert '"vix_level" IS NOT NULL' in module._CONSUMER_ROWS_SQL
     assert 'ON CONFLICT ("timestamp_m1") DO UPDATE SET' in module._INSERT_ROW_SQL
     assert '"vix_level" IS NOT NULL' in module._TARGET_SUMMARY_SQL
@@ -602,8 +623,8 @@ def test_read_consumer_digests_hashes_complete_rows_in_timestamp_order() -> None
     second = _row(2, 2.0)
     connection = FakeConnection(
         consumer_rows=(
-            (first.timestamp_m1, *first.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
-            (second.timestamp_m1, *second.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
+            (first.timestamp_m1, *first.values),
+            (second.timestamp_m1, *second.values),
         )
     )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
@@ -615,7 +636,7 @@ def test_read_consumer_digests_hashes_complete_rows_in_timestamp_order() -> None
     consumer_query = next(
         query for query in _execute_queries(connection) if query.startswith('SELECT "timestamp_m1"')
     )
-    assert all(f'"{column}"' in consumer_query for column in POSTGRES_MARKET_RAW_COLUMNS)
+    assert all(f'"{column}"' in consumer_query for column in POSTGRES_RAW_COLUMNS)
     assert '"fed_next_expected_move_bp"' not in consumer_query
 
 
@@ -648,8 +669,8 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     connection = FakeConnection(
         digest_rows=tuple((digest.timestamp_m1, digest.row_sha256) for digest in digests),
         consumer_rows=(
-            (update.timestamp_m1, *update.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
-            (insert.timestamp_m1, *insert.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]),
+            (update.timestamp_m1, *update.values),
+            (insert.timestamp_m1, *insert.values),
         ),
         summary_row=(2, _ts(1), _ts(2)),
     )
@@ -717,9 +738,7 @@ def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() ->
     plan = GoldDeltaPlan(rows, (), (), (), digests)
     connection = FakeConnection(
         digest_rows=tuple((digest.timestamp_m1, digest.row_sha256) for digest in digests),
-        consumer_rows=tuple(
-            (row.timestamp_m1, *row.values[: len(POSTGRES_MARKET_RAW_COLUMNS) - 1]) for row in rows
-        ),
+        consumer_rows=tuple((row.timestamp_m1, *row.values) for row in rows),
         summary_row=(2, _ts(1), _ts(2)),
     )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))

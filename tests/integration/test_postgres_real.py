@@ -12,6 +12,7 @@ from threading import Event, Thread
 import polars as pl
 import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
@@ -27,7 +28,6 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
-    POSTGRES_FED_RAW_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     GoldDeltaPlan,
     GoldRowDigest,
@@ -65,9 +65,25 @@ def postgres_dsn() -> str:
     return dsn
 
 
+def _postgres_target(dsn: str) -> tuple[str, int, str]:
+    """Resolve the disposable test target so local and CI ports both work."""
+    settings = conninfo_to_dict(dsn)
+    return (
+        settings.get("host", "localhost"),
+        int(settings.get("port", "5432")),
+        settings.get("dbname", "macro_loader_test"),
+    )
+
+
+def _runtime_dsn(dsn: str, user: str, password: str) -> str:
+    return make_conninfo(dsn, user=user, password=password)
+
+
 @pytest.fixture
 def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGoldSyncRepository:
+    host, port, database = _postgres_target(postgres_dsn)
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        connection.execute("DROP SCHEMA IF EXISTS macro_loader_retired CASCADE")
         connection.execute("DROP SCHEMA IF EXISTS macro_loader_sync CASCADE")
         connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
         connection.execute(
@@ -84,23 +100,22 @@ def repository(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGo
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
         connection.execute("ALTER ROLE \"macro-loader-sync\" PASSWORD 'runtime-secret'")
-    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
-    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
+    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
+    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
     monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
     monkeypatch.setattr(postgres_module, "POSTGRES_SYNC_USER", "macro-loader-sync")
     return PostgresGoldSyncRepository(
-        PostgresSyncConfig(
-            "localhost", 5432, "macro-loader-sync", "macro_loader_test", "runtime-secret"
-        )
+        PostgresSyncConfig(host, port, "macro-loader-sync", database, "runtime-secret")
     )
 
 
 @pytest.fixture
 def migrator(postgres_dsn: str, monkeypatch: pytest.MonkeyPatch) -> PostgresGoldSchemaMigrator:
-    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
-    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
+    host, port, database = _postgres_target(postgres_dsn)
+    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
+    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
     return PostgresGoldSchemaMigrator(
-        PostgresAdminConfig("localhost", 5432, "macro_loader_admin", "macro_loader_test", "admin"),
+        PostgresAdminConfig(host, port, "macro_loader_admin", database, "admin"),
         connection_factory=lambda _config: psycopg.connect(postgres_dsn),
     )
 
@@ -157,11 +172,9 @@ def _gold_frame(timestamp: datetime) -> pl.DataFrame:
     data: dict[str, list[object]] = {"timestamp_m1": [timestamp]}
     for column in GOLD_COLUMNS[1:]:
         data[column] = [1.0]
-    for column in POSTGRES_FED_RAW_COLUMNS[1:]:
-        data[column] = [None]
     return pl.DataFrame(data).with_columns(
         pl.col("timestamp_m1").cast(pl.Datetime("us", "UTC")),
-        *(pl.col(column).cast(pl.Float64) for column in POSTGRES_FED_RAW_COLUMNS[1:]),
+        *(pl.col(column).cast(pl.Float64) for column in GOLD_COLUMNS[1:]),
     )
 
 
@@ -239,19 +252,16 @@ def test_real_postgres_independent_conformance_verifier_passes(
     assert _sync_service(repository, timestamp).sync().inserted == 1
 
     monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro-loader")
-    runtime_config = PostgresSyncConfig(
-        "localhost", 5432, "macro-loader", "macro_loader_test", "runtime-secret"
-    )
+    host, port, database = _postgres_target(postgres_dsn)
+    runtime_config = PostgresSyncConfig(host, port, "macro-loader", database, "runtime-secret")
     inspector = PostgresLiveDatabaseConformanceInspector(
         runtime_config,
         connection_factory=lambda _: psycopg.connect(
-            postgres_dsn.replace(
-                "macro_loader_test:macro_loader_test", "macro-loader:runtime-secret"
-            )
+            _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
         ),
     )
     with psycopg.connect(
-        postgres_dsn.replace("macro_loader_test:macro_loader_test", "macro-loader:runtime-secret")
+        _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
     ) as connection:
         cursor = connection.cursor()
         try:
@@ -289,7 +299,7 @@ def test_real_postgres_independent_conformance_verifier_passes(
             "consumer_row_count": 1,
             "digest_row_count": 1,
             "role_count": 3,
-            "schema_table_count": 5,
+            "schema_table_count": 4,
             "temporal_probe_count": 2,
         },
     )
@@ -318,11 +328,8 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         migrations = connection.execute(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
-    assert {column[0] for column in columns} == {
-        *POSTGRES_RAW_COLUMNS,
-        *POSTGRES_FED_RAW_COLUMNS,
-        "available_at_utc",
-    }
+    assert {column[0] for column in columns} == {*POSTGRES_RAW_COLUMNS, "available_at_utc"}
+    assert not any(column[0].startswith("fed_") for column in columns)
     assert availability_column is not None
     assert availability_column[:4] == (
         "timestamp with time zone",
@@ -332,6 +339,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     )
     assert availability_column[4]
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
+    assert migrations[-1] == (20,)
 
     timestamp = _timestamp(20)
     row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
@@ -363,6 +371,161 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         assert connection.execute(
             "SELECT COUNT(*) FROM macro_loader_sync.gold_sync_state WHERE dataset_id = 'rollback'"
         ).fetchone() == (0,)
+
+
+@pytest.mark.integration
+def test_real_postgres_fed_retirement_archives_upgrade_data_and_is_replayable(
+    repository: PostgresGoldSyncRepository,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
+        for version, migration in enumerate(postgres_module._MIGRATIONS[:-1], start=1):
+            for statement in migration:
+                connection.execute(statement)
+            connection.execute(
+                f"INSERT INTO {postgres_module._MIGRATION_LEDGER} (version, applied_at_utc) "
+                "VALUES (%s, CURRENT_TIMESTAMP)",
+                (version,),
+            )
+    timestamp = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
+    expected_available = timestamp.replace(hour=0, minute=0) + timedelta(days=1)
+    fed_origins = postgres_module._RETIRED_FED_ORIGIN_COLUMNS
+    legacy_columns = postgres_module._RETIRED_FED_LEGACY_COLUMNS
+    values = tuple(float(index + 1) for index in range(len(POSTGRES_RAW_COLUMNS[1:])))
+
+    with psycopg.connect(postgres_dsn) as connection:
+        for column in (*fed_origins, *legacy_columns):
+            connection.execute(
+                f'ALTER TABLE "macro_loader"."macro_raw" '
+                f'ADD COLUMN "{column}" DOUBLE PRECISION NULL'
+            )
+        insert_columns = (*POSTGRES_RAW_COLUMNS, *fed_origins, *legacy_columns)
+        quoted_insert_columns = ", ".join(f'"{column}"' for column in insert_columns)
+        insert_sql = (
+            'INSERT INTO "macro_loader"."macro_raw" '
+            f"({quoted_insert_columns}) "
+            f"VALUES ({', '.join('%s' for _ in insert_columns)})"
+        )
+        connection.execute(
+            insert_sql,
+            (timestamp, *values, 11.0, 12.0, 13.0, 14.0, 21.0, 22.0, 23.0),
+        )
+        connection.execute('DROP MATERIALIZED VIEW "macro_loader"."macro_features"')
+        archived_view_columns = postgres_module._RETIRED_FED_VIEW_COLUMNS
+        connection.execute(
+            'CREATE MATERIALIZED VIEW "macro_loader"."macro_features" AS '
+            "SELECT timestamp_m1, available_at_utc, "
+            + ", ".join(f'51.0::DOUBLE PRECISION AS "{column}"' for column in archived_view_columns)
+            + ' FROM "macro_loader"."macro_raw"'
+        )
+        connection.execute(
+            'CREATE TABLE "macro_loader_sync"."fed_policy_features_daily" ('
+            "timestamp_m1 TIMESTAMPTZ(6) PRIMARY KEY, "
+            + ", ".join(f'"{column}" DOUBLE PRECISION NULL' for column in fed_origins)
+            + ", available_at_utc TIMESTAMPTZ(6) NOT NULL)"
+        )
+        quoted_fed_columns = ", ".join('"' + column + '"' for column in fed_origins)
+        connection.execute(
+            'INSERT INTO "macro_loader_sync"."fed_policy_features_daily" '
+            f"(timestamp_m1, {quoted_fed_columns}, available_at_utc) "
+            "VALUES (%s, 31.0, 32.0, 33.0, 34.0, %s)",
+            (timestamp, expected_available),
+        )
+        connection.execute(
+            "INSERT INTO macro_loader_sync.gold_sync_state "
+            "(dataset_id, source_build_id, data_sha256, schema_version, feature_version, "
+            "row_count, min_timestamp, max_timestamp, synced_at_utc) "
+            "VALUES ('fed_policy_features_daily', 'retired-build', %s, 1, 1, 1, %s, %s, %s)",
+            ("a" * 64, timestamp, timestamp, timestamp),
+        )
+        connection.execute(
+            "INSERT INTO macro_loader_sync.gold_row_hashes "
+            "(dataset_id, timestamp_m1, row_sha256) "
+            "VALUES ('fed_policy_features_daily', %s, %s)",
+            (timestamp, "b" * 64),
+        )
+
+        for _ in range(2):
+            for statement in postgres_module._FED_POLICY_RENAME_MIGRATION:
+                connection.execute(statement)
+        retirement = postgres_module._RETIRED_FED_ARCHIVE_MIGRATION
+        for _ in range(2):
+            for statement in retirement:
+                connection.execute(statement)
+
+        raw_archive = connection.execute(
+            'SELECT available_at_utc, "fed_next_expected_move_bp", "fed_path_slope_m3_bp", '
+            '"fed_next_uncertainty_bp", "fed_repricing_5obs_bp" '
+            'FROM "macro_loader_retired"."fed_macro_raw" WHERE timestamp_m1 = %s',
+            (timestamp,),
+        ).fetchone()
+        policy_archive = connection.execute(
+            'SELECT "fed_next_expected_move_bp", "fed_path_slope_m3_bp", '
+            '"fed_next_uncertainty_bp", "fed_repricing_5obs_bp", available_at_utc '
+            'FROM "macro_loader_retired"."fed_policy_features_daily" WHERE timestamp_m1 = %s',
+            (timestamp,),
+        ).fetchone()
+        feature_archive = connection.execute(
+            'SELECT available_at_utc, "fed_next_expected_move_bp", '
+            '"fed_next_expected_move_bp_delta_1obs" '
+            'FROM "macro_loader_retired"."fed_macro_features" WHERE timestamp_m1 = %s',
+            (timestamp,),
+        ).fetchone()
+        legacy_archive = connection.execute(
+            'SELECT "fed_3m_expected_move_bp", "fed_next_expected_move_bp_delta_5obs", '
+            '"fomc_business_days_to_next" FROM "macro_loader_retired"."fed_legacy_raw_columns" '
+            "WHERE timestamp_m1 = %s",
+            (timestamp,),
+        ).fetchone()
+        state_archive = connection.execute(
+            "SELECT source_build_id FROM macro_loader_retired.fed_policy_sync_state "
+            "WHERE dataset_id = 'fed_policy_features_daily'"
+        ).fetchone()
+        hash_archive = connection.execute(
+            "SELECT row_sha256 FROM macro_loader_retired.fed_policy_row_hashes "
+            "WHERE dataset_id = 'fed_policy_features_daily' AND timestamp_m1 = %s",
+            (timestamp,),
+        ).fetchone()
+        active_raw = connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw'"
+        ).fetchall()
+        active_view = connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'macro_loader' AND table_name = 'macro_features'"
+        ).fetchall()
+        quoted_feature_columns = ", ".join(
+            '"' + column + '"' for column in POSTGRES_RAW_COLUMNS[1:]
+        )
+        retained_values = connection.execute(
+            f"SELECT {quoted_feature_columns} "
+            'FROM "macro_loader"."macro_raw" '
+            "WHERE timestamp_m1 = %s",
+            (timestamp,),
+        ).fetchone()
+        archive_counts = connection.execute(
+            "SELECT (SELECT count(*) FROM macro_loader_retired.fed_macro_raw), "
+            "(SELECT count(*) FROM macro_loader_retired.fed_policy_features_daily), "
+            "(SELECT count(*) FROM macro_loader_retired.fed_legacy_raw_columns), "
+            "(SELECT count(*) FROM macro_loader_retired.fed_policy_sync_state), "
+            "(SELECT count(*) FROM macro_loader_retired.fed_policy_row_hashes)"
+        ).fetchone()
+
+    assert raw_archive == (expected_available, 11.0, 12.0, 13.0, 14.0)
+    assert policy_archive == (31.0, 32.0, 33.0, 34.0, expected_available)
+    assert feature_archive == (expected_available, 51.0, 51.0)
+    assert legacy_archive == (21.0, 22.0, 23.0)
+    assert state_archive == ("retired-build",)
+    assert hash_archive == ("b" * 64,)
+    assert retained_values == values
+    assert {column[0] for column in active_raw} == {*POSTGRES_RAW_COLUMNS, "available_at_utc"}
+    assert not any(
+        column[0].startswith("fed_") or column[0].startswith("fomc_")
+        for column in (*active_raw, *active_view)
+    )
+    assert archive_counts == (1, 1, 1, 1, 1)
 
 
 @pytest.mark.integration
@@ -735,8 +898,9 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
         connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
-    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", "localhost")
-    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", 5432)
+    host, port, database = _postgres_target(postgres_dsn)
+    monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
+    monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
     monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
     policy = PostgresTimeoutPolicy(
         connect_timeout_seconds=5,
@@ -746,10 +910,10 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     )
     repository = PostgresGoldSyncRepository(
         PostgresSyncConfig(
-            "localhost",
-            5432,
+            host,
+            port,
             "macro_loader_test",
-            "macro_loader_test",
+            database,
             "macro_loader_test",
             policy,
         )
@@ -825,14 +989,14 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         admin_connection.execute(
             provision_sql("macro_loader_test", "runtime-secret", "macro_loader_test")
         )
+        admin_connection.execute('DROP ROLE IF EXISTS "runtime-grant-probe"')
         admin_connection.execute('CREATE ROLE "runtime-grant-probe" NOLOGIN')
+        admin_connection.execute("DROP SCHEMA IF EXISTS unrelated CASCADE")
         admin_connection.execute("CREATE SCHEMA unrelated")
         admin_connection.execute("CREATE TABLE unrelated.private_data (id INTEGER)")
         admin_connection.commit()
 
-    runtime_dsn = postgres_dsn.replace(
-        "macro_loader_test:macro_loader_test", "macro-loader:runtime-secret"
-    )
+    runtime_dsn = _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
     with psycopg.connect(runtime_dsn) as runtime_connection:
         runtime_connection.execute("SELECT * FROM macro_loader_sync.schema_migrations")
         for operation, statement in (
@@ -871,9 +1035,7 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         ).fetchone()
         assert grant_option == (False,)
 
-    sync_dsn = postgres_dsn.replace(
-        "macro_loader_test:macro_loader_test", "macro-loader-sync:runtime-secret"
-    )
+    sync_dsn = _runtime_dsn(postgres_dsn, "macro-loader-sync", "runtime-secret")
     with psycopg.connect(sync_dsn) as sync_connection:
         sync_connection.execute("DELETE FROM macro_loader_sync.gold_sync_state")
         sync_connection.rollback()
