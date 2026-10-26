@@ -13,9 +13,9 @@ Last reviewed: 2026-10-26
 PR name: `parallel-daily-core-budget`
 Status: In Progress
 Updated: 2026-10-26
-PR: not opened
+PR: #169
 Git branch: `pr-169/parallel-daily-core-budget`
-Git status: active-clean
+Git status: pushed-ci-green
 Agent lane: bounded Bronze execution and CLI/scheduled-runner core-budget wiring; two agents
 Depends on: PR-168
 Commit: `e3ec97b`
