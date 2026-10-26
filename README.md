@@ -295,14 +295,41 @@ Historical Fed acceptance artifacts remain available for audit. The view is expl
 refreshed after a successful raw-table delta and exposes the complete
 available `macro_raw` timestamp history, including pre-2010 observations.
 
-The view contract adds series-prefixed RSI-5/15 ratio (RSI-15 internal only), RSI-5
-three-observation slope and one-observation delta,
-ROC-4-minus-ROC-8 acceleration, 96-valid-observation level and 8-observation-return-
-volatility z-scores using sample standard deviation, and signed Pearson
-`momentum_autocorr_lag{h}_window{N}` of one-observation log returns at `(lag, valid-pairs)`
-`(1,96)`, `(4,96)`, and `(8,192)`. All require complete causal windows and return NULL for
-undefined denominators/correlations. EMA/MACD and source OHLC/volume remain follow-up
-work; breadth and dispersion require a cross-instrument panel.
+#### PR-171: Composite and Statistical Feature Semantics
+
+The version-11 PostgreSQL `macro_features` view adds the following series-prefixed,
+nullable `DOUBLE PRECISION` columns for every `PRICE_FEATURE_SERIES` (all positive-level
+price series; signed/non-price `estr` is excluded). These are serving-view transformations
+only: they do not add columns to `macro_raw` or canonical Gold. Every lag/window is measured
+on the source series' non-null observation rows, not calendar days.
+
+| Column suffix | Formula | Warm-up and NULL rules |
+| --- | --- | --- |
+| `_rsi_ratio_5_15` | `RSI_5(t) / RSI_15(t)` | RSI values use Wilder-smoothed gains/losses from positive adjacent source levels. The seed is the arithmetic mean of the first 5 or 15 valid one-observation gains/losses; later averages use `((n-1) * previous_average + current_value) / n`. RSI is `100 - 100 / (1 + average_gain / average_loss)`. It is NULL until the seed is available; fully flat gain/loss state is NULL, while zero average loss with positive average gain yields 100. The ratio is NULL unless both RSI values exist and `RSI_15 != 0`. RSI-15 is an internal intermediate and is not exposed as a column. |
+| `_rsi5_slope_3` | `(RSI_5(t) - RSI_5(t-3 source observations)) / 3` | Requires both endpoint RSI-5 values. The three-row lag is over source-observation rows; intermediate NULL RSI values are not skipped, so they remain NULL at either endpoint. |
+| `_rsi5_delta_1` | `RSI_5(t) - RSI_5(t-1 source observation)` | Requires both adjacent source-row RSI-5 values; a NULL at either endpoint propagates to NULL. |
+| `_roc_acceleration_4_8` | `(level(t) / level(t-4) - 1) - (level(t) / level(t-8) - 1)` | Requires the current, 4-lag, and 8-lag source observations to be positive. Missing/non-positive endpoints yield NULL; no future observation is used. |
+| `_volatility_zscore_96` | `(volatility_8(t) - mean_96(volatility_8)) / sample_stddev_96(volatility_8)` | `volatility_8` is the sample standard deviation (`ddof=1`) of eight valid one-observation log returns in the trailing eight source rows. The z-score uses the current and previous 95 non-NULL `volatility_8` values (96 valid volatility observations; NULL values are skipped when forming this history). It is NULL until all 96 exist or if their sample standard deviation is zero/undefined. |
+| `_level_zscore_96` | `(level(t) - mean_96(level)) / sample_stddev_96(level)` | Uses the current and previous 95 positive, non-NULL source levels (96 valid levels; non-positive/missing rows are skipped when forming this history). It is NULL until all 96 exist or if sample standard deviation is zero/undefined. |
+
+The signed return-autocorrelation columns are named
+`_momentum_autocorr_lag{h}_window{N}` and use one-observation log returns
+`r(t) = ln(level(t) / level(t-1 source observation))`:
+
+| Column suffix | Pair definition and window |
+| --- | --- |
+| `_momentum_autocorr_lag1_window96` | Pearson correlation of `(r(t), r(t-1))` over the trailing 96 valid pairs. |
+| `_momentum_autocorr_lag4_window96` | Pearson correlation of `(r(t), r(t-4))` over the trailing 96 valid pairs. |
+| `_momentum_autocorr_lag8_window192` | Pearson correlation of `(r(t), r(t-8))` over the trailing 192 valid pairs. |
+
+For these features the lag is applied to the return stream before incomplete pairs are
+filtered; the trailing window then counts valid pairs, not rows or days. Both returns in a
+pair must be non-NULL. Output is NULL until the full pair window exists, or if either side
+of the window has zero/undefined sample standard deviation (so Pearson correlation is
+undefined). Correlations retain their sign and are not clipped at zero. These return-based
+features are distinct from the existing positive-clipped autocorrelation of source-unit
+changes. All calculations are causal and use no future values. EMA/MACD and source
+OHLC/volume remain follow-up work; breadth and dispersion require a cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
 

@@ -4,7 +4,8 @@ This repository is implemented through small backlog PRs by parallel coding agen
 
 Current delivery status (2026-10-26): PR-170 is merged to `origin/main` as GitHub PR
 #170. PR-171, `pr-171/level-only-composite-statistical-features`, is the active implementation
-branch.
+branch. Per the user's instruction, GitHub Actions must remain disabled and must not be
+triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization.
 
@@ -121,9 +122,10 @@ A normal request from `2000-01-03` is a test failure.
 - Root JSON/PNG are recoverable materialized views and must be reconciled from the catalog after interruption.
 - Retention must never create a catalog-selectable row whose physical bundle has already been partly deleted.
 
-## Quality gates
+## Local quality gates; no GitHub Actions
 
-Required push/merge checks are:
+Run quality checks locally with `make quality-gate`; do not use GitHub Actions to run,
+rerun, or report tests. The local quality-gate suite comprises:
 
 ```text
 lint
@@ -133,7 +135,12 @@ integration
 coverage
 ```
 
-`lint`, `type`, `unit`, and offline `integration` execute in parallel. `coverage` combines unit + integration coverage and requires production-code line coverage `>= 90.0%`. `network` tests are never part of required gates.
+`lint`, `type`, `unit`, and offline `integration` execute in parallel. `coverage` combines
+unit + integration coverage and requires production-code line coverage `>= 90.0%`.
+`network` tests are never part of the local quality gate. Do not add workflow files or
+dispatch, rerun, or re-enable any GitHub Actions workflow. Local results are not remote
+GitHub status checks. If branch protection requires remote checks, report the PR as
+blocked; do not bypass protection or enable Actions to satisfy it.
 
 Do not weaken tests, exclude production files from coverage merely to reach 90%, add blanket `# type: ignore`, or suppress lint rules without a narrowly documented reason.
 

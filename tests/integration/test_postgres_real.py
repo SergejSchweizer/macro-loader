@@ -22,6 +22,7 @@ from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
+    PRICE_FEATURE_SERIES,
 )
 from application.postgres_conformance import PostgresConformanceReport
 from application.postgres_conformance_service import GoldPostgresConformanceVerifier
@@ -702,6 +703,85 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         assert connection.execute(
             "SELECT COUNT(*) FROM macro_loader_sync.gold_sync_state WHERE dataset_id = 'rollback'"
         ).fetchone() == (0,)
+
+
+@pytest.mark.integration
+def test_real_postgres_pr171_upgrade_from_migration_21_uses_regular_runner(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """Apply the real v1-v21 schema, then prove the regular runner upgrades it to v22."""
+    del repository
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
+        for version, migration in enumerate(postgres_module._MIGRATIONS[:-1], start=1):
+            for statement in migration:
+                connection.execute(statement)
+            connection.execute(
+                f"INSERT INTO {postgres_module._MIGRATION_LEDGER} (version, applied_at_utc) "
+                "VALUES (%s, CURRENT_TIMESTAMP)",
+                (version,),
+            )
+        ledger_before_upgrade = connection.execute(
+            f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"
+        ).fetchall()
+        pre_upgrade_columns = {
+            row[0]
+            for row in connection.execute(
+                """SELECT attname FROM pg_attribute
+                   WHERE attrelid = 'macro_loader.macro_features'::regclass
+                     AND attnum > 0 AND NOT attisdropped"""
+            ).fetchall()
+        }
+        view_comment_before_upgrade = connection.execute(
+            "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
+        ).fetchone()
+
+    assert ledger_before_upgrade == [(version,) for version in range(1, 22)]
+    assert not any(column.endswith("_rsi_ratio_5_15") for column in pre_upgrade_columns)
+    assert view_comment_before_upgrade is not None
+    assert view_comment_before_upgrade[0].startswith("macro feature view version=10; fingerprint=")
+
+    # This call, not hand-executed migration-22 SQL, is the upgrade under test.
+    migrator.migrate()
+
+    with psycopg.connect(postgres_dsn) as connection:
+        ledger_after_upgrade = connection.execute(
+            f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"
+        ).fetchall()
+        view_columns = {
+            row[0]
+            for row in connection.execute(
+                """SELECT attname FROM pg_attribute
+                   WHERE attrelid = 'macro_loader.macro_features'::regclass
+                     AND attnum > 0 AND NOT attisdropped"""
+            ).fetchall()
+        }
+        view_comment_after_upgrade = connection.execute(
+            "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
+        ).fetchone()
+
+    assert ledger_after_upgrade == [(version,) for version in range(1, 23)]
+    assert {
+        f"{series}_{feature}"
+        for series in PRICE_FEATURE_SERIES
+        for feature in (
+            "rsi_ratio_5_15",
+            "rsi5_slope_3",
+            "rsi5_delta_1",
+            "roc_acceleration_4_8",
+            "volatility_zscore_96",
+            "level_zscore_96",
+            "momentum_autocorr_lag1_window96",
+            "momentum_autocorr_lag4_window96",
+            "momentum_autocorr_lag8_window192",
+        )
+    }.issubset(view_columns)
+    assert view_comment_after_upgrade == (
+        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+    )
 
 
 @pytest.mark.integration
@@ -1587,17 +1667,41 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
     timestamps = [
         datetime(2024, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(count)
     ]
-    reference = _pr171_reference(levels)
-    names = tuple(reference)
-    select_list = ", ".join(f'"vix_{name}"' for name in names)
+    series_levels = {
+        series: [
+            None if level is None else level * (1.0 + series_index * 0.03) + series_index * 2.0
+            for level in levels
+        ]
+        for series_index, series in enumerate(PRICE_FEATURE_SERIES)
+    }
+    references = {
+        series: _pr171_reference(series_values) for series, series_values in series_levels.items()
+    }
+    names = tuple(next(iter(references.values())))
+    select_list = ", ".join(
+        f'"{series}_{name}"' for series in PRICE_FEATURE_SERIES for name in names
+    )
     target_index = count - 8
     target_timestamp = timestamps[target_index]
+    insert_columns = ", ".join(f'"{series}_level"' for series in PRICE_FEATURE_SERIES)
+    placeholders = ", ".join("%s" for _ in range(len(PRICE_FEATURE_SERIES) + 1))
+    insert_sql = (
+        'INSERT INTO macro_loader.macro_raw ("timestamp_m1", '
+        f"{insert_columns}) VALUES ({placeholders})"
+    )
+    insert_rows = [
+        (
+            timestamp,
+            *(series_levels[series][index] for series in PRICE_FEATURE_SERIES),
+        )
+        for index, timestamp in enumerate(timestamps)
+    ]
 
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             cursor.executemany(
-                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
-                zip(timestamps, levels, strict=True),
+                insert_sql,
+                insert_rows,
             )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         full_rows = connection.execute(
@@ -1607,18 +1711,27 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
         ).fetchall()
         assert len(full_rows) == target_index + 1
         for index, row in enumerate(full_rows):
-            for name, actual in zip(names, row[1:], strict=True):
-                expected_value = reference[name][index]
-                if expected_value is None:
-                    assert actual is None, (name, index, actual)
-                else:
-                    assert actual is not None and math.isfinite(actual), (name, index, actual)
-                    assert math.isclose(actual, expected_value, rel_tol=2e-9, abs_tol=2e-11), (
-                        name,
-                        index,
-                        actual,
-                        expected_value,
-                    )
+            actual_values = iter(row[1:])
+            for series in PRICE_FEATURE_SERIES:
+                for name in names:
+                    actual = next(actual_values)
+                    expected_value = references[series][name][index]
+                    if expected_value is None:
+                        assert actual is None, (series, name, index, actual)
+                    else:
+                        assert actual is not None and math.isfinite(actual), (
+                            series,
+                            name,
+                            index,
+                            actual,
+                        )
+                        assert math.isclose(actual, expected_value, rel_tol=2e-9, abs_tol=2e-11), (
+                            series,
+                            name,
+                            index,
+                            actual,
+                            expected_value,
+                        )
 
         full_target = full_rows[-1][1:]
         connection.execute(
@@ -1631,9 +1744,10 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
         ).fetchone()
 
     assert truncated_target == full_target
-    assert reference["momentum_autocorr_lag1_window96"][target_index] is not None
-    assert reference["momentum_autocorr_lag4_window96"][target_index] is not None
-    assert reference["momentum_autocorr_lag8_window192"][target_index] is not None
+    for series in PRICE_FEATURE_SERIES:
+        assert references[series]["momentum_autocorr_lag1_window96"][target_index] is not None
+        assert references[series]["momentum_autocorr_lag4_window96"][target_index] is not None
+        assert references[series]["momentum_autocorr_lag8_window192"][target_index] is not None
 
 
 @pytest.mark.integration
