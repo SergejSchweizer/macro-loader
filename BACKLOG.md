@@ -11,14 +11,14 @@ Last reviewed: 2026-10-26
 ### PR-172: Add EMA-Level Trend Features
 
 PR name: `add-ema-level-trend-features`
-Status: In Progress
+Status: Open
 Updated: 2026-10-26
-PR: TBD
+PR: #172
 Git branch: `pr-172/add-ema-level-trend-features`
-Git status: In Progress
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL EMA projection and independent mathematical/schema QA; two agents
 Depends on: PR-171
-Commit: Pending
+Commit: `697cf21` (`feat(pr-172): add ema level trend features`)
 Design patterns: Pure Transformation, Materialized View.
 
 Description:
