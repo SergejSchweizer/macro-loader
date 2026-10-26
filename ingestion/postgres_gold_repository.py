@@ -788,7 +788,10 @@ def _assert_generated_availability(cursor: CursorPort) -> None:
     if row is None or len(row) != 2 or row[0] != "ALWAYS" or not isinstance(row[1], str):
         raise ValueError("PostgreSQL available_at_utc is not a generated column")
     expression = " ".join(row[1].lower().replace('"', "").split())
-    if any(marker not in expression for marker in _AVAILABILITY_EXPRESSION_MARKERS):
+    timezone_expression_present = "timezone(" in expression or "at time zone" in expression
+    if not timezone_expression_present or any(
+        marker not in expression for marker in _AVAILABILITY_EXPRESSION_MARKERS
+    ):
         raise ValueError("PostgreSQL available_at_utc generation expression differs")
 
 
@@ -925,7 +928,6 @@ FROM information_schema.columns
 WHERE table_schema = %s AND table_name = %s AND column_name = 'available_at_utc'"""
 _AVAILABILITY_EXPRESSION_MARKERS = (
     "timestamp_m1",
-    "timezone(",
     "extract(isodow",
     "when 5 then 3",
     "when 6 then 2",

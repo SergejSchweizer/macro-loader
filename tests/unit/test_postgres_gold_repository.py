@@ -429,6 +429,25 @@ def test_generated_availability_contract_fails_closed(
         module._assert_generated_availability(MetadataCursor())
 
 
+def test_generated_availability_accepts_postgres_at_time_zone_deparser() -> None:
+    expression = (
+        "((timestamp_m1 AT TIME ZONE 'UTC')::date + CASE "
+        "EXTRACT(ISODOW FROM timestamp_m1 AT TIME ZONE 'UTC')::integer "
+        "WHEN 5 THEN 3 WHEN 6 THEN 2 WHEN 7 THEN 1 ELSE 1 END)::timestamp "
+        "AT TIME ZONE 'UTC'"
+    )
+
+    class MetadataCursor:
+        def execute(self, query: str, params: object = None) -> None:
+            assert query == module._GENERATED_AVAILABILITY_SQL
+            assert params == ("macro_loader", "macro_raw")
+
+        def fetchone(self) -> tuple[str, str]:
+            return ("ALWAYS", expression)
+
+    module._assert_generated_availability(MetadataCursor())
+
+
 def test_macro_features_materialized_view_projects_qualifying_derived_features() -> None:
     ddl = module._FEATURES_VIEW_DDL
 
