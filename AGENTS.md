@@ -2,11 +2,10 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-26): PR-167 is merged to `origin/main` as GitHub PR
-#167. PR-168, `pr-168/retire-fed-policy-feature-pipeline`, is in progress and its PR is
-pending; it has not been merged or deployed. The guarded acceptance runners document
-production-like verification but must only be executed with explicit deployment
-authorization.
+Current delivery status (2026-10-26): PR-168 is merged to `origin/main` as GitHub PR
+#168. PR-169, `pr-169/parallel-daily-core-budget`, is the active implementation branch.
+The guarded acceptance runners document production-like verification but must only be
+executed with explicit deployment authorization.
 
 ## Source of truth
 

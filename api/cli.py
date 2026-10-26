@@ -20,6 +20,7 @@ from application.daily_pipeline import DailyMedallionPipeline, ProviderBatchErro
 from application.gold_publication import GoldPublisher
 from application.gold_retention import GoldRetentionService
 from application.gold_sidecars import GoldSidecarBuilder
+from application.parallelism import PolarsExecutionPolicy
 from application.paths import LakePaths
 from application.planner import PlannerConfig
 from application.ports.market_data import MarketDataProvider
@@ -131,6 +132,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lake-root", type=Path, default=Path("lake"))
     parser.add_argument("--today", type=date.fromisoformat, default=None)
     parser.add_argument("--overlap-days", type=int, default=7)
+    parser.add_argument("--cores", type=_positive_cores, default=6)
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("bootstrap", "update", "reconcile", "silver-build", "run-daily"):
         child = subparsers.add_parser(command)
@@ -146,6 +148,16 @@ def build_parser() -> argparse.ArgumentParser:
     inventory.add_argument("--series", action="append", default=[])
     inventory.add_argument("--provider", action="append", default=[])
     return parser
+
+
+def _positive_cores(value: str) -> int:
+    try:
+        cores = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--cores must be a positive integer") from exc
+    if cores < 1:
+        raise argparse.ArgumentTypeError("--cores must be a positive integer")
+    return cores
 
 
 def _today(value: date | None) -> date:
@@ -207,9 +219,13 @@ def build_runtime(
     series_ids: tuple[str, ...],
     overlap_days: int,
     stderr: TextIO,
+    cores: int = 6,
 ) -> Runtime:
     if overlap_days < 0:
         raise ValueError("--overlap-days must be non-negative")
+    if cores < 1:
+        raise ValueError("--cores must be a positive integer")
+    execution_policy = PolarsExecutionPolicy(cores)
     paths = LakePaths(lake_root)
     transport = HttpxTransport()
     required = _required_provider_ids(command, series_ids)
@@ -232,6 +248,7 @@ def build_runtime(
         providers=providers,
         unit_of_work=uow,
         planner_config=PlannerConfig(overlap_days=overlap_days),
+        execution_policy=execution_policy,
     )
     silver = SilverSeriesRepository(paths)
     inventory = InventoryRefreshService(paths)
@@ -258,6 +275,7 @@ def build_runtime(
         retention=retention,
         inventory=inventory,
         event_sink=event_sink,
+        polars_execution=execution_policy,
     )
     return Runtime(pipeline=pipeline, transport=transport, paths=paths)
 
@@ -306,13 +324,14 @@ def build_postgres_verification_runtime(
 
 
 def build_production_reconstruction_runtime(
-    *, lake_root: Path, today: date, stderr: TextIO
+    *, lake_root: Path, today: date, stderr: TextIO, cores: int = 6
 ) -> ProductionReconstructionRuntime:
     runtime = build_runtime(
         lake_root=lake_root,
         command="run-daily",
         series_ids=tuple(SERIES_REGISTRY),
         overlap_days=7,
+        cores=cores,
         stderr=stderr,
     )
     runtime_config = PostgresSyncConfig.from_env()
@@ -503,6 +522,7 @@ def main(
                     lake_root=args.lake_root,
                     today=_today(args.today),
                     stderr=error,
+                    cores=args.cores,
                 ),
                 acceptance_report=Path(
                     "artifacts/acceptance/postgres-production-reconstruction-v2.json"
@@ -514,6 +534,7 @@ def main(
             command=command,
             series_ids=series,
             overlap_days=args.overlap_days,
+            cores=args.cores,
             stderr=error,
         )
         return _dispatch(runtime, args, stdout=output)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
+from threading import Barrier
 
 import polars as pl
 import pytest
@@ -91,6 +92,17 @@ class FakeSilver:
         return self.frames[contract.series_id]
 
 
+class BarrierSilver(FakeSilver):
+    def __init__(self) -> None:
+        super().__init__()
+        self.build_barrier = Barrier(2)
+
+    def build(self, contract: SeriesContract) -> object:
+        self.build_calls.append(contract.series_id)
+        self.build_barrier.wait(timeout=2)
+        return object()
+
+
 class FakePublisher:
     def __init__(self, *, fail_after_commit: bool = False) -> None:
         self.reconcile_count = 0
@@ -157,6 +169,7 @@ def _pipeline(
     retention: FakeRetention | None = None,
     inventory: FakeInventory | None = None,
     events: list[dict[str, object]] | None = None,
+    polars_execution: PolarsExecutionPolicy | None = None,
 ) -> tuple[
     DailyMedallionPipeline,
     FakeBronze,
@@ -179,7 +192,7 @@ def _pipeline(
         inventory=actual_inventory,
         run_id_factory=lambda command: f"run-{command}",
         event_sink=None if events is None else events.append,
-        polars_execution=PolarsExecutionPolicy(1),
+        polars_execution=polars_execution or PolarsExecutionPolicy(1),
     )
     return (
         pipeline,
@@ -282,6 +295,16 @@ def test_inventory_and_silver_build_are_local_commands() -> None:
     assert bronze.calls == []
     assert publisher.publish_count == 0
     assert retention.calls == 0
+
+
+def test_silver_build_uses_the_injected_bounded_execution_policy() -> None:
+    silver = BarrierSilver()
+    pipeline, *_ = _pipeline(silver=silver, polars_execution=PolarsExecutionPolicy(2))
+
+    result = pipeline.silver_build(["vix", "us_10y"])
+
+    assert result.selected_series == ("vix", "us_10y")
+    assert set(silver.build_calls) == {"vix", "us_10y"}
 
 
 def test_series_validation_is_fail_closed() -> None:

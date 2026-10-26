@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import threading
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHE
 from application.gold_publication import GoldPublisher
 from application.gold_retention import GoldRetentionService
 from application.gold_sidecars import GoldSidecarBuilder
+from application.parallelism import PolarsExecutionPolicy
 from application.paths import LakePaths
 from application.ports.market_data import ProviderRequest
 from application.registry import SERIES_REGISTRY
@@ -56,16 +58,18 @@ class FixtureProvider:
         self.source = source
         self.requests: list[tuple[str, ProviderRequest]] = []
         self.fetch_count = 0
+        self._lock = threading.Lock()
 
     def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
         assert series.provider is self.provider
-        self.requests.append((series.series_id, request))
+        with self._lock:
+            self.requests.append((series.series_id, request))
+            self.fetch_count += 1
+            fetched_at = NOW + timedelta(seconds=self.fetch_count)
         rows = list(self.source[series.series_id])
         if request.operation == "update":
             assert request.logical_start is not None
             rows = [row for row in rows if request.logical_start <= row[0] <= request.logical_end]
-        self.fetch_count += 1
-        fetched_at = NOW + timedelta(seconds=self.fetch_count)
         common: dict[str, object] = {
             "series_id": [series.series_id for _ in rows],
             "provider": [series.provider.value for _ in rows],
@@ -133,9 +137,12 @@ def _stack(
     tmp_path: Path,
     source: dict[str, list[tuple[date, float]]],
     providers: dict[Provider, FixtureProvider],
+    *,
+    cores: int = 1,
 ) -> tuple[DailyMedallionPipeline, LakePaths, GoldCatalogRepository]:
     paths = LakePaths(tmp_path / "lake")
     uow = FilesystemBronzeUnitOfWork(paths)
+    execution = PolarsExecutionPolicy(cores)
     bronze = BronzeOrchestrator(
         series_registry=SERIES_REGISTRY,
         providers=providers,
@@ -144,6 +151,7 @@ def _stack(
         run_id_factory=lambda series_id: (
             f"e2e-{series_id}-{len(providers[SERIES_REGISTRY[series_id].provider].requests)}"
         ),
+        execution_policy=execution,
     )
     silver = SilverSeriesRepository(paths)
     build_times = [NOW + timedelta(seconds=index) for index in range(8)]
@@ -178,6 +186,7 @@ def _stack(
         retention=retention,
         inventory=inventory,
         run_id_factory=lambda command: f"e2e-{command}",
+        polars_execution=execution,
     )
     return pipeline, paths, catalog
 
@@ -324,3 +333,33 @@ def test_full_offline_daily_delta_reconcile_publication_retention_and_inventory(
 
     for provider, fixture in providers.items():
         assert fixture.requests, f"provider fixture not exercised: {provider.value}"
+
+
+def test_full_daily_pipeline_is_core_count_invariant(tmp_path: Path) -> None:
+    source = _source_data()
+    sequential_providers = _providers(source)
+    parallel_providers = _providers(source)
+    sequential, sequential_paths, _ = _stack(
+        tmp_path / "sequential", source, sequential_providers, cores=1
+    )
+    parallel, parallel_paths, _ = _stack(tmp_path / "parallel", source, parallel_providers, cores=4)
+
+    sequential_result = sequential.run_daily([], today=INITIAL_TODAY)
+    parallel_result = parallel.run_daily([], today=INITIAL_TODAY)
+
+    assert sequential_result.bronze is not None and parallel_result.bronze is not None
+    assert sequential_result.bronze.successes == parallel_result.bronze.successes
+    assert sequential_result.bronze.failures == parallel_result.bronze.failures == ()
+    assert sequential_result.gold_build_id and parallel_result.gold_build_id
+    sequential_gold = pl.read_parquet(sequential_paths.gold_data(sequential_result.gold_build_id))
+    parallel_gold = pl.read_parquet(parallel_paths.gold_data(parallel_result.gold_build_id))
+    assert sequential_gold.equals(parallel_gold)
+    assert sorted(
+        (series_id, request.operation, request.logical_start, request.logical_end)
+        for provider in sequential_providers.values()
+        for series_id, request in provider.requests
+    ) == sorted(
+        (series_id, request.operation, request.logical_start, request.logical_end)
+        for provider in parallel_providers.values()
+        for series_id, request in provider.requests
+    )

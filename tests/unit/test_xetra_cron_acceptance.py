@@ -11,7 +11,7 @@ def test_installed_wrapper_uses_lock_preflight_and_canonical_commands() -> None:
     runner = Path("ops/run-macro-loader-sunday.sh").read_text()
 
     assert "if ! flock -n 9; then" in runner
-    assert '"$CLI" --lake-root "$LAKE_ROOT" run-daily' in runner
+    assert '"$CLI" --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily' in runner
     assert '"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres' in runner
     assert "python -c" not in runner
 

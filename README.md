@@ -11,9 +11,8 @@ The project is intentionally a **data product**, not a trading system. It does n
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
 PR-168 status (2026-10-26): Fed-policy runtime/acquisition and PostgreSQL serving
-retirement are in progress on `pr-168/retire-fed-policy-feature-pipeline`. The branch is
-not merged to `main` or deployed; this document does not assert the production database
-or installed host-crontab state. No production migration or host-crontab change has been
+retirement are merged as GitHub PR #168. This does not assert the production database or
+installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
 or scheduling instructions. Historical Fed acceptance artifacts and backlog entries are
 retained for audit. The independent FRED provider remains active for its registered macro
@@ -286,8 +285,8 @@ row digests:     macro_loader_sync.gold_row_hashes
 The PostgreSQL `macro_features` materialized view exposes one `*_log_level`
 column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
 the source is positive; non-positive or missing source values become `NULL`.
-The PR-168 target contract removes Fed-policy origins and derived columns from
-`macro_raw` and `macro_features`; this change is still in progress and is not deployed.
+The PR-168 merged contract removes Fed-policy origins and derived columns from
+`macro_raw` and `macro_features`; production deployment is not asserted.
 Historical Fed acceptance artifacts remain available for audit. The view is explicitly
 refreshed after a successful raw-table delta and exposes the complete
 available `macro_raw` timestamp history, including pre-2010 observations.
@@ -334,7 +333,10 @@ inventory
 run-daily
 ```
 
-Global options such as `--lake-root`, `--today`, and `--overlap-days` precede the subcommand. `--series` follows commands that accept a series restriction.
+Global options such as `--lake-root`, `--today`, `--overlap-days`, and `--cores` precede
+the subcommand. `--cores` must be positive and defaults to `6`; it bounds concurrent
+independent source-series and Silver work. `--series` follows commands that accept a
+series restriction.
 
 Examples:
 
@@ -352,6 +354,7 @@ uv run macro-loader \
 # Full local Gold publication path.
 uv run macro-loader \
   --lake-root /srv/market-regime/lake \
+  --cores 6 \
   run-daily
 
 # Synchronize the currently catalog-selected Gold build only.
@@ -463,6 +466,9 @@ CRON_TZ=Europe/Vienna
 ```
 
 The one Sunday job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. The PostgreSQL sync runs only after `run-daily` succeeds.
+
+The Sunday runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
+that variable in the service environment to use a different positive concurrency limit.
 
 Install it for the service account after reviewing the absolute project path:
 

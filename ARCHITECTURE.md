@@ -6,9 +6,8 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-168 is in progress on
-`pr-168/retire-fed-policy-feature-pipeline`; it is not merged to `main` or deployed. The
-working branch removes Fed-policy acquisition/runtime paths and is changing the serving
+As of 2026-10-26, PR-168 is merged to `origin/main` as GitHub PR #168. It retires
+Fed-policy acquisition/runtime paths and removes those features from the serving
 contract, but it does not establish production database or installed host-crontab state.
 No production migration or host-crontab change has been performed as part of this work.
 This document contains no Fed-specific operator commands or scheduling instructions.
@@ -466,12 +465,11 @@ for `PRICE_FEATURE_SERIES`. Signed/non-price levels such as `estr` remain raw in
 may receive source-unit delta/momentum features, but never silently enter a logarithmic
 or price-domain formula.
 
-PR-168's target runtime and serving contract removes Fed-policy acquisition,
-calculations, stores, commands, and serving columns. This retirement is in progress on
-the unmerged, undeployed PR-168 branch; the text here does not assert production schema
-or host-crontab state. Historical source and acceptance artifacts are retained as audit
-records. No Fed-specific operator commands or schedule are documented here. The separate
-FRED provider and its registered macro series remain active.
+PR-168's merged runtime and serving contract removes Fed-policy acquisition,
+calculations, stores, commands, and serving columns. This merge does not assert production
+schema or host-crontab state. Historical source and acceptance artifacts are retained as
+audit records. No Fed-specific operator commands or schedule are documented here. The
+separate FRED provider and its registered macro series remain active.
 
 ### PR-167 PostgreSQL Serving Availability Contract
 
@@ -702,7 +700,7 @@ No secrets may appear in registry files, persisted URLs, logs, error strings, or
 ```text
 1. recover stale Gold building attempts
 2. reconcile root Gold materialized views if needed
-3. for each selected series:
+3. for each selected series, using bounded parallel execution (`--cores`, default 6):
       no Bronze -> bootstrap
       Bronze exists -> strict update from latest-overlap through today
 4. Bronze selected/all series
@@ -719,6 +717,12 @@ No secrets may appear in registry files, persisted URLs, logs, error strings, or
 `run-daily` must never invoke market-source full-history `reconcile` for an existing series. The source `reconcile` command is separate and explicit.
 
 Gold always uses the full canonical schema from all available Silver inputs even when Bronze/Silver source execution was filtered.
+
+The application shares one injected execution policy across independent Bronze series
+work and Silver build/read operations. Each Bronze series retains its own unit-of-work
+commit boundary; shared run-manifest and ingestion-state updates are serialized so
+concurrent series cannot overwrite each other's durable audit/state records. Results are
+reported in input order. A core count of one executes these work units sequentially.
 
 ## Quality And Git Contract
 
