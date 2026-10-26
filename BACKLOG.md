@@ -18,7 +18,7 @@ Git branch: `pr-168/retire-fed-policy-feature-pipeline`
 Git status: active-clean
 Agent lane: Fed runtime/download retirement and PostgreSQL serving retirement; two agents
 Depends on: PR-167
-Commit: `2e4b93e`
+Commit: `2e4b93e`, `8d89eba`
 Design patterns: Adapter, Repository, Materialized View, Versioned Migration, Fail-Closed Verification.
 
 Description:
