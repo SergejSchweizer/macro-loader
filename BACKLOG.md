@@ -8,17 +8,77 @@ Last reviewed: 2026-10-26
 
 ## GOALS.md Implementation Wave
 
+### PR-170: Complete Scalar-Level Transformation Windows
+
+PR name: `complete-scalar-level-feature-windows`
+Status: In Progress
+Updated: 2026-10-26
+PR: #170
+Git branch: `pr-170/complete-scalar-level-feature-windows`
+Git status: pushed-ci-green
+Agent lane: level-only feature contract/SQL and independent math/schema QA; two agents
+Depends on: PR-169
+Commit: `f9b5dee`, `2a0961a`, `f676130`, `148da93`
+Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
+
+Description:
+- R1: Extend every applicable positive source-level series in `macro_loader.macro_features`
+  with the still-missing GOALS windows: log returns `2/4/8`; geometric returns `4/8/16`;
+  sample volatility `8/32/96`; SMA ratio `5/15`; Wilder RSI `3/5`; ROC `1/2/4/8`; and
+  drawdown `32/96` observations. Preserve existing windows and naming conventions; `estr`
+  remains excluded from price-domain transformations.
+- R2: Keep all formulas causal and observation-based. Geometric-return values remain decimal
+  fractions despite the `_pct` suffix; rolling windows require complete valid observations;
+  Wilder RSI retains the established recurrence and warm-up. A fully flat gain/loss window
+  is NULL as required by `GOALS.md`; all-gain and all-loss windows remain 100 and 0.
+- R3: Update the closed-world feature catalog, PostgreSQL materialized-view SQL, migration
+  fingerprint/version, and consumer schema contract together. Do not add these derived
+  columns to `macro_raw` or canonical Gold.
+- R4: Add an independent calculator/schema QA lane with hand-calculable returns and trend
+  cases, warm-up/invalid-input/causality checks, flat/all-gain/all-loss RSI checks, and exact
+  PostgreSQL view-column assertions.
+- R5: Update consumer and architecture documentation to state the implemented extension and
+  its source/domain limits. OHLC, volume, market breadth, and dispersion are explicitly not
+  implemented by this level-only PR; breadth/dispersion remain out of scope without an
+  instrument cross-section.
+- R6: Keep the required full daily integration gate deterministic by fixing its test-only
+  run-ID factory: derive the unique per-series ID from stable series identity, not the
+  provider request count, whose value depends on parallel scheduling. No runtime behavior
+  changes in the daily pipeline are part of this requirement.
+
+Acceptance:
+- A1 (verifies R1): For every `PRICE_FEATURE_SERIES`, the view catalog contains all existing
+  windows plus exactly the newly requested windows above; `estr` has none of these
+  price-domain outputs, and no old supported column is removed or renamed.
+- A2 (verifies R2): An independent reference (not importing production window constants,
+  catalog builders, or SQL-expression helpers) matches PostgreSQL results for log/geometric
+  returns, sample volatility, SMA ratio, Wilder RSI, ROC, and drawdown on deterministic
+  ordinary, flat, all-gain, all-loss, invalid, short-history, and future-truncation fixtures;
+  a fully flat RSI window is NULL.
+- A3 (verifies R3): Migration clean-create/upgrade metadata and the materialized-view
+  definition expose each expected derived column exactly once, in catalog order, with the
+  new version/fingerprint; no OHLC/volume/breadth/dispersion columns are implied.
+- A4 (verifies R4): Independent SQL/view QA proves exact schema parity and formula parity;
+  changing a formula, omitting a window, introducing an extra column, or leaking a future
+  observation fails the test suite.
+- A5 (verifies R5): README and ARCHITECTURE describe the current formulas/domains accurately;
+  `lint`, `type`, `unit`, `integration`, and `coverage` all pass without production database
+  writes or installed-cron execution.
+- A6 (verifies R6): The core-count invariance test passes repeatedly for one and multiple
+  workers while still asserting deterministic result order, equal per-series outcomes, unique
+  run IDs within each execution, equal requests, and identical canonical Gold data.
+
 ### PR-169: Run The Daily Pipeline With A Bounded Core Budget
 
 PR name: `parallel-daily-core-budget`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-26
 PR: #169
 Git branch: `pr-169/parallel-daily-core-budget`
-Git status: pushed-ci-green
+Git status: merged
 Agent lane: bounded Bronze execution and CLI/scheduled-runner core-budget wiring; two agents
 Depends on: PR-168
-Commit: `e3ec97b`
+Commit: `e3ec97b` (PR head), `2c99f67` (squash merge)
 Design patterns: Strategy, Dependency Injection, Unit of Work.
 
 Description:
@@ -96,9 +156,10 @@ Acceptance:
 
 ## Current repository and production status
 
-As of 2026-10-26, PR-168 is merged to `origin/main` as GitHub PR #168. Its runtime and
-serving-contract changes do not establish deployed database or host-crontab state. No
-production migration or installed-crontab change has been performed as part of this work.
+As of 2026-10-26, PR-169 is merged to `origin/main` as GitHub PR #169, following PR-168.
+PR-168's runtime and serving-contract changes do not establish deployed database or
+host-crontab state. No production migration or installed-crontab change has been performed
+as part of this work.
 Earlier Fed-policy backlog entries and acceptance artifacts remain historical audit
 records. The independent FRED provider remains active for its registered ordinary macro
 series.

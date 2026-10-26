@@ -148,9 +148,7 @@ def _stack(
         providers=providers,
         unit_of_work=uow,
         clock=lambda: NOW,
-        run_id_factory=lambda series_id: (
-            f"e2e-{series_id}-{len(providers[SERIES_REGISTRY[series_id].provider].requests)}"
-        ),
+        run_id_factory=lambda series_id: f"e2e-{series_id}",
         execution_policy=execution,
     )
     silver = SilverSeriesRepository(paths)
@@ -349,6 +347,8 @@ def test_full_daily_pipeline_is_core_count_invariant(tmp_path: Path) -> None:
 
     assert sequential_result.bronze is not None and parallel_result.bronze is not None
     assert sequential_result.bronze.successes == parallel_result.bronze.successes
+    for result in (sequential_result.bronze, parallel_result.bronze):
+        assert len({success.run_id for success in result.successes}) == len(result.successes)
     assert sequential_result.bronze.failures == parallel_result.bronze.failures == ()
     assert sequential_result.gold_build_id and parallel_result.gold_build_id
     sequential_gold = pl.read_parquet(sequential_paths.gold_data(sequential_result.gold_build_id))

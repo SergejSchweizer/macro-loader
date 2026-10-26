@@ -10,8 +10,9 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-168 status (2026-10-26): Fed-policy runtime/acquisition and PostgreSQL serving
-retirement are merged as GitHub PR #168. This does not assert the production database or
+PR-169 status (2026-10-26): The bounded daily-pipeline core budget is merged as GitHub PR
+#169. PR-168 retired Fed-policy runtime/acquisition and PostgreSQL serving as GitHub PR #168.
+This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
 or scheduling instructions. Historical Fed acceptance artifacts and backlog entries are
@@ -192,7 +193,8 @@ Feature semantics are fixed and causal:
 - 60-observation z-scores use the last 60 valid observations including `t` and population standard deviation (`ddof=0`);
 - each of the 13 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
-- each source level includes XETRA-compatible log returns over 1, 3, 5, 10, and 20 observations, cumulative geometric returns over 5, 10, and 20 observations, average one-observation log returns over 5, 10, and 20 observations, and sample log-return volatility over 5, 10, 20, and 40 observations; geometric-return columns retain the `_pct` suffix but store decimal fractions (`0.05` means 5%);
+- each eligible source level includes XETRA-compatible log returns over 1, 2, 3, 4, 5, 8, 10, and 20 observations; cumulative geometric returns over 4, 5, 8, 10, 16, and 20 observations; average one-observation log returns over 5, 10, and 20 observations; and sample log-return volatility over 5, 8, 10, 20, 32, 40, and 96 observations. Geometric-return columns retain the `_pct` suffix but store decimal fractions (`0.05` means 5%);
+- eligible source levels also include SMA ratios `(5,15)`, `(5,20)`, `(10,20)`, `(10,40)`; Wilder RSI over 3, 5, 7, and 14 observations; ROC over 1, 2, 3, 4, 5, 8, 10, and 20 observations; and rolling drawdown over 20, 32, 60, and 96 observations. These are complete-window, observation-based calculations; RSI uses Wilder recurrence, with fully flat gain/loss windows as `NULL` and all-gain/all-loss windows as 100/0;
 - price-domain XETRA families are emitted only for positive-level series; signed/non-price levels such as `estr` remain available as raw levels and source-unit delta/momentum features but do not receive log, return, volatility, SMA-ratio, RSI, ROC, or drawdown columns;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
@@ -282,7 +284,8 @@ row digests:     macro_loader_sync.gold_row_hashes
 
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
 
-The PostgreSQL `macro_features` materialized view exposes one `*_log_level`
+The PostgreSQL `macro_features` materialized view (feature-view contract version 10)
+exposes one `*_log_level`
 column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
 the source is positive; non-positive or missing source values become `NULL`.
 The PR-168 merged contract removes Fed-policy origins and derived columns from

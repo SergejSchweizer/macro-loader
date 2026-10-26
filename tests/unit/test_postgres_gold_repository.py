@@ -381,7 +381,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
 
 
 def test_retirement_migration_archives_fed_data_before_removing_active_columns() -> None:
-    migration = module._MIGRATIONS[-1]
+    migration = module._MIGRATIONS[-2]
     sql = "\n".join(migration)
     assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader_retired"' in sql
     assert '"fed_macro_raw"' in sql
@@ -401,6 +401,10 @@ def test_retirement_migration_archives_fed_data_before_removing_active_columns()
     )
     assert 'DROP COLUMN IF EXISTS "available_at_utc"' not in sql
     assert module._FEATURES_VIEW_DDL in migration
+    feature_migration = "\n".join(module._MIGRATIONS[-1])
+    assert module._FEATURES_VIEW_DDL in feature_migration
+    assert f"version={module.MACRO_FEATURE_VIEW_VERSION}" in feature_migration
+    assert module.MACRO_FEATURE_VIEW_FINGERPRINT in feature_migration
     legacy_migration = "\n".join(module._FED_POLICY_RENAME_MIGRATION)
     assert (
         'CREATE TABLE IF NOT EXISTS "macro_loader_retired"."fed_legacy_raw_columns"'

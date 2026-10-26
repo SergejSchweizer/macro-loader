@@ -28,7 +28,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 9
+MACRO_FEATURE_VIEW_VERSION = 10
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)

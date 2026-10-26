@@ -484,6 +484,20 @@ def _macro_features_view_query() -> str:
     joins: list[str] = []
     feature_select: list[str] = []
     macro_lags = macro_delta_lags(MACRO_POLICY)
+    required_lags = tuple(sorted({1, 3, 5, 10, 20, *LOG_RETURN_WINDOWS, *ROC_WINDOWS}))
+    rolling_windows = tuple(
+        sorted(
+            {
+                *RETURN_WINDOWS,
+                *RETURN_MEAN_WINDOWS,
+                *VOLATILITY_WINDOWS,
+                *(long for _, long in SMA_RATIO_WINDOWS),
+                *DRAWDOWN_WINDOWS,
+                *(window for _, window in MOMENTUM_POLICY.lag_windows),
+                60,
+            }
+        )
+    )
     for series in RAW_SERIES:
         level = _quote(f"{series}_level")
         source = _quote(f"{series}_source")
@@ -491,8 +505,7 @@ def _macro_features_view_query() -> str:
         features = _quote(f"{series}_features")
         lags = macro_lags.get(series, (1, 5, 20))
         lag_sql = ", ".join(
-            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}"
-            for lag in (1, 3, 5, 10, 20)
+            f"lag({level}, {lag}) OVER ordered AS {_quote(f'lag_{lag}')}" for lag in required_lags
         )
         delta_sql = ", ".join(
             f"level - {_quote(f'lag_{lag}')} AS {_quote(f'delta_{lag}')}" for lag in (1, 5, 20)
@@ -655,8 +668,9 @@ def _macro_features_view_query() -> str:
             current_loss = f"changes.{_quote(loss_name)}"
             expressions.append(
                 f"CASE WHEN changes.observation_number < {period + 1} THEN NULL "
-                f"WHEN {current_loss} = 0 THEN 100.0 "
                 f"WHEN {current_gain} IS NULL OR {current_loss} IS NULL THEN NULL "
+                f"WHEN {current_gain} = 0 AND {current_loss} = 0 THEN NULL "
+                f"WHEN {current_loss} = 0 THEN 100.0 "
                 f"ELSE 100.0 - 100.0 / (1.0 + {current_gain} / {current_loss}) "
                 f"END AS {_quote(f'{series}_rsi_{period}obs')}"
             )
@@ -672,21 +686,15 @@ def _macro_features_view_query() -> str:
                 f"THEN level / nullif(max(level) OVER window_{window}, 0) - 1.0 "
                 f"END AS {_quote(f'{series}_drawdown_{window}obs')}"
             )
+        rolling_frames = ", ".join(
+            f"window_{window} AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
+            f"{window - 1} PRECEDING AND CURRENT ROW)"
+            for window in rolling_windows
+        )
         source_ctes.append(
             f"{features} AS MATERIALIZED (SELECT changes.timestamp_m1, {', '.join(expressions)} "
             f"FROM {feature_input} AS changes "
-            "WINDOW window_5 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
-            "4 PRECEDING AND CURRENT ROW), "
-            "window_10 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
-            "9 PRECEDING AND CURRENT ROW), "
-            "window_20 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
-            "19 PRECEDING AND CURRENT ROW), "
-            "window_40 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
-            "39 PRECEDING AND CURRENT ROW), "
-            "window_60 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
-            "59 PRECEDING AND CURRENT ROW), "
-            "window_120 AS (ORDER BY changes.timestamp_m1 ROWS BETWEEN "
-            "119 PRECEDING AND CURRENT ROW))"
+            f"WINDOW {rolling_frames})"
         )
         joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
         for column in _FEATURES_VIEW_COLUMNS:
@@ -1070,6 +1078,9 @@ _MIGRATIONS = (
     # Archive legacy Fed data under a schema absent from runtime grants, then
     # remove it from the active raw table and materialized serving view.
     _RETIRED_FED_ARCHIVE_MIGRATION,
+    # Rebuild under a new migration version so already-retired installations receive
+    # the extended scalar-level feature catalog without rewriting historical migrations.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

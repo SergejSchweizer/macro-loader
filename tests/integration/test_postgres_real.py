@@ -62,6 +62,16 @@ def postgres_dsn() -> str:
     dsn = os.environ.get("POSTGRES_TEST_DSN")
     if dsn is None:
         pytest.skip("POSTGRES_TEST_DSN is required for disposable PostgreSQL integration coverage")
+    target = conninfo_to_dict(dsn)
+    if (
+        target.get("dbname") != "macro_loader_test"
+        or target.get("user") != "macro_loader_test"
+        or target.get("host", "localhost") not in {"localhost", "127.0.0.1", "::1"}
+    ):
+        pytest.fail(
+            "real-PostgreSQL integration tests require the disposable local "
+            "macro_loader_test database and macro_loader_test role"
+        )
     return dsn
 
 
@@ -124,6 +134,160 @@ def _timestamp(day: int) -> datetime:
     return datetime(2026, 8, day, 12, 34, 56, 123456, tzinfo=UTC)
 
 
+# Independent frozen expectations for PR-170. Do not replace these with the
+# production feature catalog: this is the integration lane's schema oracle.
+_QA_RAW_SERIES = (
+    "vix",
+    "vix9d",
+    "vix3m",
+    "vix6m",
+    "vix1y",
+    "vstoxx",
+    "move",
+    "ciss",
+    "euro_hy_oas",
+    "us_2y",
+    "us_10y",
+    "estr",
+    "usd_broad",
+)
+_QA_PRICE_SERIES = tuple(series for series in _QA_RAW_SERIES if series != "estr")
+_QA_LOG_WINDOWS = (1, 2, 3, 4, 5, 8, 10, 20)
+_QA_GEOMETRIC_WINDOWS = (4, 5, 8, 10, 16, 20)
+_QA_MEAN_WINDOWS = (5, 10, 20)
+_QA_VOLATILITY_WINDOWS = (5, 8, 10, 20, 32, 40, 96)
+_QA_SMA_RATIOS = ((5, 15), (5, 20), (10, 20), (10, 40))
+_QA_RSI_WINDOWS = (3, 5, 7, 14)
+_QA_ROC_WINDOWS = (1, 2, 3, 4, 5, 8, 10, 20)
+_QA_DRAWDOWN_WINDOWS = (20, 32, 60, 96)
+
+
+def _qa_expected_view_columns() -> tuple[str, ...]:
+    """Frozen complete consumer order, independent of the executable catalog."""
+    columns = ["timestamp_m1", "available_at_utc"]
+    columns.extend(f"{series}_log_level" for series in _QA_PRICE_SERIES)
+    for series in _QA_RAW_SERIES[:7]:
+        columns.extend(f"{series}_delta_{lag}obs" for lag in (1, 5, 20))
+        columns.append(f"{series}_zscore_60obs")
+    for series, lags in (
+        ("ciss", (1, 5, 20)),
+        ("euro_hy_oas", (1, 5, 20)),
+        ("us_2y", (1, 20)),
+        ("us_10y", (1, 20)),
+        ("estr", (1, 20)),
+        ("usd_broad", (1, 20)),
+    ):
+        columns.extend(f"{series}_delta_{lag}obs" for lag in lags)
+    columns.extend(
+        (
+            "vix9d_vix_ratio",
+            "vix_vix3m_ratio",
+            "vix9d_vix3m_log_ratio",
+            "vix3m_minus_vix",
+            "vix6m_minus_vix",
+            "vix1y_minus_vix",
+            "us_10y_minus_us_2y",
+        )
+    )
+    for series in _QA_PRICE_SERIES:
+        columns.extend(f"{series}_sma_ratio_{short}_{long}" for short, long in _QA_SMA_RATIOS)
+        columns.extend(f"{series}_rsi_{window}obs" for window in _QA_RSI_WINDOWS)
+        columns.extend(f"{series}_roc_{window}obs" for window in _QA_ROC_WINDOWS)
+        columns.extend(f"{series}_drawdown_{window}obs" for window in _QA_DRAWDOWN_WINDOWS)
+        columns.extend(f"{series}_log_return_{window}obs" for window in _QA_LOG_WINDOWS)
+        columns.extend(f"{series}_return_mean_{window}obs" for window in _QA_MEAN_WINDOWS)
+        columns.extend(f"{series}_volatility_{window}obs" for window in _QA_VOLATILITY_WINDOWS)
+        columns.extend(
+            f"{series}_momentum_autocorr_{lag}_{window}obs"
+            for lag, window in ((1, 60), (5, 60), (20, 120))
+        )
+    for series in _QA_PRICE_SERIES:
+        columns.extend(f"{series}_return_geom_{window}obs_pct" for window in _QA_GEOMETRIC_WINDOWS)
+    columns.extend(
+        f"estr_momentum_autocorr_{lag}_{window}obs" for lag, window in ((1, 60), (5, 60), (20, 120))
+    )
+    return tuple(columns)
+
+
+def _qa_reference_features(levels: list[float]) -> dict[str, float | None]:
+    """Independent ordinary-positive-level oracle, including Wilder recurrence."""
+    log_steps: list[float | None] = [None]
+    for previous, current in zip(levels[:-1], levels[1:], strict=True):
+        log_steps.append(math.log(current / previous))
+
+    expected: dict[str, float | None] = {}
+    for window in _QA_LOG_WINDOWS:
+        expected[f"log_return_{window}"] = (
+            math.log(levels[-1] / levels[-1 - window]) if len(levels) > window else None
+        )
+    for window in _QA_GEOMETRIC_WINDOWS:
+        expected[f"return_geom_{window}_pct"] = (
+            math.exp(sum(log_steps[-window:])) - 1.0 if len(levels) > window else None
+        )
+    for window in _QA_MEAN_WINDOWS:
+        expected[f"return_mean_{window}"] = (
+            sum(log_steps[-window:]) / window if len(levels) > window else None
+        )
+    for window in _QA_VOLATILITY_WINDOWS:
+        expected[f"volatility_{window}"] = (
+            stdev([value for value in log_steps[-window:] if value is not None])
+            if len(levels) > window
+            else None
+        )
+    for short, long in _QA_SMA_RATIOS:
+        expected[f"sma_ratio_{short}_{long}"] = (
+            (sum(levels[-short:]) / short) / (sum(levels[-long:]) / long)
+            if len(levels) >= long
+            else None
+        )
+    for period in _QA_RSI_WINDOWS:
+        gains = [max(levels[index] - levels[index - 1], 0.0) for index in range(1, len(levels))]
+        losses = [max(levels[index - 1] - levels[index], 0.0) for index in range(1, len(levels))]
+        if len(gains) < period:
+            expected[f"rsi_{period}"] = None
+            continue
+        average_gain = sum(gains[:period]) / period
+        average_loss = sum(losses[:period]) / period
+        for gain, loss in zip(gains[period:], losses[period:], strict=True):
+            average_gain = ((period - 1) * average_gain + gain) / period
+            average_loss = ((period - 1) * average_loss + loss) / period
+        if average_gain == 0.0 and average_loss == 0.0:
+            expected[f"rsi_{period}"] = None
+        elif average_loss == 0.0:
+            expected[f"rsi_{period}"] = 100.0
+        else:
+            expected[f"rsi_{period}"] = 100.0 - 100.0 / (1.0 + average_gain / average_loss)
+    for lag in _QA_ROC_WINDOWS:
+        expected[f"roc_{lag}"] = levels[-1] / levels[-1 - lag] - 1.0 if len(levels) > lag else None
+    for window in _QA_DRAWDOWN_WINDOWS:
+        expected[f"drawdown_{window}"] = (
+            levels[-1] / max(levels[-window:]) - 1.0 if len(levels) >= window else None
+        )
+    return expected
+
+
+def _qa_public_feature_column(reference_name: str) -> str:
+    """Map an independent reference label to its frozen public SQL name."""
+    if reference_name.startswith("log_return_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("return_geom_"):
+        window = reference_name.removeprefix("return_geom_").removesuffix("_pct")
+        return f"vix_return_geom_{window}obs_pct"
+    if reference_name.startswith("return_mean_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("volatility_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("sma_ratio_"):
+        return f"vix_{reference_name}"
+    if reference_name.startswith("rsi_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("roc_"):
+        return f"vix_{reference_name}obs"
+    if reference_name.startswith("drawdown_"):
+        return f"vix_{reference_name}obs"
+    raise AssertionError(f"unknown independent feature label: {reference_name}")
+
+
 def _independent_wilder_rsi(levels: list[float], period: int) -> float | None:
     """Small reference implementation independent of the SQL view builder."""
     average_gain: float | None = None
@@ -148,6 +312,8 @@ def _independent_wilder_rsi(levels: list[float], period: int) -> float | None:
             average_gain = ((period - 1) * average_gain + gain) / period
             average_loss = ((period - 1) * average_loss + loss) / period
     if average_gain is None or average_loss is None:
+        return None
+    if average_gain == 0 and average_loss == 0:
         return None
     if average_loss == 0:
         return 100.0
@@ -339,7 +505,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     )
     assert availability_column[4]
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
-    assert migrations[-1] == (20,)
+    assert migrations[-1] == (21,)
 
     timestamp = _timestamp(20)
     row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
@@ -887,6 +1053,142 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
     assert all(f"return_geom_{window}obs_pct" not in definition for window in (25, 60, 120, 240))
     assert "breadth" not in definition
     assert "dispersion" not in definition
+
+
+@pytest.mark.integration
+def test_real_postgres_pr170_view_has_exact_independent_column_contract(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """Check actual migrated view order against a frozen, non-catalog oracle."""
+    del repository
+    migrator.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        actual = tuple(
+            row[0]
+            for row in connection.execute(
+                """SELECT attname FROM pg_attribute
+                   WHERE attrelid = 'macro_loader.macro_features'::regclass
+                     AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
+            ).fetchall()
+        )
+
+    expected = _qa_expected_view_columns()
+    assert len(expected) == len(set(expected)), "independent expected contract has duplicates"
+    assert actual == expected
+    for series in _QA_PRICE_SERIES:
+        for window in (2, 4, 8):
+            assert actual.count(f"{series}_log_return_{window}obs") == 1
+        for window in (4, 8, 16):
+            assert actual.count(f"{series}_return_geom_{window}obs_pct") == 1
+        for window in (8, 32, 96):
+            assert actual.count(f"{series}_volatility_{window}obs") == 1
+        assert actual.count(f"{series}_sma_ratio_5_15") == 1
+        for window in (3, 5):
+            assert actual.count(f"{series}_rsi_{window}obs") == 1
+        for window in (1, 2, 4, 8):
+            assert actual.count(f"{series}_roc_{window}obs") == 1
+        for window in (32, 96):
+            assert actual.count(f"{series}_drawdown_{window}obs") == 1
+    assert not any(
+        column.startswith("estr_")
+        and any(
+            token in column
+            for token in (
+                "log_return_",
+                "return_geom_",
+                "return_mean_",
+                "volatility_",
+                "sma_ratio_",
+                "_rsi_",
+                "_roc_",
+                "drawdown_",
+            )
+        )
+        for column in actual
+    )
+
+
+@pytest.mark.integration
+def test_real_postgres_pr170_extended_windows_match_reference_and_ignore_future_rows(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """Execute the migrated materialized view against mixed hand-checkable returns."""
+    del repository
+    migrator.migrate()
+    levels = [100.0 + index * 0.7 + ((index % 7) - 3) * 1.1 for index in range(120)]
+    timestamps = [datetime(2025, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(120)]
+    target_index = 105
+    target = timestamps[target_index]
+    target_reference = _qa_reference_features(levels[: target_index + 1])
+    feature_names = tuple(_qa_public_feature_column(name) for name in target_reference)
+    select_columns = ", ".join('"' + column + '"' for column in feature_names)
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        full_history_row = connection.execute(
+            f"SELECT {select_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+            (target,),
+        ).fetchone()
+        connection.execute("DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 > %s", (target,))
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        truncated_row = connection.execute(
+            f"SELECT {select_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+            (target,),
+        ).fetchone()
+
+    assert full_history_row is not None and truncated_row is not None
+    assert truncated_row == full_history_row, "future rows changed earlier view values"
+    for key, actual, column in zip(target_reference, full_history_row, feature_names, strict=True):
+        expected_value = target_reference[key]
+        assert expected_value is not None, column
+        assert actual is not None and math.isfinite(actual), column
+        assert math.isclose(actual, expected_value, rel_tol=1e-10, abs_tol=1e-12), column
+    geometric = full_history_row[feature_names.index("vix_return_geom_8obs_pct")]
+    assert geometric is not None and abs(geometric) < 1.0
+
+
+@pytest.mark.integration
+def test_real_postgres_pr170_wilder_rsi_flat_gain_and_loss_boundaries(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """Pin the three RSI zero-denominator cases against the actual materialized view."""
+    del repository
+    migrator.migrate()
+    cases = (
+        ("flat", [80.0] * 20, (None, None, None, None)),
+        ("all gain", [80.0 + index for index in range(20)], (100.0,) * 4),
+        ("all loss", [100.0 - index for index in range(20)], (0.0,) * 4),
+    )
+    timestamps = [datetime(2025, 2, 1, tzinfo=UTC) + timedelta(days=index) for index in range(20)]
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        for _name, levels, expected in cases:
+            connection.execute("DELETE FROM macro_loader.macro_raw")
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") '
+                    "VALUES (%s, %s)",
+                    zip(timestamps, levels, strict=True),
+                )
+            connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+            actual = connection.execute(
+                'SELECT "vix_rsi_3obs", "vix_rsi_5obs", "vix_rsi_7obs", '
+                '"vix_rsi_14obs" FROM macro_loader.macro_features '
+                "WHERE timestamp_m1 = %s",
+                (timestamps[-1],),
+            ).fetchone()
+            assert actual == expected, _name
 
 
 @pytest.mark.integration
