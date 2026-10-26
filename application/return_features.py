@@ -8,6 +8,13 @@ LOG_RETURN_WINDOWS: tuple[int, ...] = (1, 2, 3, 4, 5, 8, 10, 20)
 RETURN_WINDOWS: tuple[int, ...] = (4, 5, 8, 10, 16, 20)
 RETURN_MEAN_WINDOWS: tuple[int, ...] = (5, 10, 20)
 VOLATILITY_WINDOWS: tuple[int, ...] = (5, 8, 10, 20, 32, 40, 96)
+RETURN_AUTOCORRELATION_LAG_WINDOWS: tuple[tuple[int, int], ...] = (
+    (1, 96),
+    (4, 96),
+    (8, 192),
+)
+VOLATILITY_ZSCORE_WINDOW = 96
+LEVEL_ZSCORE_WINDOW = 96
 
 
 def _validate_windows(windows: Sequence[int]) -> None:

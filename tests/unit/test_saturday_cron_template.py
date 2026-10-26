@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 
 CRON_TEMPLATE = Path("ops/macro-loader.cron")
 CRON_RUNNER = Path("ops/run-macro-loader-sunday.sh")
-QUALITY_GATES_WORKFLOW = Path(".github/workflows/quality-gates.yml")
 
 
 def _job_line() -> str:
@@ -64,7 +63,9 @@ def test_cron_template_has_exactly_one_job_and_no_database_secret_literal() -> N
 
 
 def test_ingestion_is_not_scheduled_in_github_actions() -> None:
-    assert "schedule:" not in QUALITY_GATES_WORKFLOW.read_text(encoding="utf-8")
+    workflows = Path(".github/workflows")
+    assert not workflows.exists() or not list(workflows.glob("*.yml"))
+    assert not workflows.exists() or not list(workflows.glob("*.yaml"))
 
 
 def _write_executable(path: Path, content: str) -> None:

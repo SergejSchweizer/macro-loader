@@ -2,9 +2,10 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-26): PR-169 is merged to `origin/main` as GitHub PR
-#169. PR-170, `pr-170/complete-scalar-level-feature-windows`, is the active implementation
-branch.
+Current delivery status (2026-10-26): PR-170 is merged to `origin/main` as GitHub PR
+#170. PR-171, `pr-171/level-only-composite-statistical-features`, is the active implementation
+branch. Per the user's instruction, GitHub Actions must remain disabled and must not be
+triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization.
 
@@ -29,7 +30,9 @@ If documents conflict, stop and fix the documentation contract in the current PR
 - The branch name and every non-generated commit message must contain the same PR identifier as the backlog entry.
 - Before every commit, verify the active branch is exactly the backlog branch and the commit subject matches `^(feat|fix|docs|test|refactor|perf|build|ci|chore)\(pr-XX\): .+` for that PR.
 - Every backlog PR entry must contain `Git branch`, `Git status`, `Commit`, and `Design patterns` metadata.
-- Keep `Git status` in the backlog accurate while work is active. Use `pushed-ci-failing` after a pushed branch has a failing required remote gate, `pushed-ci-green` only when all required remote gates are green, and `merged` only after GitHub reports the PR merged.
+- Keep `Git status` in the backlog accurate while work is active. With local-only checks,
+  use `pushed-local-checks-passed` only after pushing a branch whose local gate passed;
+  use `merged` only after GitHub reports the PR merged.
 - Stop after the PR is pushed, required CI is green, auto-merge is enabled, and the PR is waiting for or has completed merge. Do not start the next PR in the same task unless orchestration explicitly assigns another dependency-independent PR to a different agent lane.
 
 ## Architecture rules
@@ -121,9 +124,10 @@ A normal request from `2000-01-03` is a test failure.
 - Root JSON/PNG are recoverable materialized views and must be reconciled from the catalog after interruption.
 - Retention must never create a catalog-selectable row whose physical bundle has already been partly deleted.
 
-## Quality gates
+## Local quality gates; no GitHub Actions
 
-Required push/merge checks are:
+Run quality checks locally with `make quality-gate`; do not use GitHub Actions to run,
+rerun, or report tests. The local quality-gate suite comprises:
 
 ```text
 lint
@@ -133,9 +137,17 @@ integration
 coverage
 ```
 
-`lint`, `type`, `unit`, and offline `integration` execute in parallel. `coverage` combines unit + integration coverage and requires production-code line coverage `>= 90.0%`. `network` tests are never part of required gates.
+`lint`, `type`, unit, and offline `integration` execute locally; `make test` runs unit and
+integration tests. `coverage` combines their reports and reads the production-code line
+coverage threshold (`85.0%`) from `pyproject.toml`. The pre-commit hook runs
+`make quality-gate`.
+`network` tests are never part of the local quality gate. Do not add workflow files or
+dispatch, rerun, or re-enable any GitHub Actions workflow. Local results are not remote
+GitHub status checks; do not add GitHub Actions or remote quality gates.
 
-Do not weaken tests, exclude production files from coverage merely to reach 90%, add blanket `# type: ignore`, or suppress lint rules without a narrowly documented reason.
+Do not weaken tests, exclude production files from coverage merely to reach the configured
+85% threshold, add blanket `# type: ignore`, or suppress lint rules without a narrowly
+documented reason.
 
 ## Testing style
 

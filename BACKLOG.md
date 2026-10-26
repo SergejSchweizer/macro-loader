@@ -8,17 +8,80 @@ Last reviewed: 2026-10-26
 
 ## GOALS.md Implementation Wave
 
+### PR-171: Add Level-Only Composite And Statistical Features
+
+PR name: `level-only-composite-statistical-features`
+Status: In Progress
+Updated: 2026-10-26
+PR: #171
+Git branch: `pr-171/level-only-composite-statistical-features`
+Git status: In Progress
+Agent lane: level-only SQL/catalog implementation and independent mathematical/schema QA; two agents
+Depends on: PR-170
+Commit: `feat(pr-171): add level-only composite statistical features` (implementation commit)
+Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
+
+Description:
+- Remove GitHub Actions workflow files and replace remote quality checks with local-only
+  `pyproject.toml`/pre-commit checks at an 85% combined coverage threshold.
+- R1: For every eligible positive-level series, expose RSI-derived `rsi_ratio_5_15`,
+  `rsi5_slope_3`, and `rsi5_delta_1` equivalents using a private Wilder RSI-15
+  intermediate; do not expose RSI-15 itself. Guard undefined/zero denominators and
+  require the specified lagged RSI observations.
+- R2: Expose ROC acceleration as ROC-4 minus ROC-8 using the already defined causal
+  ROC outputs.
+- R3: Expose `volatility_zscore_96` as the z-score of the existing 8-observation
+  sample log-return volatility over 96 valid volatility observations, and
+  `level_zscore_96` using trailing mean and sample standard deviation over 96 valid
+  positive level observations. Require complete windows and return NULL for zero or
+  undefined denominators.
+- R4: Add signed Pearson autocorrelation features on one-observation log returns for
+  lag/window pairs `(1,96)`, `(4,96)`, and `(8,192)`. Count valid paired returns,
+  preserve negative correlation, and return NULL for incomplete or zero-variance
+  windows. These are distinct from source-unit, positive-clipped momentum autocorrelation.
+- R5: Extend the closed-world catalog, generated PostgreSQL materialized-view SQL,
+  migration fingerprint/version, exact schema contract, and independent real-PostgreSQL
+  QA together. Derived columns remain in `macro_features`, never `macro_raw` or Gold.
+- R6: Update README and ARCHITECTURE with the exact formulas, names, domains, and
+  warm-up/NULL semantics. EMA/MACD, OHLC, volume, breadth, and dispersion are not part
+  of this PR; their remaining GOALS work must stay explicitly tracked in follow-up PRs.
+- R7: Keep unit, integration, coverage (85%), lint, and type checks local; expose the test
+  configuration in `pyproject.toml`, run the local suite from pre-commit, and remove all
+  GitHub Actions workflow files and their workflow-only review runner.
+
+Acceptance:
+- A1 (verifies R1): Independent hand-calculable Wilder RSI-5/15 fixtures prove the
+  ratio, three-observation slope, one-observation delta, NULL warm-up, denominator
+  handling, and that no RSI-15 output column is exposed.
+- A2 (verifies R2): Independent calculation proves ROC-4 minus ROC-8 with exact
+  NULL propagation and no future dependence.
+- A3 (verifies R3): Independent reference checks 96 valid observations, sample
+  standard deviation, warm-up, sparse invalid rows, constant windows, and finite-or-NULL
+  output for both z-scores.
+- A4 (verifies R4): Independent Pearson fixtures cover each lag/window, positive,
+  negative, constant, incomplete, and sparse return-pair windows; truncating future rows
+  leaves all earlier outputs unchanged.
+- A5 (verifies R5): Clean-create and upgrade PostgreSQL QA proves exact ordered view
+  columns/types/version/fingerprint, all new expressions match the independent reference,
+  and no feature leaks into `macro_raw` or canonical Gold.
+- A6 (verifies R6): README/ARCHITECTURE accurately document this PR's formulas and
+  remaining GOALS scope; `lint`, `type`, `unit`, `integration`, and `coverage` pass
+  without production database writes or installed-cron execution.
+- A7 (verifies R7): no GitHub Actions workflow or workflow-only helper remains; pre-commit
+  runs `make quality-gate`; unit and integration tests pass locally and the combined
+  coverage report enforces the 85% threshold configured in `pyproject.toml`.
+
 ### PR-170: Complete Scalar-Level Transformation Windows
 
 PR name: `complete-scalar-level-feature-windows`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-26
 PR: #170
 Git branch: `pr-170/complete-scalar-level-feature-windows`
-Git status: pushed-ci-green
+Git status: merged
 Agent lane: level-only feature contract/SQL and independent math/schema QA; two agents
 Depends on: PR-169
-Commit: `f9b5dee`, `2a0961a`, `f676130`, `148da93`
+Commit: `fc08903` (PR head), `1d62257` (squash merge)
 Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
 
 Description:
@@ -156,7 +219,7 @@ Acceptance:
 
 ## Current repository and production status
 
-As of 2026-10-26, PR-169 is merged to `origin/main` as GitHub PR #169, following PR-168.
+As of 2026-10-26, PR-170 is merged to `origin/main` as GitHub PR #170, following PR-169.
 PR-168's runtime and serving-contract changes do not establish deployed database or
 host-crontab state. No production migration or installed-crontab change has been performed
 as part of this work.

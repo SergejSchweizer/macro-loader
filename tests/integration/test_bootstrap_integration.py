@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_hook_installer_is_idempotent() -> None:
     subprocess.run(["bash", "scripts/install_hooks.sh"], cwd=ROOT, check=True)
     subprocess.run(["bash", "scripts/install_hooks.sh"], cwd=ROOT, check=True)
-    installed = ROOT / ".git/hooks/pre-push"
+    installed = ROOT / ".git/hooks/pre-commit"
     assert installed.exists()
     assert os.access(installed, os.X_OK)
-    assert installed.read_text(encoding="utf-8") == (ROOT / ".githooks/pre-push").read_text(
+    assert installed.read_text(encoding="utf-8") == (ROOT / ".githooks/pre-commit").read_text(
         encoding="utf-8"
     )
 

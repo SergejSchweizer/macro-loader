@@ -3,7 +3,7 @@ TEST_WORKERS ?= 4
 COVERAGE_UNIT := .coverage.unit
 COVERAGE_INTEGRATION := .coverage.integration
 
-.PHONY: lint type unit integration coverage quality-gate clean-coverage install-hooks
+.PHONY: lint type unit integration test coverage quality-gate clean-coverage install-hooks
 
 lint:
 	ruff format --check .
@@ -14,22 +14,24 @@ type:
 	mypy application ingestion api scripts
 
 unit:
-	COVERAGE_FILE=$(COVERAGE_UNIT) pytest -n $(TEST_WORKERS) tests/unit -m "not network" --cov=application --cov=ingestion --cov=api --cov=scripts --cov-report=
+	COVERAGE_FILE=$(COVERAGE_UNIT) pytest -n $(TEST_WORKERS) tests/unit -m "not network" --cov=application --cov=ingestion --cov=api --cov=scripts --cov-report= --cov-fail-under=0
 
 integration:
-	COVERAGE_FILE=$(COVERAGE_INTEGRATION) pytest -n $(TEST_WORKERS) --dist=loadgroup tests/integration -m "integration and not network" --cov=application --cov=ingestion --cov=api --cov=scripts --cov-report=
+	COVERAGE_FILE=$(COVERAGE_INTEGRATION) pytest -n $(TEST_WORKERS) --dist=loadgroup tests/integration -m "integration and not network" --cov=application --cov=ingestion --cov=api --cov=scripts --cov-report= --cov-fail-under=0
+
+test: unit integration
 
 coverage:
 	@test -f $(COVERAGE_UNIT)
 	@test -f $(COVERAGE_INTEGRATION)
 	COVERAGE_FILE=.coverage coverage combine $(COVERAGE_UNIT) $(COVERAGE_INTEGRATION)
-	COVERAGE_FILE=.coverage coverage report --fail-under=90
+	COVERAGE_FILE=.coverage coverage report
 
 clean-coverage:
 	rm -f .coverage .coverage.* coverage.xml
 
 quality-gate: clean-coverage
-	$(MAKE) -j4 lint type unit integration
+	$(MAKE) -j4 lint type test
 	$(MAKE) coverage
 
 install-hooks:

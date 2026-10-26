@@ -10,8 +10,9 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-169 status (2026-10-26): The bounded daily-pipeline core budget is merged as GitHub PR
-#169. PR-168 retired Fed-policy runtime/acquisition and PostgreSQL serving as GitHub PR #168.
+PR-170 status (2026-10-26): The scalar-level return/trend windows are merged as GitHub PR
+#170. PR-169's bounded daily-pipeline core budget is merged as GitHub PR #169. PR-168 retired
+Fed-policy runtime/acquisition and PostgreSQL serving as GitHub PR #168.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
@@ -284,7 +285,7 @@ row digests:     macro_loader_sync.gold_row_hashes
 
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
 
-The PostgreSQL `macro_features` materialized view (feature-view contract version 10)
+The PostgreSQL `macro_features` materialized view (feature-view contract version 11)
 exposes one `*_log_level`
 column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
 the source is positive; non-positive or missing source values become `NULL`.
@@ -293,6 +294,42 @@ The PR-168 merged contract removes Fed-policy origins and derived columns from
 Historical Fed acceptance artifacts remain available for audit. The view is explicitly
 refreshed after a successful raw-table delta and exposes the complete
 available `macro_raw` timestamp history, including pre-2010 observations.
+
+#### PR-171: Composite and Statistical Feature Semantics
+
+The version-11 PostgreSQL `macro_features` view adds the following series-prefixed,
+nullable `DOUBLE PRECISION` columns for every `PRICE_FEATURE_SERIES` (all positive-level
+price series; signed/non-price `estr` is excluded). These are serving-view transformations
+only: they do not add columns to `macro_raw` or canonical Gold. Every lag/window is measured
+on the source series' non-null observation rows, not calendar days.
+
+| Column suffix | Formula | Warm-up and NULL rules |
+| --- | --- | --- |
+| `_rsi_ratio_5_15` | `RSI_5(t) / RSI_15(t)` | RSI values use Wilder-smoothed gains/losses from positive adjacent source levels. The seed is the arithmetic mean of the first 5 or 15 valid one-observation gains/losses; later averages use `((n-1) * previous_average + current_value) / n`. RSI is `100 - 100 / (1 + average_gain / average_loss)`. It is NULL until the seed is available; fully flat gain/loss state is NULL, while zero average loss with positive average gain yields 100. The ratio is NULL unless both RSI values exist and `RSI_15 != 0`. RSI-15 is an internal intermediate and is not exposed as a column. |
+| `_rsi5_slope_3` | `(RSI_5(t) - RSI_5(t-3 source observations)) / 3` | Requires both endpoint RSI-5 values. The three-row lag is over source-observation rows; intermediate NULL RSI values are not skipped, so they remain NULL at either endpoint. |
+| `_rsi5_delta_1` | `RSI_5(t) - RSI_5(t-1 source observation)` | Requires both adjacent source-row RSI-5 values; a NULL at either endpoint propagates to NULL. |
+| `_roc_acceleration_4_8` | `(level(t) / level(t-4) - 1) - (level(t) / level(t-8) - 1)` | Requires the current, 4-lag, and 8-lag source observations to be positive. Missing/non-positive endpoints yield NULL; no future observation is used. |
+| `_volatility_zscore_96` | `(volatility_8(t) - mean_96(volatility_8)) / sample_stddev_96(volatility_8)` | `volatility_8` is the sample standard deviation (`ddof=1`) of eight valid one-observation log returns in the trailing eight source rows. The z-score uses the current and previous 95 non-NULL `volatility_8` values (96 valid volatility observations; NULL values are skipped when forming this history). It is NULL until all 96 exist or if their sample standard deviation is zero/undefined. |
+| `_level_zscore_96` | `(level(t) - mean_96(level)) / sample_stddev_96(level)` | Uses the current and previous 95 positive, non-NULL source levels (96 valid levels; non-positive/missing rows are skipped when forming this history). It is NULL until all 96 exist or if sample standard deviation is zero/undefined. |
+
+The signed return-autocorrelation columns are named
+`_momentum_autocorr_lag{h}_window{N}` and use one-observation log returns
+`r(t) = ln(level(t) / level(t-1 source observation))`:
+
+| Column suffix | Pair definition and window |
+| --- | --- |
+| `_momentum_autocorr_lag1_window96` | Pearson correlation of `(r(t), r(t-1))` over the trailing 96 valid pairs. |
+| `_momentum_autocorr_lag4_window96` | Pearson correlation of `(r(t), r(t-4))` over the trailing 96 valid pairs. |
+| `_momentum_autocorr_lag8_window192` | Pearson correlation of `(r(t), r(t-8))` over the trailing 192 valid pairs. |
+
+For these features the lag is applied to the return stream before incomplete pairs are
+filtered; the trailing window then counts valid pairs, not rows or days. Both returns in a
+pair must be non-NULL. Output is NULL until the full pair window exists, or if either side
+of the window has zero/undefined sample standard deviation (so Pearson correlation is
+undefined). Correlations retain their sign and are not clipped at zero. These return-based
+features are distinct from the existing positive-clipped autocorrelation of source-unit
+changes. All calculations are causal and use no future values. EMA/MACD and source
+OHLC/volume remain follow-up work; breadth and dispersion require a cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
 
@@ -510,9 +547,11 @@ unchanged replay. The second executes the installed Sunday wrapper twice. Both w
 only a sanitized JSON report under `artifacts/acceptance/`; no credentials or raw
 provider payloads are recorded. A report is `PASS` only when every stage exits zero.
 
-## Quality Gates
+## Local Quality Checks
 
-Required push and merge checks:
+GitHub Actions are not used. Install the local pre-commit hook with `make install-hooks`;
+each commit runs the local quality suite. You can also run it directly with `make quality-gate`.
+The test targets are available individually, or together with `make test`:
 
 ```text
 lint
@@ -522,15 +561,17 @@ integration
 coverage
 ```
 
-`lint`, `type`, `unit`, and offline `integration` run in parallel. Unit and integration suites produce independent coverage data. The `coverage` gate combines them and requires total production-code line coverage:
+The local quality suite runs `lint`, `type`, unit tests, and offline integration tests;
+unit and integration suites produce independent coverage data. The `coverage` target
+combines them and reads its minimum production-code line coverage from `pyproject.toml`:
 
 ```text
->= 90.0%
+>= 85.0%
 ```
 
 The offline test targets use four isolated workers by default. Override the count for constrained hosts or deterministic troubleshooting, for example `make integration TEST_WORKERS=1`.
 
-Live provider tests are marked `network` and are excluded from required gates.
+Live provider tests are marked `network` and excluded from the local quality suite.
 
 ## Repository Structure
 

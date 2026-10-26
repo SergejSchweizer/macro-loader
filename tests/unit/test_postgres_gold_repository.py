@@ -381,7 +381,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
 
 
 def test_retirement_migration_archives_fed_data_before_removing_active_columns() -> None:
-    migration = module._MIGRATIONS[-2]
+    migration = module._MIGRATIONS[-3]
     sql = "\n".join(migration)
     assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader_retired"' in sql
     assert '"fed_macro_raw"' in sql

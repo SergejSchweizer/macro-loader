@@ -15,20 +15,24 @@ from dataclasses import dataclass
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import (
+    LEVEL_ZSCORE_WINDOW,
     LOG_RETURN_WINDOWS,
+    RETURN_AUTOCORRELATION_LAG_WINDOWS,
     RETURN_MEAN_WINDOWS,
     RETURN_WINDOWS,
     VOLATILITY_WINDOWS,
+    VOLATILITY_ZSCORE_WINDOW,
 )
 from application.trend_features import (
     DRAWDOWN_WINDOWS,
     ROC_WINDOWS,
+    RSI_COMPOSITE_INTERNAL_WINDOW,
     RSI_WINDOWS,
     SMA_RATIO_WINDOWS,
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 10
+MACRO_FEATURE_VIEW_VERSION = 11
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -45,6 +49,10 @@ PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "wilder_rsi",
     "roc",
     "drawdown",
+    "rsi_composite",
+    "roc_acceleration",
+    "price_zscore",
+    "return_autocorrelation",
 )
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in PRICE_FEATURE_SERIES)
 
@@ -185,6 +193,59 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
             for lag, window in MOMENTUM_POLICY.lag_windows
         )
+        specs.extend(
+            (
+                MacroFeatureSpec(
+                    f"{series}_rsi_ratio_5_15",
+                    "rsi_composite",
+                    series,
+                    "Wilder RSI(5)/Wilder RSI(15); RSI(15) internal only; null for undefined "
+                    "or zero denominator",
+                ),
+                MacroFeatureSpec(
+                    f"{series}_rsi5_slope_3",
+                    "rsi_composite",
+                    series,
+                    "(Wilder RSI(5)(t)-Wilder RSI(5)(t-3 valid observations))/3",
+                ),
+                MacroFeatureSpec(
+                    f"{series}_rsi5_delta_1",
+                    "rsi_composite",
+                    series,
+                    "Wilder RSI(5)(t)-Wilder RSI(5)(t-1 valid observation)",
+                ),
+                MacroFeatureSpec(
+                    f"{series}_roc_acceleration_4_8",
+                    "roc_acceleration",
+                    series,
+                    "ROC(4)-ROC(8), where ROC(n)=level(t)/level(t-n)-1",
+                ),
+                MacroFeatureSpec(
+                    f"{series}_volatility_zscore_{VOLATILITY_ZSCORE_WINDOW}",
+                    "price_zscore",
+                    series,
+                    "sample z-score of volatility(8) over trailing 96 valid volatility "
+                    "observations",
+                ),
+                MacroFeatureSpec(
+                    f"{series}_level_zscore_{LEVEL_ZSCORE_WINDOW}",
+                    "price_zscore",
+                    series,
+                    "(positive level-trailing mean)/trailing sample standard deviation over "
+                    "96 valid levels",
+                ),
+            )
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_momentum_autocorr_lag{lag}_window{window}",
+                "return_autocorrelation",
+                series,
+                f"signed Pearson correlation of 1-observation log returns at lag {lag} "
+                f"over {window} complete valid pairs; lag is measured before pair filtering",
+            )
+            for lag, window in RETURN_AUTOCORRELATION_LAG_WINDOWS
+        )
     for series in PRICE_FEATURE_SERIES:
         specs.extend(
             MacroFeatureSpec(
@@ -233,6 +294,8 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("unapproved wildcard feature in macro feature catalog")
     if any(spec.name.startswith("fed_") or spec.family.startswith("fed_") for spec in catalog):
         raise ValueError("retired Fed-policy output cannot be in the macro feature catalog")
+    if RSI_COMPOSITE_INTERNAL_WINDOW in RSI_WINDOWS:
+        raise ValueError("internal composite RSI period must not become a public RSI output")
 
 
 def feature_catalog_payload(

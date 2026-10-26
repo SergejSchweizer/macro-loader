@@ -6,8 +6,9 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-169 is merged to `origin/main` as GitHub PR #169, following PR-168.
-PR-169 adds the bounded daily-pipeline core budget. PR-168 retires Fed-policy
+As of 2026-10-26, PR-170 is merged to `origin/main` as GitHub PR #170, following PR-169.
+PR-170 completes the scalar-level return/trend windows; PR-169 adds the bounded daily-pipeline
+core budget. PR-168 retires Fed-policy
 acquisition/runtime paths and removes those features from the serving contract, but it
 does not establish production database or installed host-crontab state.
 No production migration or host-crontab change has been performed as part of this work.
@@ -478,6 +479,49 @@ fractions despite their `_pct` suffix. This extension changes only the PostgreSQ
 serving-view catalog and SQL, not canonical Gold or `macro_raw`; it adds no OHLC, volume,
 market-breadth, or dispersion features.
 
+#### PR-171 Composite and Statistical Features
+
+The version-11 PostgreSQL `macro_features` view contract adds the following nullable
+`DOUBLE PRECISION`, series-prefixed features to each `PRICE_FEATURE_SERIES`: positive-level
+price series only; signed/non-price `estr` is excluded. Lag counts refer to non-NULL
+source-level observation rows, not elapsed calendar days. This describes the repository's
+view contract and does not assert that any production database has been migrated or
+populated. Derived values belong only to `macro_features`, not `macro_raw` or canonical
+Gold.
+
+For RSI-derived columns, Wilder RSI for period `n` uses gains
+`max(level(t)-level(t-1), 0)` and losses `max(level(t-1)-level(t), 0)` on positive adjacent
+source levels. Its initial average gain/loss is the arithmetic mean of the first `n` valid
+one-observation changes; each subsequent average is
+`((n-1)*previous_average + current_gain_or_loss)/n`. RSI is
+`100 - 100/(1 + average_gain/average_loss)`. Thus RSI-5 requires five valid changes (six
+positive levels), and RSI-15 requires fifteen valid changes (sixteen positive levels).
+RSI is NULL before its seed is available and when both averages are zero. If loss is zero
+and gain is positive, RSI is 100.
+
+| Column suffix | Contract formula | Additional NULL/warm-up behavior |
+| --- | --- | --- |
+| `_rsi_ratio_5_15` | `RSI_5(t) / RSI_15(t)` | Both RSI values must exist and RSI-15 must be nonzero. RSI-15 is an internal intermediate, not a view column. |
+| `_rsi5_slope_3` | `(RSI_5(t) - RSI_5(t-3 source rows)) / 3` | Requires defined RSI-5 at both endpoints. The lag counts source rows; intermediate NULL RSI values are not skipped. |
+| `_rsi5_delta_1` | `RSI_5(t) - RSI_5(t-1 source row)` | Requires defined RSI-5 at both adjacent source rows; NULL endpoints propagate. |
+| `_roc_acceleration_4_8` | `(level(t)/level(t-4)-1) - (level(t)/level(t-8)-1)` | Current, 4-lag, and 8-lag levels must be positive; otherwise NULL. |
+| `_volatility_zscore_96` | `(volatility_8(t)-mean_96(volatility_8))/sample_stddev_96(volatility_8)` | `volatility_8` is sample standard deviation (`ddof=1`) of eight valid one-observation log returns in the trailing eight source rows. The z-score uses the latest 96 non-NULL `volatility_8` values including current; NULL values are skipped in that 96-value history. NULL until 96 exist or when sample standard deviation is zero/undefined. |
+| `_level_zscore_96` | `(level(t)-mean_96(level))/sample_stddev_96(level)` | Uses the latest 96 positive, non-NULL levels including current; non-positive/missing levels are skipped in that 96-value history. NULL until 96 exist or when sample standard deviation is zero/undefined. |
+
+The return-autocorrelation suffixes are `_momentum_autocorr_lag{h}_window{N}` and use
+one-observation log return `r(t)=ln(level(t)/level(t-1 source row))`. Their exact
+`(lag h, valid-pair window N)` pairs are `(1,96)`, `(4,96)`, and `(8,192)`, respectively.
+Each output is the signed Pearson correlation of pairs `(r(t), r(t-h))` over the trailing
+`N` valid pairs. Apply lag `h` to the return stream before filtering incomplete pairs; a
+pair is valid only when both returns exist, and `N` counts valid pairs rather than source
+rows or days. Return NULL until `N` pairs exist or if either side has zero/undefined sample
+standard deviation. Do not clip negative correlation: this signed return-based measure is
+distinct from positive-clipped autocorrelation of source-unit changes. All windows are
+trailing and causal.
+
+EMA/MACD and source OHLC/volume remain follow-up work; breadth and dispersion require a
+cross-instrument panel.
+
 PR-168's merged runtime and serving contract removes Fed-policy acquisition,
 calculations, stores, commands, and serving columns. This merge does not assert production
 schema or host-crontab state. Historical source and acceptance artifacts are retained as
@@ -737,9 +781,10 @@ commit boundary; shared run-manifest and ingestion-state updates are serialized 
 concurrent series cannot overwrite each other's durable audit/state records. Results are
 reported in input order. A core count of one executes these work units sequentially.
 
-## Quality And Git Contract
+## Local Quality And Git Contract
 
-Required checks:
+GitHub Actions are not used. The local pre-commit hook runs `make quality-gate`; local
+checks can also be run directly. The suite comprises:
 
 ```text
 lint
@@ -749,21 +794,12 @@ integration
 coverage
 ```
 
-`lint`, `type`, `unit`, and offline `integration` run in parallel. `coverage` combines unit + integration raw coverage and enforces production-code line coverage `>= 90.0%`.
+`lint`, `type`, unit, and offline `integration` run locally. Unit and integration tests
+write separate coverage data; the `coverage` target combines it and applies the configured
+production-code line coverage threshold of `85.0%` from `pyproject.toml`.
 
-`network` tests are excluded from required gates.
-
-Target GitHub policy for `main`:
-
-- protected/ruleset-controlled;
-- pull request required;
-- no direct push/force push/delete;
-- required five checks;
-- branch up to date / merge queue compatible;
-- squash merge only;
-- repository auto-merge enabled;
-- implementation PRs use auto-merge so merge occurs only after all gate requirements are satisfied;
-- merged head branch deleted automatically.
+`network` tests are excluded from local checks. No GitHub Actions workflow or remote
+quality gate is part of this repository's test contract.
 
 ## Testing Contract
 

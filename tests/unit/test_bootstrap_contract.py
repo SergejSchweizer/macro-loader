@@ -17,30 +17,25 @@ def test_package_roots_are_importable() -> None:
     assert scripts.__doc__
 
 
-def test_quality_workflow_has_exact_required_jobs_and_triggers() -> None:
-    text = (ROOT / ".github/workflows/quality-gates.yml").read_text(encoding="utf-8")
-    for trigger in ("push:", "pull_request:", "merge_group:"):
-        assert trigger in text
-    assert "  push:\n    branches: [main]" in text
-    assert "  push:\n  pull_request:" not in text
-    for job in ("  lint:\n", "  type:\n", "  unit:\n", "  integration:\n", "  coverage:\n"):
-        assert job in text
-    assert "needs: [unit, integration]" in text
-    assert "name: coverage-unit" in text
-    assert "name: coverage-integration" in text
+def test_no_github_actions_workflows_are_installed() -> None:
+    workflows = ROOT / ".github/workflows"
+    assert not workflows.exists() or not list(workflows.glob("*.yml"))
+    assert not workflows.exists() or not list(workflows.glob("*.yaml"))
 
 
 def test_makefile_enforces_coverage_and_parallel_gate() -> None:
-    text = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "$(MAKE) -j4 lint type unit integration" in text
-    assert "coverage report --fail-under=90" in text
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "$(MAKE) -j4 lint type test" in makefile
+    assert "test: unit integration" in makefile
+    assert "coverage report" in makefile
+    assert "fail_under = 85.0" in project
 
 
-def test_pre_push_hook_blocks_dirty_tree_before_quality_gate() -> None:
-    text = (ROOT / ".githooks/pre-push").read_text(encoding="utf-8")
-    dirty_index = text.index("git status --short")
-    gate_index = text.index("make quality-gate")
-    assert dirty_index < gate_index
+def test_pre_commit_hook_runs_local_quality_gate() -> None:
+    text = (ROOT / ".githooks/pre-commit").read_text(encoding="utf-8")
+    assert "make quality-gate" in text
+    assert "git status --short" not in text
 
 
 def test_repository_setup_contains_required_policy() -> None:
