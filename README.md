@@ -10,8 +10,9 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-169 status (2026-10-26): The bounded daily-pipeline core budget is merged as GitHub PR
-#169. PR-168 retired Fed-policy runtime/acquisition and PostgreSQL serving as GitHub PR #168.
+PR-170 status (2026-10-26): The scalar-level return/trend windows are merged as GitHub PR
+#170. PR-169's bounded daily-pipeline core budget is merged as GitHub PR #169. PR-168 retired
+Fed-policy runtime/acquisition and PostgreSQL serving as GitHub PR #168.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
@@ -284,7 +285,7 @@ row digests:     macro_loader_sync.gold_row_hashes
 
 `timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
 
-The PostgreSQL `macro_features` materialized view (feature-view contract version 10)
+The PostgreSQL `macro_features` materialized view (feature-view contract version 11)
 exposes one `*_log_level`
 column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
 the source is positive; non-positive or missing source values become `NULL`.
@@ -293,6 +294,15 @@ The PR-168 merged contract removes Fed-policy origins and derived columns from
 Historical Fed acceptance artifacts remain available for audit. The view is explicitly
 refreshed after a successful raw-table delta and exposes the complete
 available `macro_raw` timestamp history, including pre-2010 observations.
+
+The view contract adds series-prefixed RSI-5/15 ratio (RSI-15 internal only), RSI-5
+three-observation slope and one-observation delta,
+ROC-4-minus-ROC-8 acceleration, 96-valid-observation level and 8-observation-return-
+volatility z-scores using sample standard deviation, and signed Pearson
+`momentum_autocorr_lag{h}_window{N}` of one-observation log returns at `(lag, valid-pairs)`
+`(1,96)`, `(4,96)`, and `(8,192)`. All require complete causal windows and return NULL for
+undefined denominators/correlations. EMA/MACD and source OHLC/volume remain follow-up
+work; breadth and dispersion require a cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
 

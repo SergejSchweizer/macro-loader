@@ -62,6 +62,20 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
             assert f"{series}_roc_{window}obs" in names
         for window in DRAWDOWN_WINDOWS:
             assert f"{series}_drawdown_{window}obs" in names
+        new_feature_suffixes = (
+            "rsi_ratio_5_15",
+            "rsi5_slope_3",
+            "rsi5_delta_1",
+            "roc_acceleration_4_8",
+            "volatility_zscore_96",
+            "level_zscore_96",
+            "momentum_autocorr_lag1_window96",
+            "momentum_autocorr_lag4_window96",
+            "momentum_autocorr_lag8_window192",
+        )
+        assert all(f"{series}_{suffix}" in names for suffix in new_feature_suffixes)
+        group_end = FEATURE_COLUMNS.index(f"{series}_momentum_autocorr_lag8_window192")
+        assert group_end < FEATURE_COLUMNS.index(f"{series}_return_geom_4obs_pct")
     assert "vix9d_vix_ratio" in names
     assert "vix_vix3m_ratio" in names
     assert "vix9d_vix3m_log_ratio" in names
@@ -90,7 +104,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 10
+    assert MACRO_FEATURE_VIEW_VERSION == 11
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -120,7 +134,7 @@ def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert '"vix_log_level"' in _FEATURES_VIEW_DDL
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
-    migration_sql = " ".join(statement for migration in _MIGRATIONS[-2:] for statement in migration)
+    migration_sql = " ".join(statement for migration in _MIGRATIONS for statement in migration)
     assert f"version={MACRO_FEATURE_VIEW_VERSION}" in migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql
     assert '"fed_macro_raw"' in migration_sql

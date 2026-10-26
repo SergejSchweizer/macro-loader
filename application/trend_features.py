@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 SMA_RATIO_WINDOWS: tuple[tuple[int, int], ...] = ((5, 15), (5, 20), (10, 20), (10, 40))
 RSI_WINDOWS: tuple[int, ...] = (3, 5, 7, 14)
+RSI_COMPOSITE_INTERNAL_WINDOW = 15
 ROC_WINDOWS: tuple[int, ...] = (1, 2, 3, 4, 5, 8, 10, 20)
 DRAWDOWN_WINDOWS: tuple[int, ...] = (20, 32, 60, 96)
 

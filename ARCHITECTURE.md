@@ -6,8 +6,9 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-169 is merged to `origin/main` as GitHub PR #169, following PR-168.
-PR-169 adds the bounded daily-pipeline core budget. PR-168 retires Fed-policy
+As of 2026-10-26, PR-170 is merged to `origin/main` as GitHub PR #170, following PR-169.
+PR-170 completes the scalar-level return/trend windows; PR-169 adds the bounded daily-pipeline
+core budget. PR-168 retires Fed-policy
 acquisition/runtime paths and removes those features from the serving contract, but it
 does not establish production database or installed host-crontab state.
 No production migration or host-crontab change has been performed as part of this work.
@@ -477,6 +478,15 @@ windows as 100/0. Geometric-return values are decimal
 fractions despite their `_pct` suffix. This extension changes only the PostgreSQL
 serving-view catalog and SQL, not canonical Gold or `macro_raw`; it adds no OHLC, volume,
 market-breadth, or dispersion features.
+
+The PostgreSQL `macro_features` view contract version 11 adds series-prefixed RSI-5/15
+ratio (RSI-15 remains internal), RSI-5 three-observation slope, RSI-5 one-observation delta,
+ROC-4 minus ROC-8, 96-valid-observation level and 8-observation-return-volatility z-scores
+(sample standard deviation), and signed Pearson `momentum_autocorr_lag{h}_window{N}` on
+one-observation log returns for `(lag, valid-pairs)` `(1,96)`, `(4,96)`, and `(8,192)`.
+These use complete causal windows and return NULL for undefined denominators/correlations.
+They remain view-only. EMA/MACD and source OHLC/volume transformations remain follow-up
+work; breadth and dispersion remain unavailable without an instrument cross-section.
 
 PR-168's merged runtime and serving contract removes Fed-policy acquisition,
 calculations, stores, commands, and serving columns. This merge does not assert production

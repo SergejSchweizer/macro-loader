@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from statistics import stdev
 from threading import Event, Thread
@@ -201,6 +202,20 @@ def _qa_expected_view_columns() -> tuple[str, ...]:
             f"{series}_momentum_autocorr_{lag}_{window}obs"
             for lag, window in ((1, 60), (5, 60), (20, 120))
         )
+        columns.extend(
+            f"{series}_{feature}"
+            for feature in (
+                "rsi_ratio_5_15",
+                "rsi5_slope_3",
+                "rsi5_delta_1",
+                "roc_acceleration_4_8",
+                "volatility_zscore_96",
+                "level_zscore_96",
+                "momentum_autocorr_lag1_window96",
+                "momentum_autocorr_lag4_window96",
+                "momentum_autocorr_lag8_window192",
+            )
+        )
     for series in _QA_PRICE_SERIES:
         columns.extend(f"{series}_return_geom_{window}obs_pct" for window in _QA_GEOMETRIC_WINDOWS)
     columns.extend(
@@ -318,6 +333,156 @@ def _independent_wilder_rsi(levels: list[float], period: int) -> float | None:
     if average_loss == 0:
         return 100.0
     return 100.0 - 100.0 / (1.0 + average_gain / average_loss)
+
+
+def _pr171_reference_non_null_source(levels: list[float]) -> dict[str, list[float | None]]:
+    """Evaluate observation lags on the per-series non-NULL source stream."""
+    size = len(levels)
+
+    def positive(value: float | None) -> bool:
+        return value is not None and math.isfinite(value) and value > 0.0
+
+    def wilder(period: int) -> list[float | None]:
+        result: list[float | None] = [None] * size
+        seed: list[tuple[float, float]] = []
+        avg_gain: float | None = None
+        avg_loss: float | None = None
+        for i in range(1, size):
+            previous, current = levels[i - 1], levels[i]
+            if not positive(previous) or not positive(current):
+                seed.clear()
+                avg_gain = avg_loss = None
+                continue
+            assert previous is not None and current is not None
+            change = current - previous
+            gain, loss = max(change, 0.0), max(-change, 0.0)
+            if avg_gain is None or avg_loss is None:
+                seed.append((gain, loss))
+                if len(seed) < period:
+                    continue
+                avg_gain = sum(pair[0] for pair in seed) / period
+                avg_loss = sum(pair[1] for pair in seed) / period
+            else:
+                avg_gain = ((period - 1) * avg_gain + gain) / period
+                avg_loss = ((period - 1) * avg_loss + loss) / period
+            if avg_gain == 0.0 and avg_loss == 0.0:
+                result[i] = None
+            elif avg_loss == 0.0:
+                result[i] = 100.0
+            else:
+                result[i] = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss)
+        return result
+
+    def pearson(xs: list[float], ys: list[float]) -> float | None:
+        xbar, ybar = sum(xs) / len(xs), sum(ys) / len(ys)
+        xc = [value - xbar for value in xs]
+        yc = [value - ybar for value in ys]
+        xss, yss = sum(value * value for value in xc), sum(value * value for value in yc)
+        if xss == 0.0 or yss == 0.0:
+            return None
+        return sum(x * y for x, y in zip(xc, yc, strict=True)) / math.sqrt(xss * yss)
+
+    rsi5, rsi15 = wilder(5), wilder(15)
+
+    def ratio(i: int) -> float | None:
+        numerator, denominator = rsi5[i], rsi15[i]
+        if numerator is None or denominator is None or denominator == 0.0:
+            return None
+        return numerator / denominator
+
+    def slope(i: int) -> float | None:
+        if i < 3:
+            return None
+        current, prior = rsi5[i], rsi5[i - 3]
+        if current is None or prior is None:
+            return None
+        return (current - prior) / 3.0
+
+    def delta(i: int) -> float | None:
+        if i < 1:
+            return None
+        current, prior = rsi5[i], rsi5[i - 1]
+        if current is None or prior is None:
+            return None
+        return current - prior
+
+    result: dict[str, list[float | None]] = {
+        "rsi_ratio_5_15": [ratio(i) for i in range(size)],
+        "rsi5_slope_3": [slope(i) for i in range(size)],
+        "rsi5_delta_1": [delta(i) for i in range(size)],
+    }
+
+    roc4: list[float | None] = [None] * size
+    roc8: list[float | None] = [None] * size
+    for i in range(size):
+        for period, target in ((4, roc4), (8, roc8)):
+            if i >= period and positive(levels[i]) and positive(levels[i - period]):
+                assert levels[i] is not None and levels[i - period] is not None
+                target[i] = levels[i] / levels[i - period] - 1.0
+    result["roc_acceleration_4_8"] = [
+        None if a is None or b is None else a - b for a, b in zip(roc4, roc8, strict=True)
+    ]
+
+    valid_levels = [(i, value) for i, value in enumerate(levels) if positive(value)]
+    result["level_zscore_96"] = [None] * size
+    for position, (i, current) in enumerate(valid_levels):
+        sample = [value for _, value in valid_levels[max(0, position - 95) : position + 1]]
+        if len(sample) == 96:
+            deviation = stdev(sample)
+            if deviation:
+                result["level_zscore_96"][i] = (current - sum(sample) / 96.0) / deviation
+
+    logs: list[float | None] = [None] * size
+    for i in range(1, size):
+        if positive(levels[i - 1]) and positive(levels[i]):
+            assert levels[i - 1] is not None and levels[i] is not None
+            logs[i] = math.log(levels[i] / levels[i - 1])
+    vol8: list[float | None] = [None] * size
+    for i in range(size):
+        log_window = logs[max(0, i - 7) : i + 1]
+        if len(log_window) == 8 and all(value is not None for value in log_window):
+            vol8[i] = stdev([value for value in log_window if value is not None])
+    valid_vol = [(i, value) for i, value in enumerate(vol8) if value is not None]
+    result["volatility_zscore_96"] = [None] * size
+    for position, (i, current) in enumerate(valid_vol):
+        sample = [value for _, value in valid_vol[max(0, position - 95) : position + 1]]
+        if len(sample) == 96:
+            deviation = stdev(sample)
+            if deviation:
+                result["volatility_zscore_96"][i] = (current - sum(sample) / 96.0) / deviation
+
+    for lag, pair_window in ((1, 96), (4, 96), (8, 192)):
+        values: list[float | None] = [None] * size
+        for i in range(size):
+            pairs = [
+                (logs[right], logs[right - lag])
+                for right in range(lag, i + 1)
+                if logs[right] is not None and logs[right - lag] is not None
+            ][-pair_window:]
+            if len(pairs) == pair_window:
+                values[i] = pearson(
+                    [pair[0] for pair in pairs if pair[0] is not None],
+                    [pair[1] for pair in pairs if pair[1] is not None],
+                )
+        result[f"momentum_autocorr_lag{lag}_window{pair_window}"] = values
+    return result
+
+
+def _pr171_reference(levels: Sequence[float | None]) -> dict[str, list[float | None]]:
+    """Restore the compact source results to raw timestamp positions."""
+    source_positions = [index for index, value in enumerate(levels) if value is not None]
+    source_levels = [levels[index] for index in source_positions]
+    assert all(value is not None for value in source_levels)
+    calculated = _pr171_reference_non_null_source(
+        [value for value in source_levels if value is not None]
+    )
+    aligned: dict[str, list[float | None]] = {}
+    for name, values in calculated.items():
+        mapped: list[float | None] = [None] * len(levels)
+        for index, value in zip(source_positions, values, strict=True):
+            mapped[index] = value
+        aligned[name] = mapped
+    return aligned
 
 
 def _state(timestamp: datetime) -> GoldSyncState:
@@ -505,7 +670,7 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
     )
     assert availability_column[4]
     assert migrations == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
-    assert migrations[-1] == (21,)
+    assert migrations[-1] == (22,)
 
     timestamp = _timestamp(20)
     row = GoldRowPayload(timestamp, tuple(1.0 for _ in POSTGRES_RAW_COLUMNS[1:]))
@@ -1056,7 +1221,7 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
 
 
 @pytest.mark.integration
-def test_real_postgres_pr170_view_has_exact_independent_column_contract(
+def test_real_postgres_pr171_view_has_exact_independent_column_contract(
     repository: PostgresGoldSyncRepository,
     migrator: PostgresGoldSchemaMigrator,
     postgres_dsn: str,
@@ -1347,3 +1512,180 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
             "SELECT has_table_privilege('runtime-grant-probe', 'macro_loader.macro_raw', 'SELECT')"
         )
         assert grant_result.fetchone() == (False,)
+
+
+@pytest.mark.integration
+def test_real_postgres_pr171_exact_schema_and_no_raw_or_gold_leakage(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """Assert the independent ordered contract against disposable PostgreSQL."""
+    del repository
+    migrator.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        view_columns = connection.execute(
+            """SELECT attname, format_type(atttypid, atttypmod)
+               FROM pg_attribute WHERE attrelid = 'macro_loader.macro_features'::regclass
+               AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
+        ).fetchall()
+        raw_columns = {
+            row[0]
+            for row in connection.execute(
+                """SELECT column_name FROM information_schema.columns
+                   WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw'"""
+            ).fetchall()
+        }
+        comment = connection.execute(
+            "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
+        ).fetchone()
+
+    expected = _qa_expected_view_columns()
+    actual = tuple(row[0] for row in view_columns)
+    additions = {
+        f"{series}_{feature}"
+        for series in _QA_PRICE_SERIES
+        for feature in (
+            "rsi_ratio_5_15",
+            "rsi5_slope_3",
+            "rsi5_delta_1",
+            "roc_acceleration_4_8",
+            "volatility_zscore_96",
+            "level_zscore_96",
+            "momentum_autocorr_lag1_window96",
+            "momentum_autocorr_lag4_window96",
+            "momentum_autocorr_lag8_window192",
+        )
+    }
+    assert len(expected) == len(set(expected))
+    assert actual == expected
+    assert all(row[1] == "double precision" for row in view_columns[2:])
+    assert not any(column.endswith("_rsi_15obs") for column in actual)
+    assert additions.isdisjoint(raw_columns)
+    assert additions.isdisjoint(GOLD_COLUMNS)
+    assert comment == (
+        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+    )
+
+
+@pytest.mark.integration
+def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are_causal(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    count = 420
+    levels: list[float | None] = [
+        100.0 + index * 0.08 + ((index * 17) % 11) * 0.37 for index in range(count)
+    ]
+    levels[31] = 0.0
+    levels[144] = None
+    levels[237] = -2.0
+    timestamps = [
+        datetime(2024, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(count)
+    ]
+    reference = _pr171_reference(levels)
+    names = tuple(reference)
+    select_list = ", ".join(f'"vix_{name}"' for name in names)
+    target_index = count - 8
+    target_timestamp = timestamps[target_index]
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        full_rows = connection.execute(
+            f"SELECT timestamp_m1, {select_list} FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 <= %s ORDER BY timestamp_m1",
+            (target_timestamp,),
+        ).fetchall()
+        assert len(full_rows) == target_index + 1
+        for index, row in enumerate(full_rows):
+            for name, actual in zip(names, row[1:], strict=True):
+                expected_value = reference[name][index]
+                if expected_value is None:
+                    assert actual is None, (name, index, actual)
+                else:
+                    assert actual is not None and math.isfinite(actual), (name, index, actual)
+                    assert math.isclose(actual, expected_value, rel_tol=2e-9, abs_tol=2e-11), (
+                        name,
+                        index,
+                        actual,
+                        expected_value,
+                    )
+
+        full_target = full_rows[-1][1:]
+        connection.execute(
+            "DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 > %s", (target_timestamp,)
+        )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        truncated_target = connection.execute(
+            f"SELECT {select_list} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+            (target_timestamp,),
+        ).fetchone()
+
+    assert truncated_target == full_target
+    assert reference["momentum_autocorr_lag1_window96"][target_index] is not None
+    assert reference["momentum_autocorr_lag4_window96"][target_index] is not None
+    assert reference["momentum_autocorr_lag8_window192"][target_index] is not None
+
+
+@pytest.mark.integration
+def test_real_postgres_pr171_negative_correlation_and_zero_variance_are_preserved(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    names = (
+        "vix_rsi_ratio_5_15",
+        "vix_rsi5_slope_3",
+        "vix_rsi5_delta_1",
+        "vix_roc_acceleration_4_8",
+        "vix_volatility_zscore_96",
+        "vix_level_zscore_96",
+        "vix_momentum_autocorr_lag1_window96",
+        "vix_momentum_autocorr_lag4_window96",
+        "vix_momentum_autocorr_lag8_window192",
+    )
+    projection = ", ".join(f'"{name}"' for name in names)
+    timestamps = [datetime(2025, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(300)]
+    alternating = [100.0]
+    for index in range(1, len(timestamps)):
+        alternating.append(alternating[-1] * (1.012 if index % 2 else 1.0 / 1.012))
+
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        scenarios = (
+            ("alternating", alternating),
+            ("flat", [100.0] * 300),
+            ("all-loss", [300.0 - index for index in range(300)]),
+        )
+        for scenario, levels in scenarios:
+            connection.execute("DELETE FROM macro_loader.macro_raw")
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") '
+                    "VALUES (%s, %s)",
+                    zip(timestamps, levels, strict=True),
+                )
+            connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+            row = connection.execute(
+                f"SELECT {projection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+                (timestamps[-1],),
+            ).fetchone()
+            assert row is not None
+            if scenario == "flat":
+                assert row[0] is None
+                assert row[4] is None and row[5] is None
+                assert row[6] is None and row[7] is None and row[8] is None
+            elif scenario == "all-loss":
+                assert row[0] is None  # RSI-15 is zero, so the ratio is undefined.
+            else:
+                assert row[6] is not None and row[6] < 0.0

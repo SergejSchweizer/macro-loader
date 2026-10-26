@@ -2,8 +2,8 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-26): PR-169 is merged to `origin/main` as GitHub PR
-#169. PR-170, `pr-170/complete-scalar-level-feature-windows`, is the active implementation
+Current delivery status (2026-10-26): PR-170 is merged to `origin/main` as GitHub PR
+#170. PR-171, `pr-171/level-only-composite-statistical-features`, is the active implementation
 branch.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization.

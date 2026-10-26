@@ -39,14 +39,18 @@ from application.postgres_sync import (
     GoldTargetSummary,
 )
 from application.return_features import (
+    LEVEL_ZSCORE_WINDOW,
     LOG_RETURN_WINDOWS,
+    RETURN_AUTOCORRELATION_LAG_WINDOWS,
     RETURN_MEAN_WINDOWS,
     RETURN_WINDOWS,
     VOLATILITY_WINDOWS,
+    VOLATILITY_ZSCORE_WINDOW,
 )
 from application.trend_features import (
     DRAWDOWN_WINDOWS,
     ROC_WINDOWS,
+    RSI_COMPOSITE_INTERNAL_WINDOW,
     RSI_WINDOWS,
     SMA_RATIO_WINDOWS,
 )
@@ -540,7 +544,8 @@ def _macro_features_view_query() -> str:
         )
         rsi_names: dict[int, tuple[str, str]] = {}
         rsi_cte_names: list[str] = []
-        for period in RSI_WINDOWS:
+        all_rsi_periods = (*RSI_WINDOWS, RSI_COMPOSITE_INTERNAL_WINDOW)
+        for period in all_rsi_periods:
             gain_name = f"avg_gain_{period}"
             loss_name = f"avg_loss_{period}"
             rsi_names[period] = (gain_name, loss_name)
@@ -613,6 +618,24 @@ def _macro_features_view_query() -> str:
             f"{feature_input} AS MATERIALIZED (SELECT {', '.join(rsi_select)} "
             f"FROM {changes} AS changes {' '.join(rsi_joins)})"
         )
+        rsi_values = _quote(f"{series}_rsi_values")
+        rsi_value_expressions: list[str] = []
+        for period in all_rsi_periods:
+            gain_name, loss_name = rsi_names[period]
+            current_gain = f"changes.{_quote(gain_name)}"
+            current_loss = f"changes.{_quote(loss_name)}"
+            rsi_value_expressions.append(
+                f"CASE WHEN changes.observation_number < {period + 1} THEN NULL "
+                f"WHEN {current_gain} IS NULL OR {current_loss} IS NULL THEN NULL "
+                f"WHEN {current_gain} = 0 AND {current_loss} = 0 THEN NULL "
+                f"WHEN {current_loss} = 0 THEN 100.0 "
+                f"ELSE 100.0 - 100.0 / (1.0 + {current_gain} / {current_loss}) "
+                f"END AS {_quote(f'rsi_value_{period}')}"
+            )
+        source_ctes.append(
+            f"{rsi_values} AS MATERIALIZED (SELECT changes.*, "
+            f"{', '.join(rsi_value_expressions)} FROM {feature_input} AS changes)"
+        )
         expressions: list[str] = []
         for window in LOG_RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
@@ -663,22 +686,29 @@ def _macro_features_view_query() -> str:
                 f"END AS {_quote(f'{series}_sma_ratio_{short}_{long}')}"
             )
         for period in RSI_WINDOWS if series in PRICE_FEATURE_SERIES else ():
-            gain_name, loss_name = rsi_names[period]
-            current_gain = f"changes.{_quote(gain_name)}"
-            current_loss = f"changes.{_quote(loss_name)}"
             expressions.append(
-                f"CASE WHEN changes.observation_number < {period + 1} THEN NULL "
-                f"WHEN {current_gain} IS NULL OR {current_loss} IS NULL THEN NULL "
-                f"WHEN {current_gain} = 0 AND {current_loss} = 0 THEN NULL "
-                f"WHEN {current_loss} = 0 THEN 100.0 "
-                f"ELSE 100.0 - 100.0 / (1.0 + {current_gain} / {current_loss}) "
-                f"END AS {_quote(f'{series}_rsi_{period}obs')}"
+                f"changes.{_quote(f'rsi_value_{period}')} AS {_quote(f'{series}_rsi_{period}obs')}"
+            )
+        if series in PRICE_FEATURE_SERIES:
+            rsi_5 = f"changes.{_quote('rsi_value_5')}"
+            rsi_15 = f"changes.{_quote(f'rsi_value_{RSI_COMPOSITE_INTERNAL_WINDOW}')}"
+            expressions.append(
+                f"CASE WHEN {rsi_5} IS NOT NULL AND {rsi_15} IS NOT NULL "
+                f"THEN {rsi_5} / NULLIF({rsi_15}, 0.0) END "
+                f"AS {_quote(f'{series}_rsi_ratio_5_15')}"
             )
         for window in ROC_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
                 f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
                 f"THEN level / {_quote(f'lag_{window}')} - 1.0 "
                 f"END AS {_quote(f'{series}_roc_{window}obs')}"
+            )
+        if series in PRICE_FEATURE_SERIES:
+            expressions.append(
+                f"CASE WHEN level > 0 AND {_quote('lag_4')} > 0 "
+                f"AND {_quote('lag_8')} > 0 THEN "
+                f"(level / {_quote('lag_4')} - 1.0) - (level / {_quote('lag_8')} - 1.0) "
+                f"END AS {_quote(f'{series}_roc_acceleration_4_8')}"
             )
         for window in DRAWDOWN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
             expressions.append(
@@ -691,10 +721,123 @@ def _macro_features_view_query() -> str:
             f"{window - 1} PRECEDING AND CURRENT ROW)"
             for window in rolling_windows
         )
+        feature_base = _quote(f"{series}_feature_base")
         source_ctes.append(
-            f"{features} AS MATERIALIZED (SELECT changes.timestamp_m1, {', '.join(expressions)} "
-            f"FROM {feature_input} AS changes "
+            f"{feature_base} AS MATERIALIZED (SELECT changes.timestamp_m1, changes.level, "
+            f"{', '.join(expressions)} "
+            f"FROM {rsi_values} AS changes "
             f"WINDOW {rolling_frames})"
+        )
+        helper_joins: list[str] = []
+        helper_selects: list[str] = []
+        if series in PRICE_FEATURE_SERIES:
+            rsi5_valid = _quote(f"{series}_rsi5_observations")
+            rsi5_history = _quote(f"{series}_rsi5_history")
+            slope_name = _quote(f"{series}_rsi5_slope_3")
+            delta_name = _quote(f"{series}_rsi5_delta_1")
+            source_ctes.append(
+                f"{rsi5_valid} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"{_quote(f'{series}_rsi_5obs')} AS rsi5 FROM {feature_base})"
+            )
+            source_ctes.append(
+                f"{rsi5_history} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"CASE WHEN rsi5 IS NOT NULL AND lag(rsi5, 3) OVER ordered IS NOT NULL "
+                f"THEN (rsi5 - lag(rsi5, 3) OVER ordered) / 3.0 END AS slope_3, "
+                f"CASE WHEN rsi5 IS NOT NULL AND lag(rsi5, 1) OVER ordered IS NOT NULL "
+                f"THEN rsi5 - lag(rsi5, 1) OVER ordered END AS delta_1 "
+                f"FROM {rsi5_valid} WINDOW ordered AS (ORDER BY timestamp_m1))"
+            )
+            helper_joins.append(
+                f"LEFT JOIN {rsi5_history} AS rsi5_history "
+                "ON rsi5_history.timestamp_m1 = base.timestamp_m1"
+            )
+            helper_selects.extend(
+                [
+                    f"rsi5_history.slope_3 AS {slope_name}",
+                    f"rsi5_history.delta_1 AS {delta_name}",
+                ]
+            )
+
+            level_valid = _quote(f"{series}_level_valid")
+            level_zscore = _quote(f"{series}_level_zscore")
+            level_window = LEVEL_ZSCORE_WINDOW
+            source_ctes.append(
+                f"{level_valid} AS MATERIALIZED (SELECT timestamp_m1, level, "
+                f"row_number() OVER (ORDER BY timestamp_m1) AS valid_number "
+                f"FROM {source} WHERE level > 0)"
+            )
+            source_ctes.append(
+                f"{level_zscore} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"CASE WHEN count(*) OVER z_window = {level_window} "
+                f"AND stddev_samp(level) OVER z_window <> 0 "
+                f"THEN (level - avg(level) OVER z_window) / stddev_samp(level) OVER z_window "
+                f"END AS zscore FROM {level_valid} WINDOW z_window AS (ORDER BY valid_number "
+                f"ROWS BETWEEN {level_window - 1} PRECEDING AND CURRENT ROW))"
+            )
+            level_zscore_column = _quote(f"{series}_level_zscore_{level_window}")
+            helper_joins.append(
+                f"LEFT JOIN {level_zscore} AS level_z ON level_z.timestamp_m1 = base.timestamp_m1"
+            )
+            helper_selects.append(f"level_z.zscore AS {level_zscore_column}")
+
+            volatility_valid = _quote(f"{series}_volatility8_valid")
+            volatility_zscore = _quote(f"{series}_volatility8_zscore")
+            volatility_column = _quote(f"{series}_volatility_8obs")
+            zscore_window = VOLATILITY_ZSCORE_WINDOW
+            source_ctes.append(
+                f"{volatility_valid} AS MATERIALIZED (SELECT timestamp_m1, volatility_value, "
+                f"row_number() OVER (ORDER BY timestamp_m1) AS valid_number FROM ("
+                f"SELECT timestamp_m1, {volatility_column} AS volatility_value "
+                f"FROM {feature_base} WHERE {volatility_column} IS NOT NULL) valid_volatility)"
+            )
+            source_ctes.append(
+                f"{volatility_zscore} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"CASE WHEN count(*) OVER z_window = {zscore_window} "
+                f"AND stddev_samp(volatility_value) OVER z_window <> 0 "
+                f"THEN (volatility_value - avg(volatility_value) OVER z_window) "
+                f"/ stddev_samp(volatility_value) OVER z_window END AS zscore "
+                f"FROM {volatility_valid} WINDOW z_window AS (ORDER BY valid_number "
+                f"ROWS BETWEEN {zscore_window - 1} PRECEDING AND CURRENT ROW))"
+            )
+            volatility_zscore_column = _quote(f"{series}_volatility_zscore_{zscore_window}")
+            helper_joins.append(
+                f"LEFT JOIN {volatility_zscore} AS volatility_z "
+                "ON volatility_z.timestamp_m1 = base.timestamp_m1"
+            )
+            helper_selects.append(f"volatility_z.zscore AS {volatility_zscore_column}")
+
+            for lag, pair_window in RETURN_AUTOCORRELATION_LAG_WINDOWS:
+                pairs = _quote(f"{series}_valid_return_pairs_{lag}")
+                autocorrelation = _quote(f"{series}_return_autocorr_{lag}")
+                pair_column = _quote(f"{series}_momentum_autocorr_lag{lag}_window{pair_window}")
+                source_ctes.append(
+                    f"{pairs} AS MATERIALIZED (SELECT timestamp_m1, current_return, "
+                    f"lagged_return, row_number() OVER (ORDER BY timestamp_m1) AS pair_number "
+                    f"FROM (SELECT timestamp_m1, {_quote('log_return_1')} AS current_return, "
+                    f"lag({_quote('log_return_1')}, {lag}) OVER (ORDER BY timestamp_m1) "
+                    f"AS lagged_return FROM {changes}) aligned_returns "
+                    f"WHERE current_return IS NOT NULL AND lagged_return IS NOT NULL)"
+                )
+                source_ctes.append(
+                    f"{autocorrelation} AS MATERIALIZED (SELECT timestamp_m1, "
+                    f"CASE WHEN count(*) OVER pair_window = {pair_window} "
+                    f"AND stddev_samp(current_return) OVER pair_window <> 0 "
+                    f"AND stddev_samp(lagged_return) OVER pair_window <> 0 "
+                    f"THEN corr(current_return, lagged_return) OVER pair_window END AS value "
+                    f"FROM {pairs} "
+                    f"WINDOW pair_window AS (ORDER BY pair_number ROWS BETWEEN "
+                    f"{pair_window - 1} PRECEDING AND CURRENT ROW))"
+                )
+                helper_joins.append(
+                    f"LEFT JOIN {autocorrelation} AS return_ac_{lag} "
+                    "ON return_ac_" + str(lag) + ".timestamp_m1 = base.timestamp_m1"
+                )
+                helper_selects.append(f"return_ac_{lag}.value AS {pair_column}")
+
+        feature_extra = f", {', '.join(helper_selects)}" if helper_selects else ""
+        source_ctes.append(
+            f"{features} AS MATERIALIZED (SELECT base.*{feature_extra} FROM {feature_base} AS base "
+            f"{' '.join(helper_joins)})"
         )
         joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
         for column in _FEATURES_VIEW_COLUMNS:
@@ -707,6 +850,10 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_volatility_")
                 or column.startswith(f"{series}_sma_ratio_")
                 or column.startswith(f"{series}_rsi_")
+                or column.startswith(f"{series}_rsi5_")
+                or column.startswith(f"{series}_roc_acceleration_")
+                or column.startswith(f"{series}_volatility_zscore_")
+                or column.startswith(f"{series}_level_zscore_")
                 or column.startswith(f"{series}_roc_")
                 or column.startswith(f"{series}_drawdown_")
             ):
@@ -1080,6 +1227,8 @@ _MIGRATIONS = (
     _RETIRED_FED_ARCHIVE_MIGRATION,
     # Rebuild under a new migration version so already-retired installations receive
     # the extended scalar-level feature catalog without rewriting historical migrations.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Publish PR-171's level-only composite and statistical feature contract.
     _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
