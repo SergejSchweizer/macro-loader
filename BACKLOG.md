@@ -65,7 +65,7 @@ Git branch: `pr-174/preserve-ohlc-fields`
 Git status: In Progress
 Agent lane: canonical OHLC propagation implementation and independent Gold/PostgreSQL schema/data QA; two agents
 Depends on: PR-173
-Commit: Pending
+Commit: `a428c67` (OHLC implementation), `e77edd1` (migration and PostgreSQL QA)
 Design patterns: Registry-driven Projection, Repository, Versioned Migration.
 
 Description:
