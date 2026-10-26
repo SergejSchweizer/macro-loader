@@ -14,7 +14,8 @@ core budget. PR-168 retires Fed-policy
 acquisition/runtime paths and removes those features from the serving contract, but it
 does not establish production database or installed host-crontab state.
 PR-174 is the active backlog implementation to preserve native OHLC inputs through Gold
-and PostgreSQL; OHLC fields are not yet in either schema.
+and PostgreSQL. Its implementation branch includes the fields described below; the change
+is pending merge to `main` and does not establish the production database schema.
 No production migration or host-crontab change has been performed as part of this work.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains

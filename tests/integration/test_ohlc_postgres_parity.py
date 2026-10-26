@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
 import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -10,6 +13,7 @@ import psycopg
 import pytest
 from psycopg.conninfo import conninfo_to_dict
 
+import application.macro_feature_catalog as feature_catalog_module
 import ingestion.postgres_gold_repository as postgres_module
 from application.contracts import NativeShape
 from application.gold_frame import GOLD_SCHEMA_VERSION
@@ -147,6 +151,126 @@ def _expected_raw_table_columns() -> tuple[str, ...]:
     )
 
 
+def _legacy_v24_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[str, tuple[str, ...], str, str]:
+    """Build the legacy raw table and v13 view contract without replaying old migrations."""
+    legacy_catalog = tuple(
+        spec for spec in feature_catalog_module.FEATURE_CATALOG if spec.family != "raw_ohlc"
+    )
+    legacy_view_columns = ("timestamp_m1", *(spec.name for spec in legacy_catalog))
+    fingerprint_payload = {
+        "version": 13,
+        "columns": [
+            {
+                "name": spec.name,
+                "family": spec.family,
+                "series": spec.series,
+                "formula": spec.formula,
+            }
+            for spec in legacy_catalog
+        ],
+    }
+    legacy_fingerprint = hashlib.sha256(
+        json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    legacy_levels = ",\n    ".join(
+        f'"{series_id}_level" DOUBLE PRECISION NULL' for series_id in SERIES_REGISTRY
+    )
+    legacy_consumer_ddl = (
+        'CREATE TABLE IF NOT EXISTS "macro_loader"."macro_raw" ('
+        '"timestamp_m1" TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,\n    '
+        f"{legacy_levels},\n    "
+        f"{postgres_module._AVAILABLE_AT_COLUMN_DDL}\n)"
+    )
+
+    monkeypatch.setattr(postgres_module, "_FEATURES_VIEW_COLUMNS", legacy_view_columns[1:])
+    legacy_view_ddl = postgres_module._macro_features_view_query()
+    return legacy_consumer_ddl, legacy_view_columns[1:], legacy_view_ddl, legacy_fingerprint
+
+
+def _seed_v24_baseline(
+    connection: psycopg.Connection[object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[datetime, str, tuple[str, ...]]:
+    """Create a minimal v24 schema, dependent v13 view, and completed migration ledger."""
+    legacy_raw_ddl, legacy_feature_columns, legacy_view_ddl, legacy_fingerprint = (
+        _legacy_v24_contract(monkeypatch)
+    )
+    legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
+    legacy_levels = tuple(f"{series_id}_level" for series_id in SERIES_REGISTRY)
+    legacy_columns = ("timestamp_m1", *legacy_levels)
+    quoted_legacy_columns = ", ".join(f'"{column}"' for column in legacy_columns)
+    legacy_values = ", ".join("%s" for _ in legacy_columns)
+    for statement in (
+        postgres_module._MIGRATION_LEDGER_DDL,
+        legacy_raw_ddl,
+        postgres_module._SYNC_STATE_DDL,
+        postgres_module._ROW_HASH_DDL,
+    ):
+        connection.execute(statement)
+    connection.execute(
+        f"INSERT INTO macro_loader.macro_raw ({quoted_legacy_columns}) VALUES ({legacy_values})",
+        (legacy_timestamp, *(42.0 for _ in legacy_levels)),
+    )
+    connection.execute(legacy_view_ddl)
+    connection.execute(
+        f"COMMENT ON MATERIALIZED VIEW {postgres_module._FEATURES_VIEW} IS "
+        f"'macro feature view version=13; fingerprint={legacy_fingerprint}'"
+    )
+    connection.execute(
+        f"GRANT USAGE ON SCHEMA "
+        f"{postgres_module._quote(postgres_module.POSTGRES_CONSUMER_SCHEMA)}, "
+        f"{postgres_module._quote(postgres_module.POSTGRES_SYNC_SCHEMA)} TO "
+        f"{postgres_module._quote(postgres_module.POSTGRES_SYNC_USER)}, "
+        f"{postgres_module._quote(postgres_module.POSTGRES_USER)}, "
+        f"{postgres_module._quote(postgres_module._POSTGRES_OWNER_ROLE)}"
+    )
+    connection.execute(
+        f"GRANT SELECT ON TABLE {postgres_module._CONSUMER} "
+        f"TO {postgres_module._quote(postgres_module.POSTGRES_USER)}"
+    )
+    connection.execute(
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {postgres_module._CONSUMER} "
+        f"TO {postgres_module._quote(postgres_module.POSTGRES_SYNC_USER)}"
+    )
+    connection.execute(
+        f"REVOKE INSERT, UPDATE, DELETE ON TABLE {postgres_module._CONSUMER} "
+        f"FROM {postgres_module._quote(postgres_module.POSTGRES_USER)}"
+    )
+    connection.execute(
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "
+        f"{postgres_module._SYNC_STATE}, {postgres_module._ROW_HASHES} "
+        f"TO {postgres_module._quote(postgres_module.POSTGRES_SYNC_USER)}"
+    )
+    connection.execute(
+        f"GRANT SELECT ON TABLE {postgres_module._MIGRATION_LEDGER} "
+        f"TO {postgres_module._quote(postgres_module.POSTGRES_SYNC_USER)}"
+    )
+    connection.execute(f"REVOKE ALL ON {postgres_module._FEATURES_VIEW} FROM PUBLIC")
+    connection.execute(
+        f"GRANT SELECT ON {postgres_module._FEATURES_VIEW} TO "
+        f"{postgres_module._quote(postgres_module.POSTGRES_USER)}, "
+        f"{postgres_module._quote(postgres_module.POSTGRES_SYNC_USER)}"
+    )
+    for version in range(1, 25):
+        connection.execute(
+            f"INSERT INTO {postgres_module._MIGRATION_LEDGER} (version, applied_at_utc) "
+            "VALUES (%s, CURRENT_TIMESTAMP)",
+            (version,),
+        )
+    view_columns = tuple(
+        str(row[0]) for row in _column_rows(connection, "macro_loader.macro_features")
+    )
+    assert view_columns == (
+        "timestamp_m1",
+        "available_at_utc",
+        *legacy_feature_columns,
+    )
+    return legacy_timestamp, legacy_fingerprint, legacy_feature_columns
+
+
 def _column_rows(connection: psycopg.Connection[object], relation: str) -> list[tuple[object, ...]]:
     return connection.execute(
         """SELECT attribute.attname, format_type(attribute.atttypid, attribute.atttypmod),
@@ -186,6 +310,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
     sync_repository: PostgresGoldSyncRepository,
+    monkeypatch: pytest.MonkeyPatch,
     migration_mode: str,
 ) -> None:
     expected_migrations = len(postgres_module._MIGRATIONS)
@@ -198,31 +323,35 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
 
     if migration_mode == "upgrade_24_to_25":
         with psycopg.connect(postgres_dsn) as connection:
-            connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
-            for version, migration in enumerate(postgres_module._MIGRATIONS[:24], start=1):
-                for statement in migration:
-                    connection.execute(statement)
-                connection.execute(
-                    f"INSERT INTO {postgres_module._MIGRATION_LEDGER} "
-                    "(version, applied_at_utc) VALUES (%s, CURRENT_TIMESTAMP)",
-                    (version,),
-                )
-            legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
-            legacy_levels = tuple(f"{series_id}_level" for series_id in SERIES_REGISTRY)
-            legacy_columns = ("timestamp_m1", *legacy_levels)
-            connection.execute(
-                f"INSERT INTO macro_loader.macro_raw "
-                f"({', '.join(f'"{column}"' for column in legacy_columns)}) "
-                f"VALUES ({', '.join('%s' for _ in legacy_columns)})",
-                (legacy_timestamp, *(42.0 for _ in legacy_levels)),
+            legacy_timestamp, legacy_fingerprint, legacy_feature_columns = _seed_v24_baseline(
+                connection, monkeypatch
             )
-            for column in _OHLC_COLUMNS:
-                connection.execute(f'ALTER TABLE macro_loader.macro_raw DROP COLUMN "{column}"')
-            connection.execute("DROP MATERIALIZED VIEW macro_loader.macro_features")
             before = connection.execute(
                 f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"
             ).fetchall()
             assert before == [(version,) for version in range(1, 25)]
+            view_comment = connection.execute(
+                "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
+            ).fetchone()
+            assert view_comment == (
+                f"macro feature view version=13; fingerprint={legacy_fingerprint}",
+            )
+            raw_names_before = tuple(
+                str(row[0]) for row in _column_rows(connection, "macro_loader.macro_raw")
+            )
+            view_names_before = tuple(
+                str(row[0]) for row in _column_rows(connection, "macro_loader.macro_features")
+            )
+            assert raw_names_before == (
+                "timestamp_m1",
+                *(f"{series_id}_level" for series_id in SERIES_REGISTRY),
+                "available_at_utc",
+            )
+            assert view_names_before == (
+                "timestamp_m1",
+                "available_at_utc",
+                *legacy_feature_columns,
+            )
         migrator.migrate()
     else:
         migrator.migrate()
@@ -264,12 +393,12 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
                 (legacy_timestamp,),
             ).fetchone()
             preserved_view = connection.execute(
-                "SELECT vix_level, available_at_utc FROM macro_loader.macro_features "
+                "SELECT vix_log_level, available_at_utc FROM macro_loader.macro_features "
                 "WHERE timestamp_m1 = %s",
                 (legacy_timestamp,),
             ).fetchone()
             assert preserved_raw == (42.0, expected_available)
-            assert preserved_view == preserved_raw
+            assert preserved_view == (pytest.approx(math.log(preserved_raw[0])), expected_available)
             connection.execute(
                 "DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 = %s",
                 (legacy_timestamp,),
@@ -324,12 +453,17 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             (timestamp,),
         ).fetchone()
         view_passthrough = connection.execute(
-            "SELECT vix_level, vix_close, vix_open, available_at_utc "
+            "SELECT vix_log_level, vix_close, vix_open, available_at_utc "
             "FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
             (timestamp,),
         ).fetchone()
         assert raw_passthrough == expected_passthrough
-        assert view_passthrough == expected_passthrough
+        assert view_passthrough == (
+            pytest.approx(math.log(values["vix_level"])),
+            values["vix_close"],
+            values["vix_open"],
+            expected_passthrough[3],
+        )
         connection.commit()
 
         revised_values = {**values, "vix_open": values["vix_open"] + 0.5}

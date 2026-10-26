@@ -81,6 +81,10 @@ Description:
   row digests, and insert/update comparison. Bump Gold schema version to 8, append
   PostgreSQL migration 25, and bump the feature-view contract to version 14. Preserve
   existing level and generated `available_at_utc` semantics; do not fabricate observations.
+  On a genuinely empty install, avoid rebuilding the same final materialized view for
+  superseded historical migrations; publish the current view once at migration 25. Keep
+  the PostgreSQL statement timeout finite but long enough for the current large view to
+  be planned during migration and refresh.
 - R4: Update README/ARCHITECTURE with the exact eligible series, field names, ordering,
   nullability, and Gold/PostgreSQL propagation contract.
 

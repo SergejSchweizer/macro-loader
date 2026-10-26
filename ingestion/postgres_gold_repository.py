@@ -106,7 +106,7 @@ class PostgresTimeoutPolicy:
 
     connect_timeout_seconds: int = 5
     lock_timeout_ms: int = 5_000
-    statement_timeout_ms: int = 120_000
+    statement_timeout_ms: int = 300_000
     idle_in_transaction_timeout_ms: int = 30_000
     application_name: str = POSTGRES_APPLICATION_NAME
 
@@ -1540,6 +1540,20 @@ def _session_configuration(policy: PostgresTimeoutPolicy) -> tuple[str, ...]:
     )
 
 
+def _is_features_view_publication_statement(statement: str) -> bool:
+    """Identify migration SQL that publishes or alters the serving materialized view."""
+    return statement.startswith(
+        (
+            f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW}",
+            f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW}",
+            f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW}",
+            f"GRANT SELECT ON {_FEATURES_VIEW}",
+            f"REVOKE ALL ON {_FEATURES_VIEW}",
+            f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW}",
+        )
+    )
+
+
 def _raise_sanitized_error(operation: str, error: Exception) -> NoReturn:
     sqlstate = getattr(error, "sqlstate", None)
     if sqlstate == "55P03":
@@ -2169,6 +2183,14 @@ class PostgresGoldSchemaMigrator:
                 applied_versions = tuple(
                     _as_int(row[0], "migration version") for row in cursor.fetchall()
                 )
+                cursor.execute(
+                    "SELECT to_regclass(%s), to_regclass(%s)",
+                    (_CONSUMER, _FEATURES_VIEW),
+                )
+                existing_market_objects = cursor.fetchone()
+                if existing_market_objects is None or len(existing_market_objects) != 2:
+                    raise ValueError("PostgreSQL fresh-schema probe returned unexpected shape")
+                fresh_install = not applied_versions and existing_market_objects == (None, None)
                 expected_versions = tuple(range(1, len(_MIGRATIONS) + 1))
                 if any(version not in expected_versions for version in applied_versions):
                     raise ValueError(
@@ -2178,6 +2200,12 @@ class PostgresGoldSchemaMigrator:
                     if version in applied_versions:
                         continue
                     for statement in statements:
+                        if (
+                            fresh_install
+                            and version < len(_MIGRATIONS)
+                            and _is_features_view_publication_statement(statement)
+                        ):
+                            continue
                         cursor.execute(statement)
                     cursor.execute(
                         f"INSERT INTO {_MIGRATION_LEDGER} (version, applied_at_utc) "

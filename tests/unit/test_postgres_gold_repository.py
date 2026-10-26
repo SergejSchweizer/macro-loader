@@ -84,7 +84,9 @@ class FakeCursor:
         self._rowcount = self.connection.rowcounts.get(query, 1)
         if self.connection.fail_on and self.connection.fail_on in query:
             raise RuntimeError("database failure repo-secret")
-        if query.startswith("SELECT version"):
+        if query.startswith("SELECT to_regclass"):
+            self.one = (None, None)
+        elif query.startswith("SELECT version"):
             self.many = []
         elif "FROM information_schema.tables" in query:
             self.many = sorted(
@@ -356,7 +358,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
         "SET application_name = 'macro-loader'",
         "SET TIME ZONE 'UTC'",
         "SET lock_timeout = '5000ms'",
-        "SET statement_timeout = '120000ms'",
+        "SET statement_timeout = '300000ms'",
         "SET idle_in_transaction_session_timeout = '30000ms'",
     ]
     ddl = "\n".join(queries[5:])
@@ -370,6 +372,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._CONSUMER_DDL) == 3
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
+    assert queries.count(module._FEATURES_VIEW_DDL) == 1
     assert "TRUNCATE" not in ddl
     assert 'DROP TABLE IF EXISTS "macro_loader"."macro_raw"' in ddl
     assert "to_regclass('macro_loader.macro_features_daily')" in ddl

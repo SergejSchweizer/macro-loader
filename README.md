@@ -13,8 +13,8 @@ The reviewed medallion architecture is implemented through the atomic PR sequenc
 PR-173 status (2026-10-26): The relative MACD features are merged as GitHub PR #173,
 following PR-172's EMA-level features and PR-171's level-only composite/statistical
 features. PR-170's scalar-level return/trend windows, PR-169's bounded daily-pipeline core
-budget, and PR-168's Fed-policy retirement are also merged. PR-174 is actively preserving
-native OHLC inputs through Gold and PostgreSQL; those fields are not yet available there.
+budget, and PR-168's Fed-policy retirement are also merged. The active PR-174 branch carries
+the native OHLC inputs through Gold and PostgreSQL; that change is pending merge to main.
 No production database migration or cron run is implied.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
@@ -355,8 +355,8 @@ histogram. The signal EMA accepts signed and zero MACD-line values and resets on
 NULL MACD line, matching XETRA's `allow_nonpositive` EMA mode. See the
 [XETRA MACD CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
 and [output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
-Native OHLC is not yet in Gold/PostgreSQL; PR-174 is the active prerequisite for later
-OHLC transforms. Volume remains follow-up work. Market breadth is excluded; dispersion
+PR-174 adds native OHLC inputs to Gold and PostgreSQL; OHLC-derived transforms remain
+follow-up work. Volume remains follow-up work. Market breadth is excluded; dispersion
 requires a real cross-instrument panel.
 
 ### PR-167 availability-time contract (merged)
