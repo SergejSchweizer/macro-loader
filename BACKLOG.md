@@ -13,9 +13,9 @@ Last reviewed: 2026-10-26
 PR name: `level-only-composite-statistical-features`
 Status: In Progress
 Updated: 2026-10-26
-PR: Pending
+PR: #171
 Git branch: `pr-171/level-only-composite-statistical-features`
-Git status: in-progress
+Git status: pushed-ci-pending
 Agent lane: level-only SQL/catalog implementation and independent mathematical/schema QA; two agents
 Depends on: PR-170
 Commit: `feat(pr-171): add level-only composite statistical features` (PR head)
