@@ -10,13 +10,14 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-Operational status (2026-09-27): `main` is synchronized with `origin/main` and the
-required CI gates pass. FedWatch production acquisition is browser-only and uses the
-approved Chinese CME page at `https://www.cmegroup.cn/fed-watch/`; the blocked direct
-CME transport endpoint is not used as a fallback. FedWatch observations are available
-only at the EOD boundary (`23:59:59.999999Z`), and unavailable free-history values remain
-`NULL`. Production-like full-history and Sunday-cron acceptance runners are available,
-but require their explicit `--execute` guard on the authorized deployment host.
+PR-168 status (2026-10-26): Fed-policy runtime/acquisition and PostgreSQL serving
+retirement are in progress on `pr-168/retire-fed-policy-feature-pipeline`. The branch is
+not merged to `main` or deployed; this document does not assert the production database
+or installed host-crontab state. No production migration or host-crontab change has been
+performed as part of this work. This operator guide does not provide Fed-specific command
+or scheduling instructions. Historical Fed acceptance artifacts and backlog entries are
+retained for audit. The independent FRED provider remains active for its registered macro
+series.
 
 The current Gold semantic contract is schema version **7** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
@@ -194,8 +195,6 @@ Feature semantics are fixed and causal:
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each source level includes XETRA-compatible log returns over 1, 3, 5, 10, and 20 observations, cumulative geometric returns over 5, 10, and 20 observations, average one-observation log returns over 5, 10, and 20 observations, and sample log-return volatility over 5, 10, 20, and 40 observations; geometric-return columns retain the `_pct` suffix but store decimal fractions (`0.05` means 5%);
 - price-domain XETRA families are emitted only for positive-level series; signed/non-price levels such as `estr` remain available as raw levels and source-unit delta/momentum features but do not receive log, return, volatility, SMA-ratio, RSI, ROC, or drawdown columns;
-- the Fed policy family contains exactly four features: next-meeting expected move, next-meeting uncertainty, expected cumulative move through the third future FOMC meeting, and five-observation expected-move repricing;
-- FedWatch snapshots use only CME FedWatch exports from `https://www.cmegroup.cn/fed-watch/` in production, are marked available at `23:59:59.999999Z`, and remain null where free history is unavailable;
 - no forward fill, backward fill, interpolation, centered windows, or implicit as-of carry;
 - same-series rolling operations count valid observations, not calendar days;
 - cross-series ratios/spreads require the same `timestamp_m1`;
@@ -287,14 +286,13 @@ row digests:     macro_loader_sync.gold_row_hashes
 The PostgreSQL `macro_features` materialized view exposes one `*_log_level`
 column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
 the source is positive; non-positive or missing source values become `NULL`.
-The four signed Fed-policy origins are also stored in `macro_raw` unchanged.
-Because they may be zero or negative, their view transformations are limited to
-valid-observation deltas, causal population z-scores, and positive momentum
-autocorrelation; no Fed log or geometric-return transform is defined. The view
-is explicitly refreshed after a successful raw-table delta and exposes the complete
+The PR-168 target contract removes Fed-policy origins and derived columns from
+`macro_raw` and `macro_features`; this change is still in progress and is not deployed.
+Historical Fed acceptance artifacts remain available for audit. The view is explicitly
+refreshed after a successful raw-table delta and exposes the complete
 available `macro_raw` timestamp history, including pre-2010 observations.
 
-### PR-167 availability-time contract (implementation in progress)
+### PR-167 availability-time contract (merged)
 
 The PR-167 implementation contract adds a generated, non-null `available_at_utc`
 to PostgreSQL-serving table `macro_loader.macro_raw`; the `macro_features`
@@ -304,11 +302,8 @@ strictly after that observation date. Weekends therefore roll forward to Monday.
 Public holidays are not excluded: these data span market calendars and this
 serving contract uses a generic weekday-only calendar.
 
-This is PostgreSQL-serving metadata, not a canonical Gold timestamp or a change to
-the existing Fed source availability. FedWatch snapshots keep their source-specific
-end-of-observation-day availability (`23:59:59.999999Z`). This documents the PR's
-intended behavior; it does not claim the schema change has already been deployed
-to production.
+This is PostgreSQL-serving metadata, not a canonical Gold timestamp. Its generated
+value does not alter the canonical Gold payload or row digests.
 
 The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 
@@ -337,11 +332,6 @@ postgres-verify
 postgres-reconstruct
 inventory
 run-daily
-fed-policy-sync-postgres
-fed-policy-bootstrap
-fed-policy-update
-fed-policy-reconcile
-run-fed-policy-eod
 ```
 
 Global options such as `--lake-root`, `--today`, and `--overlap-days` precede the subcommand. `--series` follows commands that accept a series restriction.
@@ -364,11 +354,6 @@ uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   run-daily
 
-# Fed-policy EOD workflow. This command always selects bounded update mode.
-uv run macro-loader \
-  --lake-root /srv/market-regime/lake \
-  run-fed-policy-eod
-
 # Synchronize the currently catalog-selected Gold build only.
 uv run macro-loader \
   --lake-root /srv/market-regime/lake \
@@ -381,16 +366,6 @@ uv run macro-loader postgres-migrate
 uv run macro-loader \
   --lake-root /srv/market-regime/lake \
   postgres-verify
-
-# Execute the explicitly authorized Fed-policy history acceptance.
-uv run python scripts/fed_policy_history_acceptance.py \
-  --lake-root /srv/market-regime/lake \
-  --execute
-
-# Execute the installed Fed-policy EOD wrapper twice for cron acceptance.
-uv run python scripts/fed_policy_cron_acceptance.py \
-  --project-root /srv/market-regime \
-  --execute
 
 # Rebuild and print the local inventory.
 uv run macro-loader \

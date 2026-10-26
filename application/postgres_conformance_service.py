@@ -7,8 +7,8 @@ from typing import Protocol
 
 import polars as pl
 
-from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 from application.gold_catalog import GoldCatalogRecord
+from application.gold_frame import GOLD_COLUMNS
 from application.postgres_conformance import (
     PostgresConformanceReport,
     PostgresDatabaseConformanceInspector,
@@ -61,13 +61,8 @@ class GoldPostgresConformanceVerifier:
                 raise ValueError("current Gold record has no data path")
             self._source.validate_bundle(record)
             frame = self._source.read_path(record.data_path)
-            missing_fed = [
-                column for column in FED_POLICY_FEATURE_COLUMNS if column not in frame.columns
-            ]
-            if missing_fed:
-                frame = frame.with_columns(
-                    [pl.lit(None, dtype=pl.Float64).alias(column) for column in missing_fed]
-                )
+            if frame.columns != list(GOLD_COLUMNS):
+                raise ValueError("current Gold columns differ from the canonical schema")
             _, source_digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
             source_sha256 = self._source.sha256_path(record.data_path)
             evidence = self._inspector.inspect()

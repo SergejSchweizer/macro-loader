@@ -12,7 +12,6 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from application.fed_policy_contract import FED_POLICY_FEATURE_COLUMNS
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
 from application.return_features import (
@@ -29,7 +28,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 8
+MACRO_FEATURE_VIEW_VERSION = 9
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -48,32 +47,6 @@ PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "drawdown",
 )
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in PRICE_FEATURE_SERIES)
-FED_POLICY_ORIGIN_COLUMNS = FED_POLICY_FEATURE_COLUMNS
-FED_POLICY_DERIVED_COLUMNS = tuple(
-    column
-    for origin in FED_POLICY_ORIGIN_COLUMNS
-    for column in (
-        *(f"{origin}_delta_{lag}obs" for lag in (1, 5, 20)),
-        f"{origin}_zscore_60obs",
-        *(
-            f"{origin}_momentum_autocorr_{lag}_{window}obs"
-            for lag, window in MOMENTUM_POLICY.lag_windows
-        ),
-    )
-)
-FED_POLICY_MATERIALIZED_COLUMNS = tuple(
-    column
-    for origin in FED_POLICY_ORIGIN_COLUMNS
-    for column in (
-        origin,
-        *(f"{origin}_delta_{lag}obs" for lag in (1, 5, 20)),
-        f"{origin}_zscore_60obs",
-        *(
-            f"{origin}_momentum_autocorr_{lag}_{window}obs"
-            for lag, window in MOMENTUM_POLICY.lag_windows
-        ),
-    )
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,41 +206,6 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
             for lag, window in MOMENTUM_POLICY.lag_windows
         )
-    for origin in FED_POLICY_ORIGIN_COLUMNS:
-        specs.append(
-            MacroFeatureSpec(
-                origin,
-                "fed_origin",
-                origin,
-                "canonical signed Fed-policy basis-point origin",
-            )
-        )
-        specs.extend(
-            MacroFeatureSpec(
-                f"{origin}_delta_{lag}obs",
-                "fed_delta",
-                origin,
-                f"origin(t)-origin(t-{lag} valid observations)",
-            )
-            for lag in (1, 5, 20)
-        )
-        specs.append(
-            MacroFeatureSpec(
-                f"{origin}_zscore_60obs",
-                "fed_zscore",
-                origin,
-                "population z-score over 60 valid observations",
-            )
-        )
-        specs.extend(
-            MacroFeatureSpec(
-                f"{origin}_momentum_autocorr_{lag}_{window}obs",
-                "fed_momentum_autocorrelation",
-                origin,
-                f"positive autocorrelation of one-observation changes, lag={lag}, window={window}",
-            )
-            for lag, window in MOMENTUM_POLICY.lag_windows
-        )
     return tuple(specs)
 
 
@@ -293,13 +231,8 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog momentum domain/coverage mismatch")
     if "foo_log_level" in names:
         raise ValueError("unapproved wildcard feature in macro feature catalog")
-    fed_columns = tuple(
-        spec.name
-        for spec in catalog
-        if spec.family.startswith("fed_") or spec.family == "fed_origin"
-    )
-    if fed_columns != FED_POLICY_MATERIALIZED_COLUMNS:
-        raise ValueError("macro feature catalog Fed output contract mismatch")
+    if any(spec.name.startswith("fed_") or spec.family.startswith("fed_") for spec in catalog):
+        raise ValueError("retired Fed-policy output cannot be in the macro feature catalog")
 
 
 def feature_catalog_payload(

@@ -49,6 +49,8 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     ):
         assert token in sql
     assert POSTGRES_SCHEMAS == ("macro_loader", "macro_loader_sync")
+    assert all(table != "fed_policy_features_daily" for _, table in POSTGRES_TABLES)
+    assert all(schema != "macro_loader_retired" for schema, _ in POSTGRES_TABLES)
     assert (
         f'CREATE SCHEMA IF NOT EXISTS "macro_loader" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"' in sql
     )
@@ -66,6 +68,7 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
         )
     assert 'GRANT SELECT ON TABLE "macro_loader_sync"."schema_migrations" TO "macro-loader"' in sql
     assert "GRANT ALL" not in sql
+    assert "macro_loader_retired" not in sql
     assert "public" not in {schema.lower() for schema in POSTGRES_SCHEMAS}
 
 

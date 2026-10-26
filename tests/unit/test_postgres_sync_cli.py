@@ -9,7 +9,6 @@ import polars as pl
 import pytest
 
 from api import cli
-from application.fed_policy_postgres import FedPolicyDeltaPlan
 from application.gold_frame import GOLD_COLUMNS
 from application.paths import LakePaths
 from application.postgres_conformance import PostgresConformanceReport
@@ -213,42 +212,16 @@ def test_gold_sync_command_dispatches_only_sync_service_and_logs_exact_result(
     }
 
 
-def test_fed_policy_sync_command_dispatches_canonical_feature_repository(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
+def test_fed_policy_postgres_sync_command_is_not_registered(
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    _postgres_env(monkeypatch)
     stderr = io.StringIO()
-    sync_calls = 0
-
-    class SyncStub:
-        def sync(self, frame: pl.DataFrame, **kwargs: object) -> FedPolicyDeltaPlan:
-            nonlocal sync_calls
-            sync_calls += 1
-            assert frame.is_empty()
-            assert kwargs["schema_version"] == 1
-            assert kwargs["feature_version"] == 1
-            return FedPolicyDeltaPlan((), (), (), ())
-
-    runtime = cli.FedPolicyPostgresSyncRuntime(
-        features=cli.FedPolicyFeatureStore(LakePaths(tmp_path / "lake")),
-        sync=SyncStub(),  # type: ignore[arg-type]
-        event_sink=cli.JsonEventSink(cli._logger(stderr), secrets=("repo-secret",)),
-    )
-    monkeypatch.setattr(cli, "build_fed_policy_postgres_sync_runtime", lambda **kwargs: runtime)
-
     assert (
-        cli.main(
-            ["--lake-root", str(tmp_path / "lake"), "fed-policy-sync-postgres"],
-            stdout=io.StringIO(),
-            stderr=stderr,
-        )
-        == cli.EXIT_SUCCESS
+        cli.main(["fed-policy-sync-postgres"], stdout=io.StringIO(), stderr=stderr)
+        == cli.EXIT_INPUT
     )
-    assert sync_calls == 1
-    payload = json.loads(stderr.getvalue())
-    assert payload["command"] == "fed-policy-sync-postgres"
-    assert payload["dataset_id"] == "fed_policy_features_daily"
+    assert "invalid choice" in capsys.readouterr().err
+    assert "fed-policy-sync-postgres" not in cli.build_parser().format_help()
 
 
 def test_postgres_failure_is_nonzero_and_redacts_password_and_credential_text(

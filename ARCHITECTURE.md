@@ -6,14 +6,14 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-09-27, `main` and `origin/main` are aligned through the current Fed-policy
-serving/runtime work. Required CI gates are green. Production FedWatch ingestion is
-browser-only and uses the approved Chinese CME public page
-(`https://www.cmegroup.cn/fed-watch/`); the blocked direct CME transport endpoint is
-not a production fallback. Browser session state is kept in the configured cache
-directory and missing free-history observations remain NULL-derived. Production-like
-full-history and Sunday-cron acceptance are explicit, guarded commands and require
-the authorized deployment environment.
+As of 2026-10-26, PR-168 is in progress on
+`pr-168/retire-fed-policy-feature-pipeline`; it is not merged to `main` or deployed. The
+working branch removes Fed-policy acquisition/runtime paths and is changing the serving
+contract, but it does not establish production database or installed host-crontab state.
+No production migration or host-crontab change has been performed as part of this work.
+This document contains no Fed-specific operator commands or scheduling instructions.
+Historical Fed acceptance evidence is retained, and the independent FRED provider remains
+active for its ordinary registered macro series.
 
 The executable Gold contract is currently schema version **7** and feature version
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
@@ -466,27 +466,12 @@ for `PRICE_FEATURE_SERIES`. Signed/non-price levels such as `estr` remain raw in
 may receive source-unit delta/momentum features, but never silently enter a logarithmic
 or price-domain formula.
 
-The Fed policy family is computed from normalized end-of-day public CME settlement,
-Federal Reserve calendar, and EFFR inputs. CME FedWatch production acquisition uses
-the browser-based Chinese CME page at
-(`https://www.cmegroup.cn/fed-watch/`). FedWatch information is treated as available
-only at the observation-day EOD boundary (`23:59:59.999999Z`). For
-observation date `t`, the next meeting is the first scheduled decision date
-strictly after `t`; `fed_path_slope_m3_bp` is the expected move at the third
-future meeting minus the expected move at the next meeting. The four canonical
-features are `fed_next_expected_move_bp`, `fed_path_slope_m3_bp`,
-`fed_next_uncertainty_bp`, and `fed_repricing_5obs_bp`. Repricing uses the fifth
-previous valid observation, not five calendar days. Snapshot availability is
-carried as explicit lineage; missing free-history observations remain null
-rather than being fabricated or carried forward.
-
-In the PostgreSQL serving plane, these four signed basis-point origins are
-materialized in `macro_loader.macro_raw`. The `macro_features` view preserves
-the origins and adds exactly their valid-observation deltas at 1, 5, and 20
-observations, their causal 60-observation population z-scores, and the existing
-positive momentum-autocorrelation pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`.
-Fed log-level, shifted-log, geometric-return, and ratio-return transformations
-are forbidden because the origins may be zero or negative.
+PR-168's target runtime and serving contract removes Fed-policy acquisition,
+calculations, stores, commands, and serving columns. This retirement is in progress on
+the unmerged, undeployed PR-168 branch; the text here does not assert production schema
+or host-crontab state. Historical source and acceptance artifacts are retained as audit
+records. No Fed-specific operator commands or schedule are documented here. The separate
+FRED provider and its registered macro series remain active.
 
 ### PR-167 PostgreSQL Serving Availability Contract
 
@@ -501,13 +486,11 @@ Monday. This generic weekday-only rule does not exclude public holidays because
 the serving data spans sources and market calendars without one common holiday
 calendar.
 
-This generated serving timestamp is distinct from both `timestamp_m1`, which
-remains canonical Gold observation-day identity, and the existing Fed source
-availability timestamp. FedWatch snapshots retain their source-specific
-observation-day EOD availability (`23:59:59.999999Z`); PR-167 does not replace or
-reinterpret it. The contract describes the intended schema and behavior for the
-PR implementation and does not assert that the PostgreSQL migration or production
-deployment has already occurred.
+This generated serving timestamp is distinct from `timestamp_m1`, which remains
+canonical Gold observation-day identity. It is the only availability timestamp in the
+active PostgreSQL serving contract and does not alter the canonical Gold payload. The
+migration changes schema only when the separately authorized PostgreSQL migration
+command is run against its target database.
 
 Forbidden:
 
