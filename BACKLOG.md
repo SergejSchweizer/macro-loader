@@ -43,7 +43,7 @@ Git branch: `pr-167/next-business-day-availability`
 Git status: in-progress
 Agent lane: PostgreSQL serving schema and temporal availability contract; two agents
 Depends on: PR-166
-Commit: pending
+Commit: `41f0b10`
 Design patterns: Repository, Materialized View, Fail-Closed Verification.
 
 Description:
