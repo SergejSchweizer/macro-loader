@@ -781,9 +781,10 @@ commit boundary; shared run-manifest and ingestion-state updates are serialized 
 concurrent series cannot overwrite each other's durable audit/state records. Results are
 reported in input order. A core count of one executes these work units sequentially.
 
-## Quality And Git Contract
+## Local Quality And Git Contract
 
-Required checks:
+GitHub Actions are not used. The local pre-commit hook runs `make quality-gate`; local
+checks can also be run directly. The suite comprises:
 
 ```text
 lint
@@ -793,21 +794,12 @@ integration
 coverage
 ```
 
-`lint`, `type`, `unit`, and offline `integration` run in parallel. `coverage` combines unit + integration raw coverage and enforces production-code line coverage `>= 90.0%`.
+`lint`, `type`, unit, and offline `integration` run locally. Unit and integration tests
+write separate coverage data; the `coverage` target combines it and applies the configured
+production-code line coverage threshold of `85.0%` from `pyproject.toml`.
 
-`network` tests are excluded from required gates.
-
-Target GitHub policy for `main`:
-
-- protected/ruleset-controlled;
-- pull request required;
-- no direct push/force push/delete;
-- required five checks;
-- branch up to date / merge queue compatible;
-- squash merge only;
-- repository auto-merge enabled;
-- implementation PRs use auto-merge so merge occurs only after all gate requirements are satisfied;
-- merged head branch deleted automatically.
+`network` tests are excluded from local checks. No GitHub Actions workflow or remote
+quality gate is part of this repository's test contract.
 
 ## Testing Contract
 

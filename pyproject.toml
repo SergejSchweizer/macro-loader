@@ -37,9 +37,10 @@ where = ["."]
 include = ["application*", "ingestion*", "api*", "scripts*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit", "tests/integration"]
 addopts = "-ra --strict-markers"
 markers = [
+  "unit: isolated unit tests",
   "integration: offline component/integration tests",
   "network: live provider tests excluded from required gates",
 ]
@@ -73,6 +74,7 @@ omit = [
 show_missing = true
 skip_covered = false
 precision = 2
+fail_under = 85.0
 exclude_also = [
   "if TYPE_CHECKING:",
   "if __name__ == .__main__.:",

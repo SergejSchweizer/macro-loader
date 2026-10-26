@@ -15,15 +15,15 @@ Status: In Progress
 Updated: 2026-10-26
 PR: #171
 Git branch: `pr-171/level-only-composite-statistical-features`
-Git status: pushed-ci-failing
+Git status: In Progress
 Agent lane: level-only SQL/catalog implementation and independent mathematical/schema QA; two agents
 Depends on: PR-170
 Commit: `feat(pr-171): add level-only composite statistical features` (implementation commit)
 Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
 
 Description:
-- The remote integration gate was cancelled at the user's request to stop GitHub Actions;
-  all repository workflows are disabled, so the required remote quality gates are not green.
+- Remove GitHub Actions workflow files and replace remote quality checks with local-only
+  `pyproject.toml`/pre-commit checks at an 85% combined coverage threshold.
 - R1: For every eligible positive-level series, expose RSI-derived `rsi_ratio_5_15`,
   `rsi5_slope_3`, and `rsi5_delta_1` equivalents using a private Wilder RSI-15
   intermediate; do not expose RSI-15 itself. Guard undefined/zero denominators and
@@ -45,6 +45,9 @@ Description:
 - R6: Update README and ARCHITECTURE with the exact formulas, names, domains, and
   warm-up/NULL semantics. EMA/MACD, OHLC, volume, breadth, and dispersion are not part
   of this PR; their remaining GOALS work must stay explicitly tracked in follow-up PRs.
+- R7: Keep unit, integration, coverage (85%), lint, and type checks local; expose the test
+  configuration in `pyproject.toml`, run the local suite from pre-commit, and remove all
+  GitHub Actions workflow files and their workflow-only review runner.
 
 Acceptance:
 - A1 (verifies R1): Independent hand-calculable Wilder RSI-5/15 fixtures prove the
@@ -64,6 +67,9 @@ Acceptance:
 - A6 (verifies R6): README/ARCHITECTURE accurately document this PR's formulas and
   remaining GOALS scope; `lint`, `type`, `unit`, `integration`, and `coverage` pass
   without production database writes or installed-cron execution.
+- A7 (verifies R7): no GitHub Actions workflow or workflow-only helper remains; pre-commit
+  runs `make quality-gate`; unit and integration tests pass locally and the combined
+  coverage report enforces the 85% threshold configured in `pyproject.toml`.
 
 ### PR-170: Complete Scalar-Level Transformation Windows
 

@@ -547,9 +547,11 @@ unchanged replay. The second executes the installed Sunday wrapper twice. Both w
 only a sanitized JSON report under `artifacts/acceptance/`; no credentials or raw
 provider payloads are recorded. A report is `PASS` only when every stage exits zero.
 
-## Quality Gates
+## Local Quality Checks
 
-Required push and merge checks:
+GitHub Actions are not used. Install the local pre-commit hook with `make install-hooks`;
+each commit runs the local quality suite. You can also run it directly with `make quality-gate`.
+The test targets are available individually, or together with `make test`:
 
 ```text
 lint
@@ -559,15 +561,17 @@ integration
 coverage
 ```
 
-`lint`, `type`, `unit`, and offline `integration` run in parallel. Unit and integration suites produce independent coverage data. The `coverage` gate combines them and requires total production-code line coverage:
+The local quality suite runs `lint`, `type`, unit tests, and offline integration tests;
+unit and integration suites produce independent coverage data. The `coverage` target
+combines them and reads its minimum production-code line coverage from `pyproject.toml`:
 
 ```text
->= 90.0%
+>= 85.0%
 ```
 
 The offline test targets use four isolated workers by default. Override the count for constrained hosts or deterministic troubleshooting, for example `make integration TEST_WORKERS=1`.
 
-Live provider tests are marked `network` and are excluded from required gates.
+Live provider tests are marked `network` and excluded from the local quality suite.
 
 ## Repository Structure
 

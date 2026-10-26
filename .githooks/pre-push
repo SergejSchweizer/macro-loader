@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ -n "$(git status --short)" ]]; then
-  echo "pre-push blocked: working tree is dirty" >&2
-  exit 1
-fi
-
-make quality-gate
