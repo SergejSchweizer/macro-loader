@@ -6,11 +6,14 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-171 is merged to `origin/main` as GitHub PR #171, following PR-170.
-PR-171 adds level-only composite/statistical features; PR-170 completes the scalar-level
-return/trend windows; PR-169 adds the bounded daily-pipeline core budget. PR-168 retires Fed-policy
+As of 2026-10-26, PR-172 is merged to `origin/main` as GitHub PR #172, following PR-171.
+PR-172 adds EMA-level trend features; PR-171 adds level-only composite/statistical features;
+PR-170 completes the scalar-level return/trend windows; PR-169 adds the bounded daily-pipeline
+core budget. PR-168 retires Fed-policy
 acquisition/runtime paths and removes those features from the serving contract, but it
 does not establish production database or installed host-crontab state.
+PR-173 is the active backlog implementation for relative MACD trend features; no MACD
+view columns are available until that PR is merged.
 No production migration or host-crontab change has been performed as part of this work.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
@@ -467,7 +470,7 @@ for `PRICE_FEATURE_SERIES`. Signed/non-price levels such as `estr` remain raw in
 may receive source-unit delta/momentum features, but never silently enter a logarithmic
 or price-domain formula.
 
-The PostgreSQL `macro_features` view contract version 11 includes these observation
+The PostgreSQL `macro_features` view contract version 12 includes these observation
 windows for every `PRICE_FEATURE_SERIES`: log returns `1/2/3/4/5/8/10/20`, geometric
 returns `4/5/8/10/16/20`, mean log returns `5/10/20`, sample log-return volatility
 `5/8/10/20/32/40/96`, SMA ratios `5/15`, `5/20`, `10/20`, and `10/40`, Wilder RSI
@@ -481,7 +484,7 @@ market-breadth, or dispersion features.
 
 #### PR-171 Composite and Statistical Features
 
-The version-11 PostgreSQL `macro_features` view contract adds the following nullable
+The version-12 PostgreSQL `macro_features` view contract adds the following nullable
 `DOUBLE PRECISION`, series-prefixed features to each `PRICE_FEATURE_SERIES`: positive-level
 price series only; signed/non-price `estr` is excluded. Lag counts refer to non-NULL
 source-level observation rows, not elapsed calendar days. This describes the repository's
@@ -543,8 +546,15 @@ XETRA's `exponential_moving_average` helper.
 | `_ema9_slope_3` | `(EMA9[t]-EMA9[t-3 source rows])/(3*level)` | Requires positive current level and defined EMA9 at both endpoints. |
 | `_ema5_ema9_cross` | `1` upward, `-1` downward, otherwise `0` | NULL until EMA5 and EMA9 are defined for both current and immediately prior source rows. |
 
-All outputs are causal and use no calendar fill. MACD, OHLC/volume-derived features,
-and instrument-panel dispersion remain separate follow-up work; breadth is out of scope.
+All outputs are causal and use no calendar fill. PR-173 is actively implementing the
+relative MACD family; these outputs are not yet part of the merged version-12 view.
+The contract specifies `(EMA12-EMA26)/level`, `(MACD_line-EMA9_signal)/level`, and the
+three-source-row relative histogram delta. Price EMAs use positive-level arithmetic
+seeds; the EMA-9 signal seed accepts negative and zero MACD-line values and resets on NULL.
+This follows XETRA's [MACD EMA CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
+and [relative output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
+OHLC/volume-derived features and instrument-panel dispersion remain separate follow-up
+work; breadth is out of scope.
 
 PR-168's merged runtime and serving contract removes Fed-policy acquisition,
 calculations, stores, commands, and serving columns. This merge does not assert production

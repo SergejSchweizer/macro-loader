@@ -26,6 +26,7 @@ from application.return_features import (
 from application.trend_features import (
     DRAWDOWN_WINDOWS,
     EMA_OUTPUT_SUFFIXES,
+    MACD_OUTPUT_SUFFIXES,
     ROC_WINDOWS,
     RSI_COMPOSITE_INTERNAL_WINDOW,
     RSI_WINDOWS,
@@ -33,7 +34,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 12
+MACRO_FEATURE_VIEW_VERSION = 13
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -51,6 +52,7 @@ PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "roc",
     "drawdown",
     "ema_trend",
+    "macd",
     "rsi_composite",
     "roc_acceleration",
     "price_zscore",
@@ -173,6 +175,19 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 }[suffix],
             )
             for suffix in EMA_OUTPUT_SUFFIXES
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_{suffix}",
+                "macd",
+                series,
+                {
+                    "macd_line_relative": "(EMA(12)-EMA(26))/positive level",
+                    "macd_hist_relative": "(EMA(12)-EMA(26)-EMA(9 signal))/positive level",
+                    "macd_hist_delta_3": "relative MACD histogram(t)-histogram(t-3 source rows)",
+                }[suffix],
+            )
+            for suffix in MACD_OUTPUT_SUFFIXES
         )
         specs.extend(
             MacroFeatureSpec(

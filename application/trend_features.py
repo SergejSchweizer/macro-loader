@@ -18,6 +18,13 @@ EMA_OUTPUT_SUFFIXES: tuple[str, ...] = (
     "ema9_slope_3",
     "ema5_ema9_cross",
 )
+MACD_PRICE_EMA_PERIODS: tuple[int, ...] = (12, 26)
+MACD_SIGNAL_EMA_PERIOD = 9
+MACD_OUTPUT_SUFFIXES: tuple[str, ...] = (
+    "macd_line_relative",
+    "macd_hist_relative",
+    "macd_hist_delta_3",
+)
 
 
 def _validate_windows(windows: Sequence[int]) -> None:
@@ -69,4 +76,11 @@ def ema_feature_columns(series_ids: Sequence[str]) -> tuple[str, ...]:
     """Return the public EMA trend feature names in per-series order."""
     return tuple(
         f"{series_id}_{suffix}" for series_id in series_ids for suffix in EMA_OUTPUT_SUFFIXES
+    )
+
+
+def macd_feature_columns(series_ids: Sequence[str]) -> tuple[str, ...]:
+    """Return the public relative-MACD feature names in per-series order."""
+    return tuple(
+        f"{series_id}_{suffix}" for series_id in series_ids for suffix in MACD_OUTPUT_SUFFIXES
     )

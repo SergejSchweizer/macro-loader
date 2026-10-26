@@ -51,6 +51,9 @@ from application.trend_features import (
     DRAWDOWN_WINDOWS,
     EMA_OUTPUT_SUFFIXES,
     EMA_PERIODS,
+    MACD_OUTPUT_SUFFIXES,
+    MACD_PRICE_EMA_PERIODS,
+    MACD_SIGNAL_EMA_PERIOD,
     ROC_WINDOWS,
     RSI_COMPOSITE_INTERNAL_WINDOW,
     RSI_WINDOWS,
@@ -264,34 +267,55 @@ def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
-def _ema_state_cte(series: str, period: int) -> str:
-    """Build the private, resettable SMA-seeded EMA recurrence for one source series."""
-    cte = _quote(f"{series}_ema_{period}_state")
-    level = _quote(f"{series}_level")
-    alpha = f"2.0 / {period + 1}.0"
+def _ema_state_cte(
+    series: str,
+    period: int,
+    *,
+    source_relation: str | None = None,
+    value_column: str | None = None,
+    state_name: str | None = None,
+    allow_nonpositive: bool = False,
+) -> str:
+    """Build a private SMA-seeded EMA recurrence over an ordered source relation."""
+    cte = _quote(state_name or f"{series}_ema_{period}_state")
+    relation = source_relation or _CONSUMER
+    value = _quote(value_column or f"{series}_level")
+    initial_valid = "input.levels[1] IS NOT NULL" if allow_nonpositive else "input.levels[1] > 0"
     next_index = "state.observation_index + 1"
-    next_level = f"input.levels[{next_index}]"
+    next_value = f"input.levels[{next_index}]"
     next_timestamp = f"input.timestamps[{next_index}]"
+    alpha = f"2.0 / {period + 1}.0"
+    # Resolve the conditions only after next_value has been constructed above.
+    next_valid = (
+        f"{next_value} IS NOT NULL"
+        if allow_nonpositive
+        else f"{next_value} IS NOT NULL AND {next_value} > 0"
+    )
+    next_invalid = (
+        f"{next_value} IS NULL"
+        if allow_nonpositive
+        else f"{next_value} IS NULL OR {next_value} <= 0"
+    )
     return (
         f"{cte} AS MATERIALIZED (WITH RECURSIVE input AS ("
         f"SELECT array_agg(timestamp_m1 ORDER BY timestamp_m1) AS timestamps, "
-        f"array_agg({level} ORDER BY timestamp_m1) AS levels FROM {_CONSUMER}), state AS ("
+        f"array_agg({value} ORDER BY timestamp_m1) AS levels FROM {relation}), state AS ("
         "SELECT 1 AS observation_index, input.timestamps[1] AS timestamp_m1, "
         "input.levels[1] AS level, "
-        f"CASE WHEN input.levels[1] > 0 THEN 1 ELSE 0 END AS seed_count, "
-        f"CASE WHEN input.levels[1] > 0 THEN input.levels[1] ELSE 0.0 END AS seed_sum, "
+        f"CASE WHEN {initial_valid} THEN 1 ELSE 0 END AS seed_count, "
+        f"CASE WHEN {initial_valid} THEN input.levels[1] ELSE 0.0 END AS seed_sum, "
         "NULL::double precision AS ema FROM input WHERE cardinality(input.timestamps) > 0 "
         "UNION ALL SELECT state.observation_index + 1, "
-        f"{next_timestamp}, {next_level}, "
-        f"CASE WHEN {next_level} > 0 THEN CASE WHEN state.ema IS NULL "
+        f"{next_timestamp}, {next_value}, "
+        f"CASE WHEN {next_valid} THEN CASE WHEN state.ema IS NULL "
         f"THEN state.seed_count + 1 ELSE {period} END ELSE 0 END AS seed_count, "
-        f"CASE WHEN {next_level} > 0 AND state.ema IS NULL "
-        f"THEN state.seed_sum + {next_level} ELSE 0.0 END AS seed_sum, "
-        f"CASE WHEN {next_level} IS NULL OR {next_level} <= 0 THEN NULL "
-        f"WHEN state.ema IS NOT NULL THEN {alpha} * {next_level} "
+        f"CASE WHEN {next_valid} AND state.ema IS NULL "
+        f"THEN state.seed_sum + {next_value} ELSE 0.0 END AS seed_sum, "
+        f"CASE WHEN {next_invalid} THEN NULL "
+        f"WHEN state.ema IS NOT NULL THEN {alpha} * {next_value} "
         f"+ (1.0 - {alpha}) * state.ema "
         f"WHEN state.seed_count + 1 >= {period} "
-        f"THEN (state.seed_sum + {next_level}) / {period}.0 "
+        f"THEN (state.seed_sum + {next_value}) / {period}.0 "
         "ELSE NULL END AS ema FROM state CROSS JOIN input "
         "WHERE state.observation_index < cardinality(input.timestamps)) "
         "SELECT timestamp_m1, ema FROM state)"
@@ -794,6 +818,73 @@ def _macro_features_view_query() -> str:
                 ]
             )
 
+            for period in MACD_PRICE_EMA_PERIODS:
+                source_ctes.append(_ema_state_cte(series, period))
+            macd_input = _quote(f"{series}_macd_input")
+            ema12_state = _quote(f"{series}_ema_12_state")
+            ema26_state = _quote(f"{series}_ema_26_state")
+            source_ctes.append(
+                f"{macd_input} AS MATERIALIZED (SELECT raw.timestamp_m1, "
+                f"CASE WHEN ema12.ema IS NOT NULL AND ema26.ema IS NOT NULL "
+                f"THEN ema12.ema - ema26.ema END AS macd_line "
+                f"FROM {_CONSUMER} AS raw "
+                f"LEFT JOIN {ema12_state} AS ema12 ON ema12.timestamp_m1 = raw.timestamp_m1 "
+                f"LEFT JOIN {ema26_state} AS ema26 ON ema26.timestamp_m1 = raw.timestamp_m1)"
+            )
+            signal_state_name = f"{series}_macd_signal_ema_state"
+            source_ctes.append(
+                _ema_state_cte(
+                    series,
+                    MACD_SIGNAL_EMA_PERIOD,
+                    source_relation=macd_input,
+                    value_column="macd_line",
+                    state_name=signal_state_name,
+                    allow_nonpositive=True,
+                )
+            )
+            macd_base = _quote(f"{series}_macd_base")
+            macd_relative = _quote(f"{series}_macd_relative")
+            macd_history = _quote(f"{series}_macd_history")
+            macd_features = _quote(f"{series}_macd_features")
+            signal_state = _quote(signal_state_name)
+            source_ctes.append(
+                f"{macd_base} AS MATERIALIZED (SELECT raw.timestamp_m1, "
+                f"raw.{_quote(f'{series}_level')} AS level, "
+                f"macd_input.macd_line, signal.ema AS macd_signal "
+                f"FROM {_CONSUMER} AS raw JOIN {macd_input} AS macd_input "
+                f"ON macd_input.timestamp_m1 = raw.timestamp_m1 "
+                f"LEFT JOIN {signal_state} AS signal ON signal.timestamp_m1 = raw.timestamp_m1)"
+            )
+            source_ctes.append(
+                f"{macd_relative} AS MATERIALIZED (SELECT timestamp_m1, level, macd_line, "
+                f"macd_signal, CASE WHEN level > 0 AND macd_line IS NOT NULL "
+                f"THEN macd_line / level END AS macd_line_relative, "
+                f"CASE WHEN level > 0 AND macd_line IS NOT NULL AND macd_signal IS NOT NULL "
+                f"THEN (macd_line - macd_signal) / level END AS macd_hist_relative "
+                f"FROM {macd_base})"
+            )
+            source_ctes.append(
+                f"{macd_history} AS MATERIALIZED (SELECT *, "
+                f"lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3 "
+                f"FROM {macd_relative} WINDOW ordered AS (ORDER BY timestamp_m1))"
+            )
+            source_ctes.append(
+                f"{macd_features} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"macd_line_relative AS {_quote(f'{series}_macd_line_relative')}, "
+                f"macd_hist_relative AS {_quote(f'{series}_macd_hist_relative')}, "
+                f"CASE WHEN macd_hist_relative IS NOT NULL AND macd_hist_lag_3 IS NOT NULL "
+                f"THEN macd_hist_relative - macd_hist_lag_3 END "
+                f"AS {_quote(f'{series}_macd_hist_delta_3')} FROM {macd_history})"
+            )
+            helper_joins.append(
+                f"LEFT JOIN {macd_features} AS macd_features "
+                "ON macd_features.timestamp_m1 = base.timestamp_m1"
+            )
+            helper_selects.extend(
+                f"macd_features.{_quote(f'{series}_{suffix}')} AS {_quote(f'{series}_{suffix}')}"
+                for suffix in MACD_OUTPUT_SUFFIXES
+            )
+
             level_valid = _quote(f"{series}_level_valid")
             level_zscore = _quote(f"{series}_level_zscore")
             level_window = LEVEL_ZSCORE_WINDOW
@@ -952,6 +1043,7 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_roc_")
                 or column.startswith(f"{series}_drawdown_")
                 or column.startswith(f"{series}_ema")
+                or column.startswith(f"{series}_macd_")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
@@ -1327,6 +1419,8 @@ _MIGRATIONS = (
     # Publish PR-171's level-only composite and statistical feature contract.
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-172's private EMA recurrence and six EMA trend outputs.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Publish PR-173's private signed MACD signal EMA and relative outputs.
     _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name

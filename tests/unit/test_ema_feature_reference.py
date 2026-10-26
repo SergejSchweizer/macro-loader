@@ -17,14 +17,16 @@ EMA_OUTPUT_SUFFIXES = (
 )
 
 
-def independent_ema(levels: Sequence[float | None], period: int) -> list[float | None]:
-    """Arithmetic seed, recursive EMA, and hard reset on every invalid source row."""
+def independent_ema(
+    levels: Sequence[float | None], period: int, *, allow_nonpositive: bool = False
+) -> list[float | None]:
+    """Arithmetic seed and recurrence; optionally accept signed, non-null values."""
     alpha = 2.0 / (period + 1.0)
     seed: list[float] = []
     current: float | None = None
     result: list[float | None] = []
     for level in levels:
-        if level is None or not math.isfinite(level) or level <= 0.0:
+        if level is None or not math.isfinite(level) or (level <= 0.0 and not allow_nonpositive):
             seed.clear()
             current = None
             result.append(None)
@@ -84,6 +86,47 @@ def independent_ema_features(
     return features
 
 
+def independent_macd_features(
+    levels: Sequence[float | None],
+) -> dict[str, list[float | None]]:
+    """Reference XETRA-style relative MACD without using production SQL/catalog code."""
+    ema12 = independent_ema(levels, 12)
+    ema26 = independent_ema(levels, 26)
+    line = [
+        fast - slow if fast is not None and slow is not None else None
+        for fast, slow in zip(ema12, ema26, strict=True)
+    ]
+    signal = independent_ema(line, 9, allow_nonpositive=True)
+    line_relative: list[float | None] = []
+    hist_relative: list[float | None] = []
+    hist_delta: list[float | None] = []
+    for index, level in enumerate(levels):
+        line_value = line[index]
+        signal_value = signal[index]
+        if level is not None and math.isfinite(level) and level > 0 and line_value is not None:
+            line_relative.append(line_value / level)
+        else:
+            line_relative.append(None)
+        if (
+            level is not None
+            and math.isfinite(level)
+            and level > 0
+            and line_value is not None
+            and signal_value is not None
+        ):
+            hist_relative.append((line_value - signal_value) / level)
+        else:
+            hist_relative.append(None)
+        prior = hist_relative[index - 3] if index >= 3 else None
+        current = hist_relative[index]
+        hist_delta.append(current - prior if current is not None and prior is not None else None)
+    return {
+        "macd_line_relative": line_relative,
+        "macd_hist_relative": hist_relative,
+        "macd_hist_delta_3": hist_delta,
+    }
+
+
 @pytest.mark.unit
 def test_independent_ema_reference_uses_arithmetic_seed_then_recursive_alpha() -> None:
     # EMA-5 seed is mean(2,4,6,8,10)=6; alpha=1/3 gives EMA(12)=8.
@@ -132,3 +175,26 @@ def test_independent_ema_outputs_pin_warmup_normalization_slope_and_cross_states
     assert actual["ema5_ema9_cross"][9] == pytest.approx(1.0)
     assert actual["ema5_ema9_cross"][10] == pytest.approx(0.0)
     assert actual["ema5_ema9_cross"][14] == pytest.approx(-1.0)
+
+
+@pytest.mark.unit
+def test_independent_macd_reference_pins_warmup_signed_signal_and_three_row_delta() -> None:
+    levels = [100.0 + index for index in range(40)] + [139.0 - 3.0 * index for index in range(15)]
+    actual = independent_macd_features(levels)
+
+    assert all(value is None for value in actual["macd_line_relative"][:25])
+    assert actual["macd_line_relative"][25] is not None
+    assert all(value is None for value in actual["macd_hist_relative"][:33])
+    assert actual["macd_hist_relative"][33] is not None
+    assert actual["macd_hist_delta_3"][35] is None
+    current = actual["macd_hist_relative"][36]
+    prior = actual["macd_hist_relative"][33]
+    assert current is not None and prior is not None
+    assert actual["macd_hist_delta_3"][36] == pytest.approx(current - prior)
+
+
+@pytest.mark.unit
+def test_signal_ema_accepts_negative_and_zero_macd_values_without_reset() -> None:
+    actual = independent_ema([-2.0, 0.0, 2.0, -2.0], 2, allow_nonpositive=True)
+    assert actual[0] is None
+    assert actual[1:] == pytest.approx([-1.0, 1.0, -1.0])

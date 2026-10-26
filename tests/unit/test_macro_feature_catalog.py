@@ -21,6 +21,9 @@ from application.trend_features import (
     DRAWDOWN_WINDOWS,
     EMA_OUTPUT_SUFFIXES,
     EMA_PERIODS,
+    MACD_OUTPUT_SUFFIXES,
+    MACD_PRICE_EMA_PERIODS,
+    MACD_SIGNAL_EMA_PERIOD,
     ROC_WINDOWS,
     RSI_WINDOWS,
     SMA_RATIO_WINDOWS,
@@ -70,6 +73,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
         for window in DRAWDOWN_WINDOWS:
             assert f"{series}_drawdown_{window}obs" in names
         assert all(f"{series}_{suffix}" in names for suffix in EMA_OUTPUT_SUFFIXES)
+        assert all(f"{series}_{suffix}" in names for suffix in MACD_OUTPUT_SUFFIXES)
         new_feature_suffixes = (
             "rsi_ratio_5_15",
             "rsi5_slope_3",
@@ -114,7 +118,7 @@ def test_catalog_contains_all_fixed_feature_families() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 12
+    assert MACRO_FEATURE_VIEW_VERSION == 13
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -172,8 +176,44 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert len([spec for spec in FEATURE_CATALOG if spec.family == "ema_trend"]) == (
         len(PRICE_FEATURE_SERIES) * len(EMA_OUTPUT_SUFFIXES)
     )
-    assert len(_MIGRATIONS) == 23
-    final_migration_sql = " ".join(_MIGRATIONS[22])
+    assert len(_MIGRATIONS) == 24
+    final_migration_sql = " ".join(_MIGRATIONS[23])
     assert "DROP MATERIALIZED VIEW" in final_migration_sql
     assert f"version={MACRO_FEATURE_VIEW_VERSION}" in final_migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in final_migration_sql
+
+
+@pytest.mark.unit
+def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> None:
+    macd_specs = tuple(spec.name for spec in FEATURE_CATALOG if spec.family == "macd")
+    expected_columns = tuple(
+        f"{series}_{suffix}" for series in PRICE_FEATURE_SERIES for suffix in MACD_OUTPUT_SUFFIXES
+    )
+    assert macd_specs == expected_columns
+    assert len(macd_specs) == len(PRICE_FEATURE_SERIES) * len(MACD_OUTPUT_SUFFIXES)
+    assert not any(name.startswith("estr_macd_") for name in FEATURE_COLUMNS)
+    assert not any(
+        name.endswith(("_macd_line", "_macd_signal", "_macd_signal_ema_state"))
+        for name in FEATURE_COLUMNS
+    )
+    assert MACD_PRICE_EMA_PERIODS == (12, 26)
+    assert MACD_SIGNAL_EMA_PERIOD == 9
+    for series in PRICE_FEATURE_SERIES:
+        for suffix in MACD_OUTPUT_SUFFIXES:
+            assert f"{series}_{suffix}" in _FEATURES_VIEW_DDL
+    assert "2.0 / 13.0" in _FEATURES_VIEW_DDL
+    assert "2.0 / 27.0" in _FEATURES_VIEW_DDL
+    assert "2.0 / 10.0" in _FEATURES_VIEW_DDL
+    assert 'array_agg("macd_line" ORDER BY timestamp_m1)' in _FEATURES_VIEW_DDL
+    assert 'AS "vix_macd_line_relative"' in _FEATURES_VIEW_DDL
+    assert 'AS "vix_macd_hist_relative"' in _FEATURES_VIEW_DDL
+    assert 'AS "vix_macd_hist_delta_3"' in _FEATURES_VIEW_DDL
+    assert 'AS "estr_macd_line_relative"' not in _FEATURES_VIEW_DDL
+    assert "lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3" in _FEATURES_VIEW_DDL
+    signed_seed = "CASE WHEN input.levels[1] IS NOT NULL THEN 1 ELSE 0 END AS seed_count"
+    assert signed_seed in _FEATURES_VIEW_DDL
+    assert len(_MIGRATIONS) == 24
+    migration_sql = " ".join(_MIGRATIONS[-1])
+    assert "DROP MATERIALIZED VIEW" in migration_sql
+    assert "version=13" in migration_sql
+    assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql
