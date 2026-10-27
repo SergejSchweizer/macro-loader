@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-200: Retire Wide Feature Views And Publish Long View As `macro_features`
 
 PR name: `rename-long-feature-materialized-view`
-Status: Implementation complete — local quality gate and disposable PostgreSQL acceptance pass; production deployment pending
+Status: PR #200 open — local quality gate and disposable PostgreSQL acceptance passed; production deployment pending
 Updated: 2026-10-27
 Git branch: `pr-200/rename-long-feature-materialized-view`
-PR: not opened
-Git status: local-checks-passed
+PR: [#200](https://github.com/SergejSchweizer/macro-loader/pull/200) (open)
+Git status: pushed-local-checks-passed
 Agent lane: make the raw-derived long transformation materialized view the sole public feature view
 Depends on: PR-199 (merged to `origin/main`)
-Commit: `f66df93 feat(pr-200): rename long feature view and retire legacy views`
+Commit: `f66df93 feat(pr-200): rename long feature view and retire legacy views`; `2baa229 test(pr-200): validate renamed view calculations`
 Design patterns: Versioned Migration, Materialized View, Catalog Conformance.
 
 Description:

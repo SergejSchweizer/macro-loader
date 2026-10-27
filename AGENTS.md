@@ -8,8 +8,9 @@ materialized view; read-only checks confirmed 11,794,988 unique values across 1,
 features, and sampled results matched the existing feature views. PR-200,
 `pr-200/rename-long-feature-materialized-view`, is the active branch to retire the
 superseded wide/private view chain and publish the long-form view as the sole
-`macro_loader.macro_features` relation. The production runtime conformance check and
-zero-change sync replay for PR-199 remain under verification. The installed 09:00
+`macro_loader.macro_features` relation. PR #200 is pushed with the local quality gate and
+disposable PostgreSQL acceptance passed; production migration 36, independent conformance,
+and zero-change replay are pending. The installed 09:00
 Europe/Vienna schedule and 60-calendar-day delta window are verified. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
