@@ -99,14 +99,14 @@ Acceptance:
 ### PR-186: Use The Managed Refresh Path In Availability Integration QA
 
 PR name: `use-explicit-postgres-refresh-in-availability-qa`
-Status: In Progress
+Status: In Progress — PR open
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#186](https://github.com/SergejSchweizer/macro-loader/pull/186) (open)
 Git branch: `pr-186/use-explicit-postgres-refresh-in-availability-qa`
-Git status: active-dirty: availability integration regression
+Git status: pushed-local-checks-passed
 Agent lane: validate generated availability through the published PostgreSQL refresh boundary
 Depends on: PR-185 (merged to `origin/main`)
-Commit: pending
+Commit: `7dc9fa1 test(pr-186): use managed refresh in availability QA`
 Design patterns: Command Boundary, Integration Contract Test.
 
 Description:
