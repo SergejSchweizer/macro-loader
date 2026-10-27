@@ -19,7 +19,7 @@ Git branch: `pr-176/add-stochastic-donchian-features`
 Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL OHLC feature projection and independent mathematical/schema QA
 Depends on: PR-175 (merged to `origin/main`)
-Commit: `cbe5026 docs(pr-176): record pushed local gate status`
+Commit: `b51a282 feat(pr-176): add stochastic and donchian view features`
 Design patterns: Registry-driven Projection, Pure Transformation, Materialized View.
 
 Description:
