@@ -2016,7 +2016,9 @@ _MIGRATIONS = (
     # Publish PR-172's private EMA recurrence and six EMA trend outputs.
     _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-173's private signed MACD signal EMA and relative outputs.
-    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
+    # Current view also projects native OHLC values; legacy v23 schemas need these
+    # nullable source columns before the view is recreated.
+    _OHLC_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Preserve native OHLC fields without dropping or rewriting existing raw rows.
     _OHLC_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-175's OHLC bar range, intraday return, and overnight gap features.

@@ -9,14 +9,44 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-190: Repair OHLC Migration Ordering For Legacy PostgreSQL Schemas
+
+PR name: `repair-legacy-ohlc-migration`
+Status: Open — local checks passed
+Updated: 2026-10-27
+PR: [#190](https://github.com/SergejSchweizer/macro-loader/pull/190) (open)
+Git branch: `pr-190/repair-legacy-ohlc-migration`
+Git status: pushed-local-checks-passed
+Agent lane: safely upgrade production v23 schemas before feature-table cutover
+Depends on: PR-189 (merged to `origin/main`)
+Commit: `975dbbf fix(pr-190): repair legacy OHLC migration ordering`
+Design patterns: Versioned Migration, Upgrade Integration Test.
+
+Description:
+- R1: Add missing OHLC columns to the legacy wide relation before migration 24 rebuilds
+  `macro_features`, so existing v23 installations can reach the later cutover migration.
+- R2: Keep the final target unchanged: every registered raw feature is stored in its own
+  `macro_loader.macro_raw_<feature>` table; the wide `macro_raw` relation is only a
+  migration source and must be dropped after the feature tables are populated.
+
+Acceptance:
+- A1 verifies migration 24 adds every required nullable OHLC field before rebuilding
+  the public view.
+- A2 upgrades a disposable v23 database with all OHLC columns absent through the regular
+  migrator and verifies all per-feature raw tables exist and the wide relation is gone.
+- A3 passes `make quality-gate` locally; no GitHub Actions.
+- A4 resumes the explicitly authorized live run and verifies all feature tables, both
+  views, full data sync, replay, and cron acceptance against production before reporting
+  deployment complete.
+
 ### PR-189: Bootstrap Empty Series In The Full-Live Acceptance Runner
 
 PR name: `bootstrap-empty-series-in-live-acceptance`
-Status: In Progress — PR open
+Status: Merged
 Updated: 2026-10-27
-PR: [#189](https://github.com/SergejSchweizer/macro-loader/pull/189) (open)
+PR: [#189](https://github.com/SergejSchweizer/macro-loader/pull/189) (merged)
 Git branch: `pr-189/bootstrap-empty-series-in-live-acceptance`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: choose lifecycle-correct history operation per series
 Depends on: PR-188 (merged to `origin/main`)
 Commit: `91e62b1 fix(pr-189): bootstrap empty series in acceptance runs`
@@ -519,7 +549,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-188 are merged; PR-189 is in progress. No production migration or
+PR-176 through PR-189 are merged; PR-190 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.

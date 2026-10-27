@@ -30,6 +30,7 @@ from application.postgres_conformance_service import GoldPostgresConformanceVeri
 from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_DATASET_ID,
+    POSTGRES_OHLC_COLUMNS,
     POSTGRES_RAW_COLUMNS,
     POSTGRES_RAW_TABLES,
     GoldDeltaPlan,
@@ -786,6 +787,54 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
         assert connection.execute(
             "SELECT COUNT(*) FROM macro_loader_sync.gold_sync_state WHERE dataset_id = 'rollback'"
         ).fetchone() == (0,)
+
+
+@pytest.mark.integration
+def test_real_postgres_v23_upgrade_repairs_legacy_schema_without_ohlc_columns(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    """An actual v23 layout must gain OHLC columns before its feature view is rebuilt."""
+    del repository
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
+        for version, migration in enumerate(postgres_module._MIGRATIONS[:23], start=1):
+            for statement in migration:
+                connection.execute(statement)
+            connection.execute(
+                f"INSERT INTO {postgres_module._MIGRATION_LEDGER} (version, applied_at_utc) "
+                "VALUES (%s, CURRENT_TIMESTAMP)",
+                (version,),
+            )
+        connection.execute('DROP MATERIALIZED VIEW "macro_loader"."macro_features"')
+        drop_columns = ", ".join(f'DROP COLUMN "{column}"' for column in POSTGRES_OHLC_COLUMNS)
+        connection.execute(f'ALTER TABLE "macro_loader"."macro_raw" {drop_columns}')
+        remaining_ohlc = connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw' "
+            "AND column_name LIKE '%_high'"
+        ).fetchall()
+        assert remaining_ohlc == []
+
+    migrator.migrate()
+
+    with psycopg.connect(postgres_dsn) as connection:
+        assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (
+            None,
+        )
+        raw_tables = connection.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'macro_loader' AND table_type = 'BASE TABLE' "
+            "AND table_name LIKE 'macro_raw_%' ORDER BY table_name"
+        ).fetchall()
+        migration_versions = connection.execute(
+            f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"
+        ).fetchall()
+    assert tuple(row[0] for row in raw_tables) == tuple(sorted(POSTGRES_RAW_TABLES))
+    assert migration_versions == [
+        (version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)
+    ]
 
 
 @pytest.mark.integration
