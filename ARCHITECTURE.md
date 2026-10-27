@@ -14,7 +14,7 @@ This document contains no Fed-specific operator commands or scheduling instructi
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
 
-The executable Gold contract is currently schema version **8** and feature version
+The executable Gold contract is currently schema version **9** and feature version
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
 `macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
 rebuilt or refreshed from that table and is the serving projection for the causal
@@ -216,6 +216,10 @@ vstoxx2m
 vstoxx3m
 move
 ciss
+ciss_money
+ciss_bonds
+ciss_equity
+ciss_financials
 estr
 euro_hy_oas
 us_2y
@@ -229,7 +233,7 @@ Provider ownership:
 CBOE   -> vix, vix9d, vix3m, vix6m, vix1y
 STOXX  -> vstoxx, vstoxx1m, vstoxx2m, vstoxx3m
 Yahoo  -> move
-ECB    -> ciss, estr
+ECB    -> ciss, ciss_money, ciss_bonds, ciss_equity, ciss_financials, estr
 FRED   -> euro_hy_oas, us_2y, us_10y, usd_broad
 ```
 
@@ -239,6 +243,14 @@ rows have `Date;Symbol;Indexvalue`; the canonical value is the published index v
 index points. At verification on 2026-10-27, all three files exposed observations from
 1999-01-04 through 2026-10-26. Bootstrap retains the full exposed file; normal updates
 download the source file and restrict persistence to the exact logical delta window.
+
+The New-CISS daily component series `ciss_money`, `ciss_bonds`, `ciss_equity`, and
+`ciss_financials` use the ECB source keys `CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON`,
+`CISS.D.U2.Z0Z.4F.EC.SS_BMN.CON`, `CISS.D.U2.Z0Z.4F.EC.SS_EMN.CON`, and
+`CISS.D.U2.Z0Z.4F.EC.SS_FIN.CON`. They are dimensionless component contributions, not
+standalone subindex levels. Their canonical scalar values come from ECB's `OBS_VALUE`;
+the source catalog reports daily observations beginning 1999-01-01, continuing through
+the latest published observation. Missing observations are omitted, not filled.
 
 Every registry entry declares canonical ID, provider, source ID/file, unit, native shape (`ohlc|scalar`), frequency, bootstrap policy, and fetch capability (`date_range|full_file`).
 

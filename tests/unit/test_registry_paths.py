@@ -48,13 +48,17 @@ def test_initial_registry_contains_exact_canonical_series() -> None:
         "vstoxx3m",
         "move",
         "ciss",
+        "ciss_money",
+        "ciss_bonds",
+        "ciss_equity",
+        "ciss_financials",
         "estr",
         "euro_hy_oas",
         "us_2y",
         "us_10y",
         "usd_broad",
     )
-    assert len(INITIAL_SERIES) == 16
+    assert len(INITIAL_SERIES) == 20
     assert all(entry.source_id and entry.unit for entry in INITIAL_SERIES)
 
 
@@ -80,6 +84,28 @@ def test_vstoxx_term_series_contracts_are_daily_scalar_full_files(
     assert contract.frequency is Frequency.DAILY
     assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY
     assert contract.fetch_capability is FetchCapability.FULL_FILE
+
+
+@pytest.mark.parametrize(
+    ("series_id", "source_id"),
+    (
+        ("ciss_money", "CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON"),
+        ("ciss_bonds", "CISS.D.U2.Z0Z.4F.EC.SS_BMN.CON"),
+        ("ciss_equity", "CISS.D.U2.Z0Z.4F.EC.SS_EMN.CON"),
+        ("ciss_financials", "CISS.D.U2.Z0Z.4F.EC.SS_FIN.CON"),
+    ),
+)
+def test_ciss_components_are_daily_scalar_dimensionless_contributions(
+    series_id: str, source_id: str
+) -> None:
+    contract = series_contract(series_id)
+    assert contract.provider is Provider.ECB
+    assert contract.source_id == source_id
+    assert contract.unit == "dimensionless_contribution"
+    assert contract.native_shape is NativeShape.SCALAR
+    assert contract.frequency is Frequency.DAILY
+    assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY
+    assert contract.fetch_capability is FetchCapability.DATE_RANGE
 
 
 def test_unknown_series_fails_explicitly() -> None:

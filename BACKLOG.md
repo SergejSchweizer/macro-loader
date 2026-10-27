@@ -55,14 +55,14 @@ Acceptance:
 ### PR-177: Add VSTOXX 1M/2M/3M Source Series
 
 PR name: `add-vstoxx-term-structure-series`
-Status: Ready
+Status: Merged
 Updated: 2026-10-27
-PR: [#177](https://github.com/SergejSchweizer/macro-loader/pull/177) (open)
+PR: [#177](https://github.com/SergejSchweizer/macro-loader/pull/177) (merged)
 Git branch: `pr-177/add-vstoxx-term-structure-series`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: STOXX source adapter and provider-level QA
 Depends on: PR-176
-Commit: `aadf953 feat(pr-177): add vstoxx term structure sources`
+Commit: `5f03547 feat(pr-177): add VSTOXX 1M/2M/3M source series` (GitHub squash merge)
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
@@ -89,11 +89,11 @@ Acceptance:
 ### PR-178: Add Daily ECB CISS Component Series
 
 PR name: `add-ecb-ciss-components`
-Status: Planned
+Status: In Progress
 Updated: 2026-10-27
 PR: not created
 Git branch: `pr-178/add-ecb-ciss-components`
-Git status: not-started (branch absent)
+Git status: local-worktree
 Agent lane: ECB series registration and independent provider QA
 Depends on: PR-177
 Commit: pending
@@ -110,6 +110,9 @@ Description:
   fabricated values; normal updates use the established bounded date-range policy.
 - R3: Update registry/source documentation and add offline parser, request-bound, missing
   value, duplicate-date, and provider-routing tests.
+- R4: Publish the four new Gold scalar columns under Gold schema version 9 and migrate
+  existing PostgreSQL installations additively for all seven source columns introduced
+  by PR-177 and PR-178; never rewrite prior migration entries or discard retained rows.
 
 Acceptance:
 - A1 verifies R1: all four exact ECB series keys map to distinct canonical IDs and scalar
@@ -118,6 +121,9 @@ Acceptance:
   absent; updates pass exact bounds to the ECB adapter.
 - A3 verifies R3: deterministic offline tests pass and README source metadata is updated
   with the verified start period and current public-source limits.
+- A4 verifies R4: the 8→9 sync-state upgrade is explicitly allowed, migration 28 adds
+  the seven nullable scalar columns without dropping data, clean and upgraded physical
+  schemas match the declared column contract, and the full local quality gate passes.
 
 ### PR-179: Add Euro High-Yield Yield And Total-Return Series
 

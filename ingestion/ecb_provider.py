@@ -12,10 +12,15 @@ from application.contracts import FetchCapability, NativeShape, Provider, Series
 from application.errors import ProviderHttpError
 from application.ports.http import HttpRequest, HttpTransport, RequestContext
 from application.ports.market_data import ProviderRequest
+from application.registry import SERIES_REGISTRY
 
 Clock = Callable[[], datetime]
 _DEFAULT_BASE_URL = "https://data-api.ecb.europa.eu/service/data"
-_ECB_SERIES = frozenset({"ciss", "estr"})
+_ECB_SERIES = frozenset(
+    series_id
+    for series_id, contract in SERIES_REGISTRY.items()
+    if contract.provider is Provider.ECB
+)
 
 
 def _system_utc_now() -> datetime:
@@ -102,6 +107,8 @@ class EcbProvider:
     def _validate_contract(self, series: SeriesContract) -> None:
         if series.provider is not self.provider or series.series_id not in _ECB_SERIES:
             raise ValueError("unsupported ECB series contract")
+        if SERIES_REGISTRY[series.series_id] != series:
+            raise ValueError("ECB series contract does not match the canonical registry")
         if series.native_shape is not NativeShape.SCALAR:
             raise ValueError("ECB regime series must use scalar Bronze shape")
         if series.fetch_capability is not FetchCapability.DATE_RANGE:

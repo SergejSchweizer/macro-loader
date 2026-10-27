@@ -260,7 +260,7 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert len([spec for spec in FEATURE_CATALOG if spec.family == "ema_trend"]) == (
         len(PRICE_FEATURE_SERIES) * len(EMA_OUTPUT_SUFFIXES)
     )
-    assert len(_MIGRATIONS) == 27
+    assert len(_MIGRATIONS) == 28
     previous_migration_sql = " ".join(_MIGRATIONS[24])
     assert 'ALTER TABLE "macro_loader"."macro_raw"' in previous_migration_sql
     assert 'ADD COLUMN IF NOT EXISTS "vix_open" DOUBLE PRECISION NULL' in previous_migration_sql
@@ -301,7 +301,7 @@ def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> Non
     assert "lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3" in _FEATURES_VIEW_DDL
     signed_seed = "CASE WHEN input.levels[1] IS NOT NULL THEN 1 ELSE 0 END AS seed_count"
     assert signed_seed in _FEATURES_VIEW_DDL
-    assert len(_MIGRATIONS) == 27
+    assert len(_MIGRATIONS) == 28
     migration_sql = " ".join(_MIGRATIONS[-1])
     assert "DROP MATERIALIZED VIEW" in migration_sql
     assert "version=16" in migration_sql
