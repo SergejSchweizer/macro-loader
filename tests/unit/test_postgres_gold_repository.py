@@ -492,10 +492,12 @@ def test_retirement_migration_archives_fed_data_before_removing_active_columns()
 def test_legacy_view_migration_adds_ohlc_columns_before_rebuilding_the_view() -> None:
     legacy_upgrade_migration = module._MIGRATIONS[23]
 
-    assert legacy_upgrade_migration[0] == module._OHLC_COLUMN_MIGRATION[0]
-    assert legacy_upgrade_migration[1] == module._LEGACY_FEATURES_VIEW_REBUILD_MIGRATION[0]
+    assert legacy_upgrade_migration[0] == module._AVAILABLE_AT_COLUMN_MIGRATION[0]
+    assert legacy_upgrade_migration[1] == module._OHLC_COLUMN_MIGRATION[0]
+    assert legacy_upgrade_migration[2] == module._LEGACY_FEATURES_VIEW_REBUILD_MIGRATION[0]
+    assert "GENERATED ALWAYS AS" in legacy_upgrade_migration[0]
     assert all(
-        f'ADD COLUMN IF NOT EXISTS "{column}" DOUBLE PRECISION NULL' in legacy_upgrade_migration[0]
+        f'ADD COLUMN IF NOT EXISTS "{column}" DOUBLE PRECISION NULL' in legacy_upgrade_migration[1]
         for column in module.POSTGRES_OHLC_COLUMNS
     )
 

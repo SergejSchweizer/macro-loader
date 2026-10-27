@@ -809,11 +809,12 @@ def test_real_postgres_v23_upgrade_repairs_legacy_schema_without_ohlc_columns(
             )
         connection.execute('DROP MATERIALIZED VIEW "macro_loader"."macro_features"')
         drop_columns = ", ".join(f'DROP COLUMN "{column}"' for column in POSTGRES_OHLC_COLUMNS)
+        drop_columns += ', DROP COLUMN "available_at_utc"'
         connection.execute(f'ALTER TABLE "macro_loader"."macro_raw" {drop_columns}')
         remaining_ohlc = connection.execute(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw' "
-            "AND column_name LIKE '%_high'"
+            "AND (column_name LIKE '%_high' OR column_name = 'available_at_utc')"
         ).fetchall()
         assert remaining_ohlc == []
 

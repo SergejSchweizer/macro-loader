@@ -9,17 +9,45 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-191: Restore Missing Legacy Availability Before View Rebuild
+
+PR name: `repair-legacy-availability-migration`
+Status: In Progress — local implementation
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-191/repair-legacy-availability-migration`
+Git status: in-progress
+Agent lane: make the production v23 schema upgrade tolerate ledger/schema drift
+Depends on: PR-190 (merged to `origin/main`)
+Commit: pending
+Design patterns: Versioned Migration, Upgrade Integration Test.
+
+Description:
+- R1: Ensure migration 24 creates generated `available_at_utc` and nullable OHLC
+  source columns before rebuilding `macro_features`; production v23 is missing both
+  groups despite migration history through version 23.
+- R2: Preserve the requested end state of one `macro_raw_<feature>` table per registered
+  feature, populated before the legacy wide relation is removed.
+
+Acceptance:
+- A1 verifies availability and OHLC additions precede the view rebuild.
+- A2 upgrades a disposable v23 database with both column groups absent through the
+  normal migrator and verifies the full per-feature table set and retired wide table.
+- A3 passes local `make quality-gate`; no GitHub Actions.
+- A4 resumes production migration, sync, verification, replay, and cron acceptance only
+  after A1-A3 pass; all requested feature tables must be present and populated.
+
 ### PR-190: Repair OHLC Migration Ordering For Legacy PostgreSQL Schemas
 
 PR name: `repair-legacy-ohlc-migration`
-Status: Open — local checks passed
+Status: Merged
 Updated: 2026-10-27
-PR: [#190](https://github.com/SergejSchweizer/macro-loader/pull/190) (open)
+PR: [#190](https://github.com/SergejSchweizer/macro-loader/pull/190) (merged)
 Git branch: `pr-190/repair-legacy-ohlc-migration`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: safely upgrade production v23 schemas before feature-table cutover
 Depends on: PR-189 (merged to `origin/main`)
-Commit: `975dbbf fix(pr-190): repair legacy OHLC migration ordering`
+Commit: `ca4e965 fix(pr-190): repair legacy OHLC migration ordering` (squash merge)
 Design patterns: Versioned Migration, Upgrade Integration Test.
 
 Description:
@@ -549,7 +577,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-189 are merged; PR-190 is in progress. No production migration or
+PR-176 through PR-190 are merged; PR-191 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
