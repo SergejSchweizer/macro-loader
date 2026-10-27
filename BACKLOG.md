@@ -128,14 +128,14 @@ Acceptance:
 ### PR-179: Add Euro High-Yield Yield And Total-Return Series
 
 PR name: `add-euro-high-yield-series`
-Status: Ready
+Status: Merged
 Updated: 2026-10-27
-PR: [#179](https://github.com/SergejSchweizer/macro-loader/pull/179) (open)
+PR: [#179](https://github.com/SergejSchweizer/macro-loader/pull/179) (merged)
 Git branch: `pr-179/add-euro-high-yield-series`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: FRED credit-series registration and source-history QA
 Depends on: PR-178
-Commit: `0b0e0ff feat(pr-179): add euro high-yield series`
+Commit: `8119b01 feat(pr-179): add euro high-yield series` (GitHub squash merge)
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
@@ -168,23 +168,25 @@ Acceptance:
 ### PR-180: Add U.S. Three-Month And Five-Year Treasury Series
 
 PR name: `add-us-treasury-3m-5y-series`
-Status: Planned
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#180](https://github.com/SergejSchweizer/macro-loader/pull/180) (open)
 Git branch: `pr-180/add-us-treasury-3m-5y-series`
-Git status: not-started (branch absent)
+Git status: pushed-local-checks-passed
 Agent lane: FRED Treasury registration and provider QA
 Depends on: PR-179
-Commit: pending
+Commit: `f05d49e feat(pr-180): add treasury 3m and 5y series`
 Design patterns: Registry/Factory, Pure Parser.
 
 Description:
 - R1: Add daily scalar FRED series `us_3m` (`DGS3MO`) and `us_5y` (`DGS5`) in percent
   units, keeping the existing `us_2y` only once and retaining `us_10y` unchanged.
-- R2: Bootstrap maximum exposed history: `DGS3MO` from 1981-09-01 and `DGS5` from
-  1962-01-02 as checked on 2026-10-27. Existing FRED bounded-update and durable-history
-  retention rules continue to apply.
+- R2: Bootstrap maximum exposed history: `DGS3MO` from 1981-09-01 through 2026-10-22
+  and `DGS5` from 1962-01-02 through 2026-10-23 as checked on 2026-10-27. Existing
+  FRED bounded-update and durable-history retention rules continue to apply.
 - R3: Update source metadata and offline registry/request-bound tests.
+- R4: Add the two new Gold scalar columns under schema version 11 and append PostgreSQL
+  migration 30; preserve migration 29 and all previously retained rows.
 
 Acceptance:
 - A1 verifies R1: exact IDs, daily frequency, percent units, and no duplicate `us_2y`
@@ -192,6 +194,8 @@ Acceptance:
 - A2 verifies R2: documented and tested earliest available dates; no source omission
   deletes durable history.
 - A3 verifies R3: local quality-gate passes with no network tests in required checks.
+- A4 verifies R4: schema upgrade 10→11 is allowed, migration 30 adds exactly two nullable
+  scalar columns without destructive changes, and the local quality gate passes.
 
 ### PR-181: Cut Over To Per-Feature PostgreSQL Raw Tables
 
@@ -248,7 +252,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-178 are merged; PR-179 is in progress and PR-180 through PR-181 are planned. No production migration or
+PR-176 through PR-179 are merged; PR-180 is in progress and PR-181 is planned. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
@@ -410,6 +414,8 @@ Every PR declares `Design patterns:` explicitly. If no additional pattern is jus
 | `us_2y` | FRED | `DGS2` | `scalar` | `date_range` | maximum exposed history |
 | `us_10y` | FRED | `DGS10` | `scalar` | `date_range` | maximum exposed history |
 | `usd_broad` | FRED | `DTWEXBGS` | `scalar` | `date_range` | maximum exposed history |
+| `us_3m` | FRED | `DGS3MO` | `scalar` | `date_range` | 1981-09-01 through 2026-10-22 when checked; maximum history |
+| `us_5y` | FRED | `DGS5` | `scalar` | `date_range` | 1962-01-02 through 2026-10-23 when checked; maximum history |
 
 Additional source series in this implementation wave are limited to those explicitly
 listed in PR-177 through PR-180; no implicit provider fallback is allowed.

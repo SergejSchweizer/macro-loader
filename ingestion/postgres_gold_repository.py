@@ -409,7 +409,12 @@ _ADDED_LEVEL_COLUMNS_V29 = (
     "euro_hy_ytw_level",
     "euro_hy_total_return_level",
 )
-_ADDED_LEVEL_COLUMNS = (*_ADDED_LEVEL_COLUMNS_V28, *_ADDED_LEVEL_COLUMNS_V29)
+_ADDED_LEVEL_COLUMNS_V30 = ("us_3m_level", "us_5y_level")
+_ADDED_LEVEL_COLUMNS = (
+    *_ADDED_LEVEL_COLUMNS_V28,
+    *_ADDED_LEVEL_COLUMNS_V29,
+    *_ADDED_LEVEL_COLUMNS_V30,
+)
 _LEVEL_COLUMN_DEFS = ",\n    ".join(
     f"{_quote(column)} DOUBLE PRECISION NULL"
     for column in POSTGRES_LEVEL_COLUMNS
@@ -474,6 +479,13 @@ _EURO_HY_LEVEL_COLUMN_MIGRATION = (
     + ", ".join(
         f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
         for column in _ADDED_LEVEL_COLUMNS_V29
+    ),
+)
+_US_TREASURY_LEVEL_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+        for column in _ADDED_LEVEL_COLUMNS_V30
     ),
 )
 _OWNERSHIP_MIGRATIONS = tuple(
@@ -1741,6 +1753,8 @@ _MIGRATIONS = (
     _ADDED_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
     # Add registered Euro-HY source columns without rewriting migration 28.
     _EURO_HY_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Add registered Treasury tenor columns without rewriting migration 29.
+    _US_TREASURY_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

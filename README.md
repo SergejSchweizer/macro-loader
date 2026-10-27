@@ -19,7 +19,7 @@ or scheduling instructions. Historical Fed acceptance artifacts and backlog entr
 retained for audit. The independent FRED provider remains active for its registered macro
 series.
 
-The current Gold semantic contract is schema version **10** and feature version **6**;
+The current Gold semantic contract is schema version **11** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
 `application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL synchronization populates
 `macro_raw`, and the `macro_features` materialized view is refreshed from it,
@@ -131,6 +131,8 @@ Prefer `typing.Protocol`, immutable contracts, pure transformations, and constru
 | `us_2y` | FRED | US 2-year Treasury yield |
 | `us_10y` | FRED | US 10-year Treasury yield |
 | `usd_broad` | FRED | broad US-dollar index |
+| `us_3m` | FRED (`DGS3MO`) | U.S. 3-month constant-maturity Treasury yield, percent |
+| `us_5y` | FRED (`DGS5`) | U.S. 5-year constant-maturity Treasury yield, percent |
 
 No additional MVP series may be introduced without a separate backlog PR and matching contract updates.
 
@@ -177,6 +179,19 @@ for migration rather than downloaded a second time. New observations enter the n
 source/Gold sync path. ICE's FRED terms state that index data is for internal use and may
 not be redistributed to third parties without ICE's prior written approval; users must
 observe those restrictions.
+
+### U.S. Treasury yields
+
+`us_3m` (`DGS3MO`) and `us_5y` (`DGS5`) are daily, not-seasonally-adjusted U.S.
+constant-maturity Treasury yields from the Federal Reserve Board's H.15 release, quoted
+in percent. FRED's [DGS3MO table](https://fred.stlouisfed.org/data/DGS3MO) exposed
+`us_3m` from 1981-09-01 through 2026-10-22, and its
+[DGS5 table](https://fred.stlouisfed.org/data/DGS5) exposed `us_5y` from 1962-01-02
+through 2026-10-23 when checked on 2026-10-27. These are the first exposed observations,
+not promises of future availability. Source observations with
+the FRED `.` missing marker are omitted; no calendar-day values are synthesized.
+Normal updates request the exact bounded delta, and older durable observations remain
+stored if a source response is shorter.
 
 ## Source Update Policy
 
