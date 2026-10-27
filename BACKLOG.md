@@ -9,17 +9,44 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-189: Bootstrap Empty Series In The Full-Live Acceptance Runner
+
+PR name: `bootstrap-empty-series-in-live-acceptance`
+Status: In Progress — PR open
+Updated: 2026-10-27
+PR: [#189](https://github.com/SergejSchweizer/macro-loader/pull/189) (open)
+Git branch: `pr-189/bootstrap-empty-series-in-live-acceptance`
+Git status: pushed-local-checks-passed
+Agent lane: choose lifecycle-correct history operation per series
+Depends on: PR-188 (merged to `origin/main`)
+Commit: `91e62b1 fix(pr-189): bootstrap empty series in acceptance runs`
+Design patterns: Repository, Command Planning Policy.
+
+Description:
+- R1: Inspect durable Bronze bounds for every registered series; use `bootstrap` when
+  empty and explicit full-history `reconcile` when history exists.
+- R2: Keep the full-run migration/sync/verification stages and first-failure report
+  semantics unchanged.
+
+Acceptance:
+- A1 verifies an empty series gets `bootstrap`, a populated series gets `reconcile`, and
+  every registered series appears once in the acceptance plan.
+- A2 verifies local quality gate. No GitHub Actions.
+- A3 allows resuming full live ingestion; production PostgreSQL migration/sync/replay still
+  require valid current database credentials and may not be reported passed before their
+  full execution and verification.
+
 ### PR-188: Skip Empty Official STOXX Values During Full-History Reconciliation
 
 PR name: `skip-empty-stoxx-source-values`
-Status: In Progress — PR open
+Status: Merged
 Updated: 2026-10-27
-PR: [#188](https://github.com/SergejSchweizer/macro-loader/pull/188) (open)
+PR: [#188](https://github.com/SergejSchweizer/macro-loader/pull/188) (merged)
 Git branch: `pr-188/skip-empty-stoxx-source-values`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: ingest documented missing STOXX values without fabricating observations
 Depends on: PR-187 (merged to `origin/main`)
-Commit: `c9bbd2a fix(pr-188): omit blank STOXX source values`
+Commit: `b3a42cc fix(pr-188): omit blank STOXX source values` (GitHub squash merge)
 Design patterns: Adapter, Source Contract Test.
 
 Description:
@@ -492,7 +519,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-187 are merged; PR-188 is in progress. No production migration or
+PR-176 through PR-188 are merged; PR-189 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.

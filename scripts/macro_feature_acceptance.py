@@ -10,7 +10,9 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from application.paths import LakePaths
 from application.registry import SERIES_REGISTRY
+from ingestion.bronze_uow import FilesystemBronzeUnitOfWork
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,8 +35,10 @@ def _parser() -> argparse.ArgumentParser:
 def _commands(lake_root: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
     prefix = ("macro-loader", "--lake-root", str(lake_root))
     commands: list[tuple[str, tuple[str, ...]]] = []
-    for series in SERIES_REGISTRY:
-        commands.append((f"reconcile:{series}", (*prefix, "reconcile", "--series", series)))
+    bronze = FilesystemBronzeUnitOfWork(LakePaths(lake_root))
+    for series, contract in SERIES_REGISTRY.items():
+        operation = "bootstrap" if bronze.bounds(contract).maximum is None else "reconcile"
+        commands.append((f"{operation}:{series}", (*prefix, operation, "--series", series)))
     commands.extend(
         (
             ("silver-build", (*prefix, "silver-build")),
