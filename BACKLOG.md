@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-191: Restore Missing Legacy Availability Before View Rebuild
 
 PR name: `repair-legacy-availability-migration`
-Status: In Progress — local implementation
+Status: Open — local checks passed
 Updated: 2026-10-27
-PR: not created
+PR: [#191](https://github.com/SergejSchweizer/macro-loader/pull/191) (open)
 Git branch: `pr-191/repair-legacy-availability-migration`
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: make the production v23 schema upgrade tolerate ledger/schema drift
 Depends on: PR-190 (merged to `origin/main`)
-Commit: pending
+Commit: `f2ca45e fix(pr-191): restore legacy availability before view migration`
 Design patterns: Versioned Migration, Upgrade Integration Test.
 
 Description:
