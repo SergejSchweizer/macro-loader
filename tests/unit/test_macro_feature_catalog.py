@@ -359,6 +359,7 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert "REFRESH MATERIALIZED VIEW macro_loader.macro_features_extended" in (
         extended_view_migration_sql
     )
+    assert "SET jit = off" in extended_view_migration_sql
 
 
 @pytest.mark.unit

@@ -150,6 +150,7 @@ class FakeCursor:
                 "SHOW lock_timeout": "5s",
                 "SHOW statement_timeout": "300s",
                 "SHOW idle_in_transaction_session_timeout": "30s",
+                "SHOW jit": "off",
             }
             self._one = (settings[query],)
         elif query.startswith("SELECT %s::TIMESTAMPTZ(6)"):

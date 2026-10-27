@@ -33,6 +33,9 @@ the extended view has 794 columns including `timestamp_m1` and `available_at_utc
 private relations are not granted to consumer roles. Both public views expose the same
 temporal/availability keys, are covered by catalog fingerprints and schema conformance,
 and refresh in dependency order through the explicit PostgreSQL refresh routine.
+Loader-controlled PostgreSQL sessions and that SECURITY DEFINER refresh routine disable
+JIT because recursive CTE row estimates can otherwise cause compilation to dominate view
+execution; connection, lock, statement, and idle-transaction timeout bounds remain active.
 
 Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
 then registry-derived native OHLC fields in series-major order with `open`, `high`,

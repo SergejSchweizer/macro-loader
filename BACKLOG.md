@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-184: Extend PostgreSQL Transformations To All Registered Positive-Level Series
 
 PR name: `extend-transformations-to-registered-series`
-Status: In Progress — PR open
+Status: Merged
 Updated: 2026-10-27
-PR: [#184](https://github.com/SergejSchweizer/macro-loader/pull/184) (open)
+PR: [#184](https://github.com/SergejSchweizer/macro-loader/pull/184) (merged)
 Git branch: `pr-184/extend-transformations-to-registered-series`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: complete point-in-time feature projection for every applicable registered source
 Depends on: PR-183 (merged to `origin/main`)
-Commit: `4456ed2 feat(pr-184): add extended transforms for registered series`
+Commit: `9d82a67 feat(pr-184): extend transformations to registered series` (GitHub squash merge)
 Design patterns: Registry-driven Projection, Materialized View, Versioned Migration, Independent Reference.
 
 Description:
@@ -59,6 +59,42 @@ Acceptance:
 - A4 verifies causal/warm-up/null behavior with hand-calculable references and
   truncation/invalid-input checks; README and ARCHITECTURE match the executable contract;
   local `make quality-gate` passes. No production DB, cron, GitHub Actions, or remote gate.
+
+### PR-185: Bound PostgreSQL Feature-View Refresh Compilation And Restore Migration QA
+
+PR name: `bound-postgres-feature-view-refresh`
+Status: In Progress
+Updated: 2026-10-27
+PR: not created; implementation active
+Git branch: `pr-185/bound-postgres-feature-view-refresh`
+Git status: active-dirty: PostgreSQL session policy, migration fixture, performance QA, docs
+Agent lane: bounded PostgreSQL materialized-view execution and end-to-end migration regression
+Depends on: PR-184 (merged to `origin/main`)
+Commit: pending
+Design patterns: Adapter Configuration, Bounded Execution Policy, Independent Reference.
+
+Description:
+- R1: Disable PostgreSQL JIT for loader-controlled migration/sync sessions and the
+  explicit materialized-view refresh routine. The feature-view query has recursive EMA
+  and Wilder-RSI CTEs; PostgreSQL estimates an enormous plan cost and JIT compilation
+  dominates the actual refresh. Keep connection, lock, and statement timeout bounds.
+- R2: Repair the migration-25 integration fixture so it builds its historical v14 view
+  from the legacy wide raw table and its frozen legacy column contract, rather than
+  accidentally using the current feature-table projection.
+- R3: Preserve public names, ordered schemas, formulas, availability semantics, and
+  existing `macro_features` relation identity. Do not change production data, cron, or
+  run GitHub Actions.
+
+Acceptance:
+- A1 verifies R1: session configuration and the security-definer refresh function
+  disable JIT; the read-only PostgreSQL conformance inspector detects drift; a disposable
+  single-row complete refresh stays within the configured 300-second statement bound.
+- A2 verifies R2: clean-create and migration-25-to-current PostgreSQL tests pass, including
+  historical value backfill, generated `available_at_utc`, all 25 feature-table schemas,
+  removal of wide `macro_raw`, and both public view contracts.
+- A3 verifies R3: core-view relation identity and both ordered catalogs/fingerprints stay
+  unchanged; README/ARCHITECTURE document the bounded execution setting; local
+  `make quality-gate` passes. No production DB, cron, GitHub Actions, or remote gate.
 
 ### PR-183: Update PostgreSQL EMA/MACD Parity QA For Feature Tables
 
@@ -368,7 +404,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-183 are merged; PR-184 is in progress. No production migration or
+PR-176 through PR-184 are merged; PR-185 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
