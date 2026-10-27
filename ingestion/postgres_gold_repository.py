@@ -1849,6 +1849,11 @@ _RETIRED_FED_ARCHIVE_MIGRATION = (
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
 )
 
+# A schema ledger can be ahead of its objects in older deployments. Re-run the
+# data-preserving Fed archive/drop prefix after the feature cutover so stray retired
+# relations cannot fail the final owned-table contract.
+_RETIRED_FED_DRIFT_CLEANUP_MIGRATION = _RETIRED_FED_ARCHIVE_MIGRATION[:24]
+
 
 def _normalize_view_definition(value: str) -> str:
     """Normalize PostgreSQL's pretty-printed view definition for contract checks."""
@@ -2044,6 +2049,14 @@ _MIGRATIONS = (
     # Publish transformation outputs for the additional registered price-level series
     # without exceeding PostgreSQL's per-relation column limit.
     _EXTENDED_FEATURES_MIGRATION,
+    # Repair installations whose migration ledger retired Fed storage but left its
+    # active sync table behind; archive it before strict schema conformance.
+    _RETIRED_FED_DRIFT_CLEANUP_MIGRATION,
+)
+_FEATURE_VIEW_PUBLICATION_VERSION = max(
+    version
+    for version, statements in enumerate(_MIGRATIONS, start=1)
+    if _FEATURES_VIEW_DDL in statements
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -2922,7 +2935,7 @@ class PostgresGoldSchemaMigrator:
                             cursor.execute("SET LOCAL join_collapse_limit = 1")
                         if (
                             fresh_install
-                            and version < len(_MIGRATIONS)
+                            and version < _FEATURE_VIEW_PUBLICATION_VERSION
                             and _is_features_view_publication_statement(statement)
                         ):
                             continue

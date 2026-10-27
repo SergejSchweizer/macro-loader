@@ -9,17 +9,52 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-193: Archive Orphaned Retired Fed Table Before Schema Conformance
+
+PR name: `archive-orphaned-retired-fed-table`
+Status: Open — production cutover pending
+Updated: 2026-10-27
+PR: [#193](https://github.com/SergejSchweizer/macro-loader/pull/193)
+Git branch: `pr-193/archive-orphaned-retired-fed-table`
+Git status: pushed-local-checks-passed
+Agent lane: repair the production migration ledger/object drift without discarding retired data
+Depends on: PR-192 (merged to `origin/main`)
+Commit: `c59c7e5 fix(pr-193): archive orphaned retired fed table`
+Design patterns: Versioned Migration, Idempotent Archive.
+
+Description:
+- R1: Add migration 33 that replays the data-preserving Fed archive/drop prefix after
+  feature-table and view cutover, for installations whose ledger says Fed retirement is
+  complete but whose active `fed_policy_features_daily` relation remains.
+- R2: Do not rebuild or alter the published feature views in this cleanup migration.
+- R3: Document the recovery behavior and retain the final owned-table conformance check.
+
+Acceptance:
+- A1 creates a disposable v23 schema, simulates a missing `macro_loader_retired` schema
+  plus an orphaned populated `macro_loader_sync.fed_policy_features_daily`, and verifies
+  the normal migrator archives every legacy value, removes the active relation, creates
+  all 25 feature tables, removes the wide `macro_raw`, publishes both conforming views,
+  and records migration 33. Replaying the migrator preserves the archive and passes
+  conformance.
+- A2 verifies unit contracts for migration 33, archive-before-drop ordering, and no view
+  rebuild in the cleanup migration.
+- A3 passes `make quality-gate` and the targeted disposable PostgreSQL upgrade locally;
+  no GitHub Actions.
+- A4 requires the authorized production migration and read-only confirmation of 25 raw
+  feature tables, no wide or retired active table, and both conforming views. Production
+  data sync/replay/cron acceptance remains pending until this migration succeeds.
+
 ### PR-192: Defer Expensive View Rebuilds Until Feature-Table Cutover
 
 PR name: `defer-view-refresh-until-cutover`
-Status: Open — awaiting merge; production cutover pending
+Status: Merged — production cutover pending
 Updated: 2026-10-27
-PR: [#192](https://github.com/SergejSchweizer/macro-loader/pull/192)
+PR: [#192](https://github.com/SergejSchweizer/macro-loader/pull/192) (merged)
 Git branch: `pr-192/defer-view-refresh-until-cutover`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: complete the production cutover within a bounded migration window
 Depends on: PR-191 (merged to `origin/main`)
-Commit: `186c57b fix(pr-192): defer expensive views until feature cutover`
+Commit: `357f292 fix(pr-192): defer expensive views until feature cutover` (squash merge)
 Design patterns: Versioned Migration, Bounded Execution Policy.
 
 Description:

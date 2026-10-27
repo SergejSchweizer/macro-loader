@@ -818,7 +818,28 @@ def test_real_postgres_v23_upgrade_repairs_legacy_schema_without_ohlc_columns(
         ).fetchall()
         assert remaining_ohlc == []
 
+        # Simulate production drift: migration 20 is recorded, but its retired Fed
+        # archive schema and the active Fed serving table have gone out of sync.
+        connection.execute('DROP SCHEMA "macro_loader_retired" CASCADE')
+        connection.execute(
+            """CREATE TABLE "macro_loader_sync"."fed_policy_features_daily" (
+                timestamp_m1 TIMESTAMPTZ(6) PRIMARY KEY,
+                fed_next_expected_move_bp DOUBLE PRECISION NULL,
+                fed_path_slope_m3_bp DOUBLE PRECISION NULL,
+                fed_next_uncertainty_bp DOUBLE PRECISION NULL,
+                fed_repricing_5obs_bp DOUBLE PRECISION NULL,
+                available_at_utc TIMESTAMPTZ(6) NULL
+            )"""
+        )
+        orphan_timestamp = _timestamp(19)
+        connection.execute(
+            """INSERT INTO "macro_loader_sync"."fed_policy_features_daily"
+               VALUES (%s, 1.0, 2.0, 3.0, 4.0, %s)""",
+            (orphan_timestamp, _timestamp(20)),
+        )
+
     migrator.migrate()
+    migrator.migrate()  # applied migrations replay without dropping the archived copy
 
     with psycopg.connect(postgres_dsn) as connection:
         assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (
@@ -832,10 +853,22 @@ def test_real_postgres_v23_upgrade_repairs_legacy_schema_without_ohlc_columns(
         migration_versions = connection.execute(
             f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"
         ).fetchall()
+        archived_fed_row = connection.execute(
+            """SELECT fed_next_expected_move_bp, fed_path_slope_m3_bp,
+                      fed_next_uncertainty_bp, fed_repricing_5obs_bp
+               FROM "macro_loader_retired"."fed_policy_features_daily"
+               WHERE timestamp_m1 = %s""",
+            (_timestamp(19),),
+        ).fetchone()
+        orphan_fed_relation = connection.execute(
+            "SELECT to_regclass('macro_loader_sync.fed_policy_features_daily')"
+        ).fetchone()
     assert tuple(row[0] for row in raw_tables) == tuple(sorted(POSTGRES_RAW_TABLES))
     assert migration_versions == [
         (version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)
     ]
+    assert archived_fed_row == (1.0, 2.0, 3.0, 4.0)
+    assert orphan_fed_relation == (None,)
 
 
 @pytest.mark.integration
