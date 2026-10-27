@@ -16,7 +16,10 @@ completed on 2026-10-27. All 25 `macro_raw_<feature>` tables contain source rows
 `macro_raw` and orphaned retired Fed table are absent. Both public materialized views are
 current through `timestamp_m1=2026-10-27`, with `available_at_utc` through 2026-10-28.
 PostgreSQL sync state is schema 11 / feature 6, with 16,805 consumer rows and matching
-row digests.
+row digests. The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full
+acceptance on 2026-10-27: both wrapper runs succeeded, the explicit PostgreSQL replay
+made zero row changes, independent verification passed, and each raw table had at least
+37 observations in the latest 60-calendar-day window.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.

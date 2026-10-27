@@ -12,7 +12,7 @@ Last reviewed: 2026-10-27
 ### PR-195: Run Daily 09:00 PostgreSQL Delta Sync With 30-Observation Coverage
 
 PR name: `daily-09-cron-30obs`
-Status: In progress — local implementation and live acceptance pending
+Status: Implementation and live acceptance passed; PR awaiting merge
 Updated: 2026-10-27
 Git branch: `pr-195/daily-09-cron-30obs`
 Git status: in-progress
@@ -40,10 +40,12 @@ Acceptance:
   stop behavior, and that GitHub Actions remain absent/unused.
 - A3 proves the acceptance report only passes after both daily wrapper runs, a parsed
   zero-change PostgreSQL replay, and independent conformance verification pass.
-- A4 locally passes the targeted tests and `make quality-gate`; production read-only QA
-  confirms 25 populated raw tables each have at least 30 observations in the latest
-  60-calendar-day window, both views are current, and the installed schedule is daily.
-  No GitHub Actions.
+- A4 passed 2026-10-27: local targeted tests and `make quality-gate` passed; production
+  read-only QA found 25/25 raw tables with 37–41 observations in 2026-08-29–2026-10-27;
+  both views contain 16,805 rows through 2026-10-27 (availability through 2026-10-28),
+  and the installed crontab is daily at 09:00 Europe/Vienna. The two-wrapper acceptance,
+  zero-change replay (0 inserted/updated/deleted), and independent `postgres-verify`
+  all passed. No GitHub Actions.
 
 ### PR-194: Reconcile Gold Across Consecutive Schema-Only Versions
 
