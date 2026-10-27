@@ -128,14 +128,14 @@ Acceptance:
 ### PR-179: Add Euro High-Yield Yield And Total-Return Series
 
 PR name: `add-euro-high-yield-series`
-Status: In Progress
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#179](https://github.com/SergejSchweizer/macro-loader/pull/179) (open)
 Git branch: `pr-179/add-euro-high-yield-series`
-Git status: local-worktree
+Git status: pushed-local-checks-passed
 Agent lane: FRED credit-series registration and source-history QA
 Depends on: PR-178
-Commit: pending
+Commit: `0b0e0ff feat(pr-179): add euro high-yield series`
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
