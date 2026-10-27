@@ -23,6 +23,16 @@ do not read, write, or recreate it. The `macro_loader.macro_features` materializ
 is rebuilt from a full-outer-join projection of the feature tables and then computes the
 closed-world causal feature catalog. It preserves all available timestamps, including
 pre-2010 rows, and exposes NULL where source data or causal warm-up is unavailable.
+Migration 32 leaves `macro_loader.macro_features` and its public query contract
+untouched. It adds a private materialized raw-key projection and private materialized
+transformations for the 12 additional positive-level series, then adds
+`macro_loader.macro_features_extended`, a separately versioned materialized view for
+their 792 catalogued transformation outputs. This keeps the existing 953-column,
+version-16 public contract stable and avoids PostgreSQL's 1,600-column per-relation limit;
+the extended view has 794 columns including `timestamp_m1` and `available_at_utc`. The
+private relations are not granted to consumer roles. Both public views expose the same
+temporal/availability keys, are covered by catalog fingerprints and schema conformance,
+and refresh in dependency order through the explicit PostgreSQL refresh routine.
 
 Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
 then registry-derived native OHLC fields in series-major order with `open`, `high`,

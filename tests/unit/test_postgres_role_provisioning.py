@@ -65,6 +65,11 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     )
     assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro-loader"' in sql
     assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro-loader"' in sql
+    assert "to_regclass('macro_loader.macro_features_extended') IS NOT NULL" in sql
+    assert (
+        'GRANT SELECT ON TABLE "macro_loader"."macro_features_extended" '
+        f'TO "{POSTGRES_ROLE}", "{POSTGRES_SYNC_ROLE}";'
+    ) in sql
     assert "GRANT USAGE, CREATE" not in sql
     for schema, table in POSTGRES_TABLES[:-1]:
         assert (

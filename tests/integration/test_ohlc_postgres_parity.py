@@ -18,6 +18,10 @@ import ingestion.postgres_gold_repository as postgres_module
 from application.contracts import NativeShape
 from application.gold_frame import GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
+    EXTENDED_FEATURE_COLUMNS,
+    EXTENDED_FEATURE_POSTGRES_TYPES,
+    EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
+    EXTENDED_MACRO_FEATURE_VIEW_VERSION,
     FEATURE_COLUMNS,
     FEATURE_POSTGRES_TYPES,
     MACRO_FEATURE_VIEW_FINGERPRINT,
@@ -364,6 +368,27 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     assert not set(all_new).intersection(_expected_gold_columns())
 
 
+def _assert_extended_view_contract(connection: psycopg.Connection[object]) -> None:
+    rows = _column_rows(connection, "macro_loader.macro_features_extended")
+    names = tuple(str(row[0]) for row in rows)
+    assert names == ("timestamp_m1", "available_at_utc", *EXTENDED_FEATURE_COLUMNS[1:])
+    assert tuple(str(row[1]) for row in rows[:2]) == (
+        "timestamp(6) with time zone",
+        "timestamp(6) with time zone",
+    )
+    assert all(
+        row[1] == EXTENDED_FEATURE_POSTGRES_TYPES[str(row[0])] and row[2] is False
+        for row in rows[2:]
+    )
+    assert len(names) == 794 < 1600
+    assert connection.execute(
+        "SELECT obj_description('macro_loader.macro_features_extended'::regclass, 'pg_class')"
+    ).fetchone() == (
+        f"macro feature view version={EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}",
+    )
+
+
 @pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_31"))
 def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
@@ -445,6 +470,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             assert raw_rows[1][1:] == ("timestamp(6) with time zone", True)
             assert all(row[1:] == ("double precision", False) for row in raw_rows[2:])
         _assert_view_contract(connection)
+        _assert_extended_view_contract(connection)
         view_comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
@@ -508,7 +534,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             GoldDeltaPlan((payload,), (), (), (), (digest,)),
             sync_state,
         )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         selected_columns = ", ".join(f'"{column}"' for column in _OHLC_COLUMNS)
         selected = connection.execute(
             f"SELECT {selected_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
@@ -563,7 +589,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             ),
         )
         with psycopg.connect(postgres_dsn) as revision_connection:
-            revision_connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+            revision_connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
             revised_view_value = revision_connection.execute(
                 'SELECT "vix_open" FROM macro_loader.macro_features WHERE timestamp_m1 = %s',
                 (timestamp,),
@@ -694,7 +720,7 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
                 values[f"{series}_low"] = low
                 values[f"{series}_close"] = close
             _insert_feature_source_row(connection, timestamp, values)
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
 
     output_columns = tuple(
         f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in _OHLC_BAR_SUFFIXES
@@ -751,7 +777,7 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
         future_values[f"{series}_close"] = close
     with psycopg.connect(postgres_dsn) as connection:
         _insert_feature_source_row(connection, future_timestamp, future_values)
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         after = connection.execute(
             f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
             (last_timestamp,),
@@ -863,7 +889,7 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
                 for field, value in zip(_OHLC_FIELDS, bar or (None, None, None, None), strict=True):
                     values[f"{series}_{field}"] = value
             _insert_feature_source_row(connection, timestamp, values)
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
 
     output_columns = tuple(
         f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in output_suffixes
@@ -932,9 +958,162 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
         future_values[f"{series}_close"] = close
     with psycopg.connect(postgres_dsn) as connection:
         _insert_feature_source_row(connection, future_timestamp, future_values)
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         after_future = connection.execute(
             f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
             (last_timestamp,),
         ).fetchone()
     assert after_future == before_future
+
+
+def test_extended_view_publishes_all_added_series_and_causal_transformations(
+    postgres_dsn: str,
+    migrator: PostgresGoldSchemaMigrator,
+) -> None:
+    from application.macro_feature_catalog import EXTENDED_RAW_SERIES
+
+    migrator.migrate()
+    origin = datetime(2025, 1, 1, tzinfo=UTC)
+    timestamps = [origin + timedelta(days=index) for index in range(70)]
+    with psycopg.connect(postgres_dsn) as connection:
+        _assert_extended_view_contract(connection)
+        assert connection.execute(
+            "SELECT count(*) FROM pg_matviews WHERE schemaname = 'macro_loader' "
+            "AND matviewname LIKE 'macro_feature_transform_%'"
+        ).fetchone()[0] == len(EXTENDED_RAW_SERIES)
+        for relation in (
+            "macro_feature_raw_projection",
+            "macro_feature_transform_vstoxx1m",
+            "macro_feature_transform_us_5y",
+        ):
+            assert connection.execute(
+                "SELECT has_table_privilege('macro-loader', %s, 'SELECT'), "
+                "has_table_privilege('macro-loader-sync', %s, 'SELECT')",
+                (f"macro_loader.{relation}", f"macro_loader.{relation}"),
+            ).fetchone() == (False, False)
+        with connection.cursor() as cursor:
+            for series in EXTENDED_RAW_SERIES:
+                cursor.executemany(
+                    f'INSERT INTO macro_loader."macro_raw_{series}" '
+                    '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
+                    ((timestamp, 100.0 + index) for index, timestamp in enumerate(timestamps)),
+                )
+            cursor.executemany(
+                'INSERT INTO macro_loader."macro_raw_vix" '
+                '("timestamp_m1", "open", "high", "low", "close") '
+                "VALUES (%s, %s, %s, %s, %s)",
+                (
+                    (timestamp, 99.0 + index, 102.0 + index, 98.0 + index, 100.0 + index)
+                    for index, timestamp in enumerate(timestamps)
+                ),
+            )
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        main_rows = connection.execute(
+            "SELECT timestamp_m1, vix_log_return_20obs, vix_return_geom_5obs_pct, "
+            "available_at_utc FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 IN (%s, %s) ORDER BY timestamp_m1",
+            (timestamps[19], timestamps[60]),
+        ).fetchall()
+        main_keys = connection.execute(
+            "SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_features "
+            "ORDER BY timestamp_m1"
+        ).fetchall()
+        extended_keys = connection.execute(
+            "SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_features_extended "
+            "ORDER BY timestamp_m1"
+        ).fetchall()
+        rows = connection.execute(
+            "SELECT timestamp_m1, vstoxx1m_log_return_20obs, "
+            "vstoxx1m_return_geom_5obs_pct, vstoxx1m_return_mean_5obs, "
+            "vstoxx1m_volatility_5obs, vstoxx1m_sma_ratio_5_20, "
+            "vstoxx1m_rsi_14obs, vstoxx1m_roc_20obs, vstoxx1m_drawdown_20obs, "
+            "vstoxx1m_ema5_distance, vstoxx1m_macd_hist_relative, available_at_utc "
+            "FROM macro_loader.macro_features_extended "
+            "WHERE timestamp_m1 IN (%s, %s) ORDER BY timestamp_m1",
+            (timestamps[19], timestamps[60]),
+        ).fetchall()
+        before_future = connection.execute(
+            "SELECT vstoxx1m_log_return_20obs, vstoxx1m_macd_hist_relative "
+            "FROM macro_loader.macro_features_extended WHERE timestamp_m1 = %s",
+            (timestamps[-1],),
+        ).fetchone()
+        future_timestamp = timestamps[-1] + timedelta(days=1)
+        connection.execute(
+            'INSERT INTO macro_loader."macro_raw_vstoxx1m" '
+            '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
+            (future_timestamp, 9999.0),
+        )
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        after_future = connection.execute(
+            "SELECT vstoxx1m_log_return_20obs, vstoxx1m_macd_hist_relative "
+            "FROM macro_loader.macro_features_extended WHERE timestamp_m1 = %s",
+            (timestamps[-1],),
+        ).fetchone()
+
+    assert rows[0][1] is None
+    assert rows[0][2] is not None
+    assert rows[0][3] is not None
+    assert rows[0][4] is not None
+    assert rows[0][5] is not None
+    assert rows[0][6] is not None
+    assert rows[0][7] is None
+    assert rows[0][8] is not None
+    assert rows[0][9] is not None
+    assert rows[0][10] is None
+    assert rows[0][11] is not None
+    assert main_rows[0][1] is None
+    assert main_rows[0][2] is not None
+    assert main_rows[1][1] == pytest.approx(math.log(160.0 / 140.0))
+    assert main_rows[1][2] == pytest.approx(160.0 / 155.0 - 1.0)
+    assert len(main_keys) == len(extended_keys) == 70
+    assert main_keys == extended_keys
+    final = rows[1]
+    assert final[1] == pytest.approx(math.log(160.0 / 140.0))
+    assert final[2] == pytest.approx(160.0 / 155.0 - 1.0)
+    assert final[3] == pytest.approx(math.log(160.0 / 155.0) / 5.0)
+    returns = [math.log(value / (value - 1.0)) for value in range(156, 161)]
+    mean_return = sum(returns) / len(returns)
+    sample_volatility = math.sqrt(
+        sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
+    )
+    assert final[4] == pytest.approx(sample_volatility)
+    assert final[5] == pytest.approx(158.0 / 150.5)
+    assert final[6] == pytest.approx(100.0)
+    assert final[7] == pytest.approx(160.0 / 140.0 - 1.0)
+    assert final[8] == pytest.approx(0.0)
+    assert final[9] is not None
+    assert final[10] is not None
+    assert final[11] is not None
+    assert before_future == after_future
+
+
+def test_postgres_migration_32_upgrades_existing_v31_view_contract(
+    postgres_dsn: str,
+    migrator: PostgresGoldSchemaMigrator,
+) -> None:
+    from application.macro_feature_catalog import EXTENDED_RAW_SERIES
+
+    migrator.migrate()
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        main_view_oid = connection.execute(
+            "SELECT 'macro_loader.macro_features'::regclass::oid"
+        ).fetchone()[0]
+        connection.execute("DROP MATERIALIZED VIEW macro_loader.macro_features_extended")
+        for series in EXTENDED_RAW_SERIES:
+            connection.execute(
+                f'DROP MATERIALIZED VIEW macro_loader."macro_feature_transform_{series}"'
+            )
+        connection.execute("DROP MATERIALIZED VIEW macro_loader.macro_feature_raw_projection")
+        connection.execute("DELETE FROM macro_loader_sync.schema_migrations WHERE version = 32")
+
+    migrator.migrate()
+    with psycopg.connect(postgres_dsn) as connection:
+        _assert_extended_view_contract(connection)
+        assert (
+            connection.execute("SELECT 'macro_loader.macro_features'::regclass::oid").fetchone()[0]
+            == main_view_oid
+        )
+        assert connection.execute(
+            "SELECT count(*) FROM pg_matviews WHERE schemaname = 'macro_loader' "
+            "AND matviewname LIKE 'macro_feature_transform_%'"
+        ).fetchone()[0] == len(EXTENDED_RAW_SERIES)

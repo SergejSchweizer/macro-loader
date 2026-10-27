@@ -9,17 +9,68 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-184: Extend PostgreSQL Transformations To All Registered Positive-Level Series
+
+PR name: `extend-transformations-to-registered-series`
+Status: In Progress — PR open
+Updated: 2026-10-27
+PR: [#184](https://github.com/SergejSchweizer/macro-loader/pull/184) (open)
+Git branch: `pr-184/extend-transformations-to-registered-series`
+Git status: pushed-local-checks-passed
+Agent lane: complete point-in-time feature projection for every applicable registered source
+Depends on: PR-183 (merged to `origin/main`)
+Commit: `4456ed2 feat(pr-184): add extended transforms for registered series`
+Design patterns: Registry-driven Projection, Materialized View, Versioned Migration, Independent Reference.
+
+Description:
+- R1: Add the existing catalog-defined causal price/momentum transformations for the 12
+  registered positive-level series not currently projected: `vstoxx1m`, `vstoxx2m`,
+  `vstoxx3m`, `ciss_money`, `ciss_bonds`, `ciss_equity`, `ciss_financials`,
+  `euro_hy_yield`, `euro_hy_ytw`, `euro_hy_total_return`, `us_3m`, and `us_5y`. Keep
+  signed `estr` excluded from positive-level transforms and retain all 25 raw tables.
+- R2: Preserve the existing 953-column `macro_features` contract. The full catalog would
+  contain 1,745 columns and exceed PostgreSQL's per-relation limit, so publish the new
+  series' 792 applicable catalog outputs in `macro_features_extended`, keyed by the same
+  `timestamp_m1` and carrying the same `available_at_utc`. Do not remove existing feature
+  families to evade the limit.
+- R3: Add migration 32 with a private shared raw-key projection and private
+  materialized transformations for the 12 added series, then assemble the companion view
+  from those relations. Leave the existing `macro_features` materialized view untouched,
+  create/grant the companion view, and refresh the core view, raw projection, added-series
+  transforms, and companion view in dependency order. Bind both public column/type
+  contracts and fingerprints to the registry catalog.
+- R4: Document the 24-source two-view consumer contract, the PostgreSQL column-limit
+  rationale, formulas, and null/warm-up behavior. No production migration or cron run.
+
+Acceptance:
+- A1 verifies R1: catalog coverage matches exactly the 12 listed added series; every
+  applicable existing transformation family is generated for each, `estr` receives no
+  positive-level output, and all 25 raw tables remain unchanged.
+- A2 verifies R2: the existing `macro_features` ordered names/types/fingerprint remain
+  unchanged; `macro_features_extended` has exactly 794 columns (timestamp, availability,
+  and 792 feature outputs), no duplicate names, and stays below PostgreSQL's 1,600-column
+  relation limit.
+- A3 verifies R3: migration 32 is transactional and replay-safe; private materializations
+  are not granted to consumer roles; both public views refresh together; the existing
+  `macro_features` relation, public schema, and fingerprint remain unchanged; role grants
+  are correct; and the conformance verifier rejects missing, extra, reordered, or
+  wrong-typed extended columns. Disposable PostgreSQL upgrade/clean-create tests run when
+  `POSTGRES_TEST_DSN` is configured.
+- A4 verifies causal/warm-up/null behavior with hand-calculable references and
+  truncation/invalid-input checks; README and ARCHITECTURE match the executable contract;
+  local `make quality-gate` passes. No production DB, cron, GitHub Actions, or remote gate.
+
 ### PR-183: Update PostgreSQL EMA/MACD Parity QA For Feature Tables
 
 PR name: `update-feature-table-parity-qa`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-27
-PR: [#183](https://github.com/SergejSchweizer/macro-loader/pull/183) (open)
+PR: [#183](https://github.com/SergejSchweizer/macro-loader/pull/183) (merged)
 Git branch: `pr-183/update-feature-table-parity-qa`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: PostgreSQL serving transformation parity QA after raw-table cutover
 Depends on: PR-182 (merged to `origin/main`)
-Commit: `0fc34e7 test(pr-183): update ema macd parity for feature tables`
+Commit: `716b33d test(pr-183): update ema macd parity for feature tables` (GitHub squash merge)
 Design patterns: Independent Reference, Migration/Schema Contract Testing.
 
 Description:
@@ -317,7 +368,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-182 are merged; PR-183 is in progress. No production migration or
+PR-176 through PR-183 are merged; PR-184 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.

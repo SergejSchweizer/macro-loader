@@ -2,10 +2,17 @@ from __future__ import annotations
 
 import pytest
 
+from application.macro_feature_catalog import (
+    EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
+    EXTENDED_MACRO_FEATURE_VIEW_VERSION,
+)
 from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
 from ingestion.postgres_conformance_verifier import PostgresLiveDatabaseConformanceInspector
 from ingestion.postgres_gold_repository import (
+    _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
+    _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED,
+    _EXTENDED_FEATURES_VIEW_DEFINITION,
     _FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
     _FEATURES_VIEW_COLUMNS_EXPECTED,
     _FEATURES_VIEW_DEFINITION,
@@ -77,6 +84,17 @@ class FakeCursor:
                 (schema, POSTGRES_OWNER_ROLE)
                 for schema in sorted((POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA))
             ]
+        elif "obj_description(classes.oid" in query and params == (
+            POSTGRES_CONSUMER_SCHEMA,
+            "macro_features_extended",
+        ):
+            self._one = (
+                "m",
+                _POSTGRES_OWNER_ROLE,
+                f"macro feature view version={EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
+                f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}",
+                _EXTENDED_FEATURES_VIEW_DEFINITION,
+            )
         elif "obj_description(classes.oid" in query:
             self._one = (
                 "m",
@@ -85,6 +103,18 @@ class FakeCursor:
                 f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
                 _FEATURES_VIEW_DEFINITION,
             )
+        elif "FROM pg_attribute AS attributes" in query and params == (
+            f"{POSTGRES_CONSUMER_SCHEMA}.macro_features_extended",
+        ):
+            self._many = [
+                (
+                    ordinal,
+                    name,
+                    _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
+                    False,
+                )
+                for ordinal, name in enumerate(_EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
+            ]
         elif "FROM pg_attribute AS attributes" in query:
             self._many = [
                 (

@@ -446,11 +446,31 @@ Sync state and row digests stay in the separate `macro_loader_sync` schema.
 
 The PostgreSQL `macro_features` materialized view (feature-view contract version 16)
 reconstructs the ordered Gold source projection by full-outer-joining the 25 feature
-tables on `timestamp_m1`, then computes its closed-world derived columns. It preserves
-sparse dates and NULLs, including pre-2010 observations; it does not carry values across
-dates. The view is refreshed in the same PostgreSQL transaction as a successful raw-table
-delta. This code and local validation do not assert that migration 31 has run in production.
+tables on `timestamp_m1`. Private materialized support relations hold that shared raw
+projection used by the companion view and the added series' catalog-defined
+transformations; the existing public view continues to compute its unchanged closed-world
+catalog directly from feature tables. These relations preserve sparse dates and NULLs,
+including pre-2010 observations; they do not carry values across dates. The core view,
+raw projection, private added-series transformations, and companion view refresh in
+dependency order in the same PostgreSQL transaction as a successful raw-table delta. This
+code and local validation do not assert that migration 31 has run in production.
 Historical Fed acceptance artifacts remain available for audit.
+
+PostgreSQL migration 32 also publishes `macro_loader.macro_features_extended` (view
+contract version 1) for the 12 additional positive-level scalar sources
+`vstoxx1m`, `vstoxx2m`, `vstoxx3m`, `ciss_money`, `ciss_bonds`, `ciss_equity`,
+`ciss_financials`, `euro_hy_yield`, `euro_hy_ytw`, `euro_hy_total_return`, `us_3m`, and
+`us_5y`. It exposes all 792 catalog-defined causal transformation columns for those
+series plus `timestamp_m1` and `available_at_utc`. Signed `estr` remains excluded from
+positive-level transformations. The existing 953-column `macro_features` contract is
+preserved. Together the two views provide transformations for all 24 applicable positive
+series without exceeding PostgreSQL's 1,600-column limit on a single relation. Join the
+views on `timestamp_m1`; both expose the same generated `available_at_utc` and are
+refreshed together by `macro_loader.refresh_macro_features_explicit()` in the sync
+transaction. Migration 32 leaves the existing `macro_features` materialized view
+untouched; its private raw-key and added-series support relations are not granted to
+consumer roles. This describes the code contract only; it does not assert that migration
+32 has run in production.
 
 #### PR-171: Composite and Statistical Feature Semantics
 

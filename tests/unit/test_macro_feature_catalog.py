@@ -1,6 +1,13 @@
 import pytest
 
 from application.macro_feature_catalog import (
+    EXTENDED_FEATURE_CATALOG,
+    EXTENDED_FEATURE_COLUMNS,
+    EXTENDED_FEATURE_POSTGRES_TYPES,
+    EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
+    EXTENDED_MACRO_FEATURE_VIEW_VERSION,
+    EXTENDED_PRICE_FEATURE_SERIES,
+    EXTENDED_RAW_SERIES,
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
     FEATURE_POSTGRES_TYPES,
@@ -10,6 +17,7 @@ from application.macro_feature_catalog import (
     OHLC_DONCHIAN_SUFFIXES,
     OHLC_STOCHASTIC_SUFFIXES,
     PRICE_FEATURE_SERIES,
+    RAW_SERIES,
     SIGNED_LEVEL_SERIES,
     feature_catalog_fingerprint,
     validate_feature_catalog,
@@ -34,6 +42,10 @@ from application.trend_features import (
     SMA_RATIO_WINDOWS,
 )
 from ingestion.postgres_gold_repository import (
+    _EXTENDED_FEATURE_SERIES_DDLS,
+    _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
+    _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED,
+    _EXTENDED_FEATURES_VIEW_DDL,
     _FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
     _FEATURES_VIEW_COLUMNS_EXPECTED,
     _FEATURES_VIEW_DDL,
@@ -189,6 +201,73 @@ def test_catalog_fingerprint_is_stable_and_versioned() -> None:
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
 
+def test_extended_catalog_covers_every_additional_registered_positive_series() -> None:
+    validate_feature_catalog(
+        EXTENDED_FEATURE_CATALOG,
+        price_feature_series=EXTENDED_PRICE_FEATURE_SERIES,
+        raw_series=EXTENDED_RAW_SERIES,
+        include_ohlc=False,
+    )
+    assert EXTENDED_RAW_SERIES == (
+        "vstoxx1m",
+        "vstoxx2m",
+        "vstoxx3m",
+        "ciss_money",
+        "ciss_bonds",
+        "ciss_equity",
+        "ciss_financials",
+        "euro_hy_yield",
+        "euro_hy_ytw",
+        "euro_hy_total_return",
+        "us_3m",
+        "us_5y",
+    )
+    assert EXTENDED_PRICE_FEATURE_SERIES == EXTENDED_RAW_SERIES
+    assert len(EXTENDED_FEATURE_COLUMNS) == 793
+    assert len(EXTENDED_FEATURE_CATALOG) == 792
+    assert len(EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT) == 64
+    assert EXTENDED_MACRO_FEATURE_VIEW_VERSION == 1
+    assert (
+        "timestamp_m1",
+        "available_at_utc",
+        *EXTENDED_FEATURE_COLUMNS[1:],
+    ) == _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED
+    assert len(_EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED) == 794
+    assert len(_EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED) < 1600
+    assert len(_EXTENDED_FEATURE_SERIES_DDLS) == len(EXTENDED_RAW_SERIES)
+    assert _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED == {
+        "timestamp_m1": "timestamp(6) with time zone",
+        "available_at_utc": "timestamp(6) with time zone",
+        **EXTENDED_FEATURE_POSTGRES_TYPES,
+    }
+    assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features_extended"' in (
+        _EXTENDED_FEATURES_VIEW_DDL
+    )
+    for series, series_ddl in zip(
+        EXTENDED_PRICE_FEATURE_SERIES, _EXTENDED_FEATURE_SERIES_DDLS, strict=True
+    ):
+        assert f'"macro_loader"."macro_raw_{series}"' in series_ddl
+        for family in (
+            "log_return",
+            "return_geom",
+            "return_mean",
+            "volatility",
+            "sma_ratio",
+            "rsi",
+            "roc",
+            "drawdown",
+            "ema",
+            "macd",
+        ):
+            assert any(name.startswith(f"{series}_{family}") for name in EXTENDED_FEATURE_COLUMNS)
+    for series in RAW_SERIES:
+        assert all(
+            f'"macro_loader"."macro_raw_{series}"' not in ddl
+            for ddl in _EXTENDED_FEATURE_SERIES_DDLS
+        )
+    assert not any(name.startswith("estr_") for name in EXTENDED_FEATURE_COLUMNS)
+
+
 def test_catalog_rejects_duplicate_columns() -> None:
     with pytest.raises(ValueError, match="duplicate columns"):
         validate_feature_catalog(FEATURE_CATALOG[:-1] + (FEATURE_CATALOG[0],))
@@ -260,19 +339,26 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert len([spec for spec in FEATURE_CATALOG if spec.family == "ema_trend"]) == (
         len(PRICE_FEATURE_SERIES) * len(EMA_OUTPUT_SUFFIXES)
     )
-    assert len(_MIGRATIONS) == 31
+    assert len(_MIGRATIONS) == 32
     previous_migration_sql = " ".join(_MIGRATIONS[24])
     assert 'ALTER TABLE "macro_loader"."macro_raw"' in previous_migration_sql
     assert 'ADD COLUMN IF NOT EXISTS "vix_open" DOUBLE PRECISION NULL' in previous_migration_sql
-    view_migration_sql = " ".join(_MIGRATIONS[-2])
-    assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in view_migration_sql
-    assert "DROP TABLE" not in view_migration_sql
-    assert "DROP MATERIALIZED VIEW" in view_migration_sql
-    assert f"version={MACRO_FEATURE_VIEW_VERSION}" in view_migration_sql
-    assert MACRO_FEATURE_VIEW_FINGERPRINT in view_migration_sql
-    cutover_migration_sql = " ".join(_MIGRATIONS[-1])
+    treasury_migration_sql = " ".join(_MIGRATIONS[-3])
+    assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration_sql
+    assert "DROP TABLE" not in treasury_migration_sql
+    assert "DROP MATERIALIZED VIEW" in treasury_migration_sql
+    assert f"version={MACRO_FEATURE_VIEW_VERSION}" in treasury_migration_sql
+    assert MACRO_FEATURE_VIEW_FINGERPRINT in treasury_migration_sql
+    cutover_migration_sql = " ".join(_MIGRATIONS[-2])
     assert "DROP TABLE" in cutover_migration_sql
     assert 'CREATE TABLE IF NOT EXISTS "macro_loader"."macro_raw_vix"' in cutover_migration_sql
+    extended_view_migration_sql = " ".join(_MIGRATIONS[-1])
+    assert _EXTENDED_FEATURES_VIEW_DDL in _MIGRATIONS[-1]
+    assert "macro_features_extended" in extended_view_migration_sql
+    assert EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT in extended_view_migration_sql
+    assert "REFRESH MATERIALIZED VIEW macro_loader.macro_features_extended" in (
+        extended_view_migration_sql
+    )
 
 
 @pytest.mark.unit
@@ -304,8 +390,8 @@ def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> Non
     assert "lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3" in _FEATURES_VIEW_DDL
     signed_seed = "CASE WHEN input.levels[1] IS NOT NULL THEN 1 ELSE 0 END AS seed_count"
     assert signed_seed in _FEATURES_VIEW_DDL
-    assert len(_MIGRATIONS) == 31
-    migration_sql = " ".join(_MIGRATIONS[-1])
+    assert len(_MIGRATIONS) == 32
+    migration_sql = " ".join(_MIGRATIONS[-2])
     assert "DROP MATERIALIZED VIEW" in migration_sql
     assert "version=16" in migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql
