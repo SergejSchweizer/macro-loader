@@ -168,14 +168,14 @@ Acceptance:
 ### PR-180: Add U.S. Three-Month And Five-Year Treasury Series
 
 PR name: `add-us-treasury-3m-5y-series`
-Status: In Progress
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#180](https://github.com/SergejSchweizer/macro-loader/pull/180) (open)
 Git branch: `pr-180/add-us-treasury-3m-5y-series`
-Git status: local-worktree
+Git status: pushed-local-checks-passed
 Agent lane: FRED Treasury registration and provider QA
 Depends on: PR-179
-Commit: pending
+Commit: `f05d49e feat(pr-180): add treasury 3m and 5y series`
 Design patterns: Registry/Factory, Pure Parser.
 
 Description:
