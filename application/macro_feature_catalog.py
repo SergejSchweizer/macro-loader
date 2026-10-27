@@ -423,6 +423,41 @@ EXTENDED_FEATURE_POSTGRES_TYPES: dict[str, str] = {
 }
 EXTENDED_MACRO_FEATURE_VIEW_VERSION = 1
 
+# Long-form storage contains derived outputs, while native OHLC passthrough values
+# remain in their dedicated raw tables and wide compatibility views.
+FEATURE_VALUE_CATALOG: tuple[MacroFeatureSpec, ...] = tuple(
+    spec for spec in (*FEATURE_CATALOG, *EXTENDED_FEATURE_CATALOG) if spec.family != "raw_ohlc"
+)
+FEATURE_VALUE_NAMES: tuple[str, ...] = tuple(spec.name for spec in FEATURE_VALUE_CATALOG)
+FEATURE_VALUE_PRIMARY_NAMES: tuple[str, ...] = tuple(
+    spec.name for spec in FEATURE_CATALOG if spec.family != "raw_ohlc"
+)
+FEATURE_VALUE_EXTENDED_NAMES: tuple[str, ...] = tuple(
+    spec.name for spec in EXTENDED_FEATURE_CATALOG if spec.family != "raw_ohlc"
+)
+FEATURE_VALUE_SCHEMA_VERSION = 1
+if len(FEATURE_VALUE_NAMES) != len(set(FEATURE_VALUE_NAMES)):
+    raise ValueError("long-form feature catalog contains duplicate names")
+FEATURE_VALUE_CATALOG_FINGERPRINT = hashlib.sha256(
+    json.dumps(
+        {
+            "version": FEATURE_VALUE_SCHEMA_VERSION,
+            "features": [
+                {
+                    "name": spec.name,
+                    "family": spec.family,
+                    "series": spec.series,
+                    "formula": spec.formula,
+                    "postgres_type": spec.postgres_type,
+                }
+                for spec in FEATURE_VALUE_CATALOG
+            ],
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
+
 
 def validate_feature_catalog(
     catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,

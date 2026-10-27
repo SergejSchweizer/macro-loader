@@ -16,9 +16,18 @@ class PostgresDatabaseConformanceEvidence:
     schema_table_count: int
     role_count: int
     temporal_probe_count: int
+    feature_value_row_count: int = 0
 
     def __post_init__(self) -> None:
-        if min(self.schema_table_count, self.role_count, self.temporal_probe_count) < 0:
+        if (
+            min(
+                self.schema_table_count,
+                self.role_count,
+                self.temporal_probe_count,
+                self.feature_value_row_count,
+            )
+            < 0
+        ):
             raise ValueError("PostgreSQL conformance evidence counts cannot be negative")
 
     def as_summary(self) -> dict[str, int]:
@@ -26,6 +35,7 @@ class PostgresDatabaseConformanceEvidence:
             "role_count": self.role_count,
             "schema_table_count": self.schema_table_count,
             "temporal_probe_count": self.temporal_probe_count,
+            "feature_value_row_count": self.feature_value_row_count,
         }
 
 

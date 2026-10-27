@@ -688,12 +688,17 @@ def test_real_postgres_independent_conformance_verifier_passes(
         repository=repository,
         inspector=inspector,
     )
+    with psycopg.connect(postgres_dsn) as connection:
+        feature_value_row_count = connection.execute(
+            "SELECT count(*) FROM macro_loader.macro_feature_values"
+        ).fetchone()[0]
 
     assert verifier.verify() == PostgresConformanceReport(
         "PASS",
         (
             "consumer",
             "digest_index",
+            "feature_values",
             "roles",
             "schema",
             "session",
@@ -706,8 +711,9 @@ def test_real_postgres_independent_conformance_verifier_passes(
             "consumer_row_count": 1,
             "digest_row_count": 1,
             "role_count": 3,
-            "schema_table_count": 28,
+            "schema_table_count": 29,
             "temporal_probe_count": 2,
+            "feature_value_row_count": feature_value_row_count,
         },
     )
 

@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 
 from application.postgres_conformance import PostgresDatabaseConformanceEvidence
-from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
+from application.postgres_sync import (
+    POSTGRES_CONSUMER_SCHEMA,
+    POSTGRES_FEATURE_VALUES_TABLE,
+    POSTGRES_SYNC_SCHEMA,
+)
 from ingestion.postgres_gold_repository import (
+    _FEATURE_VALUE_POPULATION_SQL,
     _SCHEMA_SPECIFICATION,
     POSTGRES_APPLICATION_NAME,
     ConnectionFactory,
@@ -89,6 +95,7 @@ class PostgresLiveDatabaseConformanceInspector:
                     cursor.execute(statement)
                 cursor.execute("SET TRANSACTION READ ONLY")
                 self._assert_schema(cursor)
+                feature_value_row_count = self._assert_feature_values_population(cursor)
                 self._assert_roles(cursor)
                 self._assert_session(cursor)
                 self._assert_temporal_round_trips(cursor)
@@ -108,6 +115,7 @@ class PostgresLiveDatabaseConformanceInspector:
             schema_table_count=len(_SCHEMA_SPECIFICATION),
             role_count=3,
             temporal_probe_count=len(_TEMPORAL_PROBES),
+            feature_value_row_count=feature_value_row_count,
         )
 
     @staticmethod
@@ -158,6 +166,32 @@ class PostgresLiveDatabaseConformanceInspector:
         if actual_keys != expected_keys:
             raise ValueError("owned keys differ")
         PostgresGoldSyncRepository._assert_features_view_contract(cursor)
+        PostgresGoldSyncRepository._assert_feature_values_table_contract(cursor)
+
+    @staticmethod
+    def _assert_feature_values_population(cursor: CursorPort) -> int:
+        cursor.execute(_FEATURE_VALUE_POPULATION_SQL)
+        row = cursor.fetchone()
+        if row is None or len(row) != 7 or not all(isinstance(value, int) for value in row):
+            raise ValueError("long-form feature population query returned unexpected shape")
+        (
+            row_count,
+            source_count,
+            feature_count,
+            source_feature_count,
+            invalid_types,
+            invalid_source_types,
+            invalid_source_count,
+        ) = row
+        if (
+            row_count != source_count
+            or feature_count != source_feature_count
+            or invalid_types != 0
+            or invalid_source_types != 0
+            or invalid_source_count != 0
+        ):
+            raise ValueError("long-form feature values differ from their source views")
+        return cast(int, row_count)
 
     @staticmethod
     def _assert_roles(cursor: CursorPort) -> None:
@@ -192,7 +226,9 @@ class PostgresLiveDatabaseConformanceInspector:
                 if cursor.fetchone() != (True, False):
                     raise ValueError("runtime schema grants differ")
         for table in _SCHEMA_SPECIFICATION:
-            has_dml = table.name != "schema_migrations"
+            has_dml = (
+                table.name != POSTGRES_FEATURE_VALUES_TABLE and table.name != "schema_migrations"
+            )
             for role, role_has_dml in ((POSTGRES_ROLE, False), (POSTGRES_SYNC_ROLE, has_dml)):
                 expected = (True, role_has_dml, role_has_dml, role_has_dml)
                 cursor.execute(

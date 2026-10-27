@@ -9,16 +9,54 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-196: Publish PostgreSQL Transformations In A Long Feature-Values Table
+
+PR name: `macro-feature-values-long-table`
+Status: In progress — implementation and migration QA pending
+Updated: 2026-10-27
+Git branch: `pr-196/macro-feature-values-long-table`
+Git status: in-progress
+Agent lane: expose the complete PostgreSQL transformation catalog in a row-oriented relation
+Depends on: PR-195 (merged to `origin/main`)
+Commit: `feat(pr-196): publish long-form macro feature values`
+Design patterns: Repository, Unit of Work, explicit feature-catalog projection.
+
+Description:
+- R1: Add `macro_loader.macro_feature_values` with one sparse row per non-null
+  transformation output and observation timestamp; include generated `available_at_utc`,
+  `feature_name`, and `value DOUBLE PRECISION`; boolean Donchian flags map to `1.0`/`0.0`.
+- R2: Publish every current primary and extended catalog transformation, excluding raw
+  OHLC passthrough columns; absent rows represent the existing SQL NULL/warm-up semantics.
+- R3: Rebuild the table transactionally after both feature materialized views refresh, with
+  a primary key on `(timestamp_m1, feature_name)`, a feature-first lookup index, owner-only
+  writes, and read access for the consumer and sync roles.
+- R4: Include the table in migrations, schema conformance, independent QA, operator docs,
+  and populate it in the authorized production database.
+
+Acceptance:
+- A1 upgrades a populated v33 database through migration 34 without changing the two
+  existing materialized-view contracts; fresh installs also produce the table.
+- A2 verifies exact feature-name/type coverage against both catalogs, numeric and
+  boolean-to-`1.0`/`0.0` encoding, omission of SQL NULLs, generated UTC availability,
+  unique key, and grants.
+- A3 proves refresh is transactionally ordered after both source views and that insert,
+  update, deletion, and replay leave the long table equal to the source views; local
+  `make quality-gate` passes. No GitHub Actions.
+- A4 migrates and populates production only after local QA; independent read-only checks
+  reconcile row counts and sampled values to both views, including boolean outputs and
+  NULL/warm-up absence, then confirm the cron sync refreshes the table.
+
 ### PR-195: Run Daily 09:00 PostgreSQL Delta Sync With 30-Observation Coverage
 
 PR name: `daily-09-cron-30obs`
-Status: Implementation and live acceptance passed; PR awaiting merge
+Status: Merged — daily cron and live acceptance passed
 Updated: 2026-10-27
+PR: [#195](https://github.com/SergejSchweizer/macro-loader/pull/195) (merged)
 Git branch: `pr-195/daily-09-cron-30obs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: align installed daily ingestion and PostgreSQL synchronization with GOALS.md
 Depends on: PR-194 (merged to `origin/main`)
-Commit: `docs(pr-195): record live cron acceptance`
+Commit: `ed5fae4 fix(pr-195): run daily PostgreSQL feature sync`
 Design patterns: Command, bounded delta policy, acceptance verifier.
 
 Description:
@@ -30,8 +68,7 @@ Description:
 - R3: Make cron acceptance distinguish successful wrapper exits from a true no-op sync;
   require zero inserted/updated/deleted rows on explicit replay and independent
   `postgres-verify`.
-- R4: Install the daily schedule only after local tests, live window checks, and
-  acceptance pass; update operator and architecture docs with observed deployment state.
+- R4: Verify the installed daily schedule and document measured deployment state.
 
 Acceptance:
 - A1 verifies exactly one cron entry at `0 9 * * *` under `CRON_TZ=Europe/Vienna` and
@@ -40,12 +77,10 @@ Acceptance:
   stop behavior, and that GitHub Actions remain absent/unused.
 - A3 proves the acceptance report only passes after both daily wrapper runs, a parsed
   zero-change PostgreSQL replay, and independent conformance verification pass.
-- A4 passed 2026-10-27: local targeted tests and `make quality-gate` passed; production
-  read-only QA found 25/25 raw tables with 37–41 observations in 2026-08-29–2026-10-27;
-  both views contain 16,805 rows through 2026-10-27 (availability through 2026-10-28),
-  and the installed crontab is daily at 09:00 Europe/Vienna. The two-wrapper acceptance,
-  zero-change replay (0 inserted/updated/deleted), and independent `postgres-verify`
-  all passed. No GitHub Actions.
+- A4 passed 2026-10-27: local quality gate passed; 25/25 raw tables had 37–41 observations
+  in 2026-08-29–2026-10-27; both views had 16,805 rows through 2026-10-27 and availability
+  through 2026-10-28; the installed daily crontab was verified. Both wrapper runs passed,
+  replay was 0/0/0, and independent `postgres-verify` passed. No GitHub Actions.
 
 ### PR-194: Reconcile Gold Across Consecutive Schema-Only Versions
 
