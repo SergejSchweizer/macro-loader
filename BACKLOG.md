@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-184: Extend PostgreSQL Transformations To All Registered Positive-Level Series
 
 PR name: `extend-transformations-to-registered-series`
-Status: In Progress
+Status: In Progress — PR open
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#184](https://github.com/SergejSchweizer/macro-loader/pull/184) (open)
 Git branch: `pr-184/extend-transformations-to-registered-series`
-Git status: active-dirty: transformation catalog, companion PostgreSQL view, tests, docs
+Git status: pushed-local-checks-passed
 Agent lane: complete point-in-time feature projection for every applicable registered source
 Depends on: PR-183 (merged to `origin/main`)
-Commit: pending
+Commit: `4456ed2 feat(pr-184): add extended transforms for registered series`
 Design patterns: Registry-driven Projection, Materialized View, Versioned Migration, Independent Reference.
 
 Description:
