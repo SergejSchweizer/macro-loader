@@ -192,6 +192,8 @@ and [`h_v6i3.txt`](https://www.stoxx.com/document/Indices/Current/HistoricalData
 Each provider row contains `Date`, `Symbol`, and `Indexvalue`; the canonical scalar is
 stored in `value` with the exact source symbol, source URL, observation date, and UTC
 fetch time in Bronze. Values are in index points, with no synthetic dates or carry-forward.
+Official rows with an empty `Indexvalue` are omitted as missing source observations;
+malformed non-empty values still fail ingestion.
 The files exposed history from 1999-01-04 through 2026-10-26 when checked on 2026-10-27;
 the newest exposed date changes as STOXX publishes data. These are full-file sources:
 bootstrap keeps all exposed observations, while an update persists only its requested

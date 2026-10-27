@@ -2,8 +2,8 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PR-186 is merged to `origin/main` as GitHub PR #186.
-PR-187, `pr-187/record-availability-qa-merge`, is the active implementation branch. Per
+Current delivery status (2026-10-27): PR-187 is merged to `origin/main` as GitHub PR #187.
+PR-188, `pr-188/skip-empty-stoxx-source-values`, is the active implementation branch. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

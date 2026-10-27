@@ -154,11 +154,18 @@ class StoxxProvider:
         frame = raw.select(
             _date_expr(date_column).alias("observation_date"),
             pl.col(value_column).cast(pl.Float64, strict=False).alias("value"),
+            pl.col(value_column).is_null().alias("source_value_missing"),
         )
         if bool(frame.select(pl.col("observation_date").is_null().any()).item()):
             raise ValueError("STOXX payload contains invalid observation dates")
+        # Official history files can contain a valid observation date with a blank
+        # Indexvalue. Treat that explicit source-null as an absent observation, while
+        # still rejecting non-empty malformed text below.
+        frame = frame.filter(~pl.col("source_value_missing")).drop("source_value_missing")
         if bool(frame.select(pl.col("value").is_null().any()).item()):
             raise ValueError("STOXX payload contains missing/non-numeric values")
+        if frame.is_empty():
+            raise ValueError("STOXX payload contains no numeric observations")
         if not bool(frame.select(pl.col("value").is_finite().all()).item()):
             raise ValueError("STOXX payload contains non-finite values")
         if bool(frame.select(pl.col("observation_date").is_duplicated().any()).item()):

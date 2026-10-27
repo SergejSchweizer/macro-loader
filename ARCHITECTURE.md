@@ -279,6 +279,8 @@ rows have `Date;Symbol;Indexvalue`; the canonical value is the published index v
 index points. At verification on 2026-10-27, all three files exposed observations from
 1999-01-04 through 2026-10-26. Bootstrap retains the full exposed file; normal updates
 download the source file and restrict persistence to the exact logical delta window.
+Rows with an empty `Indexvalue` are omitted as source-missing observations; malformed
+non-empty values, invalid dates, duplicate dates, and non-finite values fail ingestion.
 
 The New-CISS daily component series `ciss_money`, `ciss_bonds`, `ciss_equity`, and
 `ciss_financials` use the ECB source keys `CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON`,
