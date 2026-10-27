@@ -9,16 +9,47 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-198: Materialize The Long-Table Source Once Per Refresh
+
+PR name: `materialize-feature-value-source-once`
+Status: In progress — optimize and verify the production backfill
+Updated: 2026-10-27
+Git branch: `pr-198/materialize-feature-value-source-once`
+Git status: in-progress
+Agent lane: keep migration 34 within the production statement-timeout boundary
+Depends on: PR-197 (merged to `origin/main`)
+Commit: pending
+Design patterns: Unit of Work, Materialized Staging Relation.
+
+Description:
+- R1: Compute the direct-raw-source JSONB projection once into a transaction-scoped
+  temporary staging table, validate that staged projection, then populate the durable
+  long table from it. Preserve rollback safety and the existing numeric/boolean contract.
+- R2: Prevent the prior duplicate evaluation of the full 1,720-feature projection, which
+  caused migration 34 to exceed the 15-minute production statement timeout. Keep the
+  potentially expensive population in separately retryable migration 35.
+- R3: Document the production timeout/rollback result and the exact retry behavior.
+
+Acceptance:
+- A1 verifies source SQL is materialized once per refresh, validation reads only staging,
+  and publication remains atomic with JSONB type checks and boolean `1.0`/`0.0` conversion.
+- A2 executes migration/refresh in disposable PostgreSQL and verifies data, replay,
+  rollback on invalid type, and no duplicate `(timestamp_m1, feature_name)` keys.
+- A3 passes local `make quality-gate`; no GitHub Actions.
+- A4 applies migrations 34–35 in production within the configured timeout, then independently
+  checks population and runs `postgres-verify` plus a zero-change Gold sync replay.
+
 ### PR-197: Validate Raw JSON Types Before Long-Table Casting
 
 PR name: `fix-long-feature-values-migration`
-Status: In progress — local regression and production migration pending
+Status: Merged — local gate passed; production retry timed out and rolled back
 Updated: 2026-10-27
 Git branch: `pr-197/fix-long-feature-values-migration`
-Git status: in-progress
+PR: [#197](https://github.com/SergejSchweizer/macro-loader/pull/197) (merged)
+Git status: merged
 Agent lane: correct migration 34 raw-value type validation before production rollout
 Depends on: PR-196 (merged to `origin/main`)
-Commit: pending
+Commit: `33ab753 fix(pr-197): validate raw JSON types before casting`; squash merge `e5b6a91`
 Design patterns: Versioned Migration, independent source validation.
 
 Description:
@@ -34,13 +65,13 @@ Acceptance:
 - A2 executes migration 34's refresh function on a disposable PostgreSQL fixture and
   verifies populated rows and boolean encodings.
 - A3 passes local `make quality-gate`; no GitHub Actions.
-- A4 applies migration 34 to authorized production, then independently verifies table
-  schema, feature coverage, row counts, sampled values and replay refresh.
+- A4 production migration attempt timed out and rolled back atomically; superseded by
+  PR-198's split schema/population migrations and repeat production acceptance.
 
 ### PR-196: Publish PostgreSQL Transformations In A Long Feature-Values Table
 
 PR name: `macro-feature-values-long-table`
-Status: Merged — implementation merged; production migration blocked on PR-197 correction
+Status: Merged — implementation merged; production migration pending optimized backfill
 Updated: 2026-10-27
 Git branch: `pr-196/macro-feature-values-long-table`
 PR: [#196](https://github.com/SergejSchweizer/macro-loader/pull/196) (merged)

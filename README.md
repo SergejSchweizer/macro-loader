@@ -491,12 +491,16 @@ have no row. Raw OHLC passthrough fields are deliberately excluded: this relatio
 transformations, not another copy of raw input. Its refresh SQL inlines the catalogued
 primary and extended feature queries over `macro_raw_<feature>` tables; it does not read
 either public feature materialized view. The `(feature_name, timestamp_m1)` index supports
-feature-first time-series reads. Consumer and sync roles may SELECT but cannot write. The
-refresh routine rebuilds the table transactionally in the same sync transaction as raw
-table changes. The catalog fingerprint and independent PostgreSQL conformance check detect
-schema, type, or population drift. This describes the code contract; production
-availability is confirmed only after migration 34 has been applied and independently
-verified.
+feature-first time-series reads. Consumer and sync roles may SELECT but cannot write. After
+the Gold sync updates raw tables, its explicit refresh transaction refreshes the serving
+views and rebuilds the long table from a transaction-scoped staging result; validation and
+population reuse that one source evaluation. The primary key prevents duplicate
+`(timestamp_m1, feature_name)` rows. This is a full transactional rebuild, not incremental
+delta insertion, and direct manual writes to raw tables do not fire an automatic trigger;
+they must be followed by the explicit refresh function. The catalog fingerprint and
+independent PostgreSQL conformance check detect schema, type, or population drift. This
+describes the code contract; production availability is confirmed only after migrations
+34–35 have been applied and independently verified.
 
 #### PR-171: Composite and Statistical Feature Semantics
 
