@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-192: Defer Expensive View Rebuilds Until Feature-Table Cutover
 
 PR name: `defer-view-refresh-until-cutover`
-Status: In Progress — local implementation
+Status: Open — awaiting merge; production cutover pending
 Updated: 2026-10-27
-PR: not created
+PR: [#192](https://github.com/SergejSchweizer/macro-loader/pull/192)
 Git branch: `pr-192/defer-view-refresh-until-cutover`
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: complete the production cutover within a bounded migration window
 Depends on: PR-191 (merged to `origin/main`)
-Commit: pending
+Commit: `186c57b fix(pr-192): defer expensive views until feature cutover`
 Design patterns: Versioned Migration, Bounded Execution Policy.
 
 Description:
