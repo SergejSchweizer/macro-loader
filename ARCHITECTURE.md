@@ -35,7 +35,12 @@ temporal/availability keys, are covered by catalog fingerprints and schema confo
 and refresh in dependency order through the explicit PostgreSQL refresh routine.
 Loader-controlled PostgreSQL sessions and that SECURITY DEFINER refresh routine disable
 JIT because recursive CTE row estimates can otherwise cause compilation to dominate view
-execution; connection, lock, statement, and idle-transaction timeout bounds remain active.
+execution. During schema upgrades, migration versions 24–30 defer repeated view rebuilds;
+the prior committed view remains available until the atomic feature-table cutover publishes
+the replacement. Admin-only migration statements have a bounded 15-minute timeout for
+full-history cutovers. Ordinary runtime sync retains a 5-minute statement timeout, with a
+bounded 15-minute local override only for its dependency-ordered full-history feature-view
+refresh. Connection, lock, and idle-transaction timeout bounds remain active.
 
 Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
 then registry-derived native OHLC fields in series-major order with `open`, `high`,

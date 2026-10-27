@@ -9,17 +9,47 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-192: Defer Expensive View Rebuilds Until Feature-Table Cutover
+
+PR name: `defer-view-refresh-until-cutover`
+Status: In Progress — local implementation
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-192/defer-view-refresh-until-cutover`
+Git status: in-progress
+Agent lane: complete the production cutover within a bounded migration window
+Depends on: PR-191 (merged to `origin/main`)
+Commit: pending
+Design patterns: Versioned Migration, Bounded Execution Policy.
+
+Description:
+- R1: During schema upgrade, preserve the currently committed view while deferring
+  intermediate migration 24–30 view rebuild/drop/comment/grant statements; the atomic
+  feature-table cutover publishes the new view once.
+- R2: Give admin-only full-history DDL a bounded 15-minute statement timeout and apply
+  the same bounded timeout only to the runtime dependency-ordered full-history view
+  refresh; all other runtime statements retain the 5-minute bound.
+- R3: Document the atomic publication and distinct bounded execution policies.
+
+Acceptance:
+- A1 verifies only view-publication SQL in versions 24–30 is deferred and version 31+
+  publication is retained; non-view schema/data migrations still run.
+- A2 verifies admin/runtime timeout bounds independently.
+- A3 passes local `make quality-gate` and the disposable v23-to-current PostgreSQL upgrade.
+- A4 requires the authorized production migration, all per-feature tables, both populated
+  views, full data sync, replay, and cron acceptance before live completion.
+
 ### PR-191: Restore Missing Legacy Availability Before View Rebuild
 
 PR name: `repair-legacy-availability-migration`
-Status: Open — local checks passed
+Status: Merged
 Updated: 2026-10-27
-PR: [#191](https://github.com/SergejSchweizer/macro-loader/pull/191) (open)
+PR: [#191](https://github.com/SergejSchweizer/macro-loader/pull/191) (merged)
 Git branch: `pr-191/repair-legacy-availability-migration`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: make the production v23 schema upgrade tolerate ledger/schema drift
 Depends on: PR-190 (merged to `origin/main`)
-Commit: `f2ca45e fix(pr-191): restore legacy availability before view migration`
+Commit: `b3a778d fix(pr-191): restore legacy availability before view migration` (squash merge)
 Design patterns: Versioned Migration, Upgrade Integration Test.
 
 Description:
@@ -577,7 +607,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-190 are merged; PR-191 is in progress. No production migration or
+PR-176 through PR-191 are merged; PR-192 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.

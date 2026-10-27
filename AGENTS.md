@@ -2,8 +2,8 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PR-190 is merged to `origin/main` as GitHub PR #190.
-PR-191, `pr-191/repair-legacy-availability-migration`, is the active implementation branch. Per
+Current delivery status (2026-10-27): PR-191 is merged to `origin/main` as GitHub PR #191.
+PR-192, `pr-192/defer-view-refresh-until-cutover`, is the active implementation branch. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

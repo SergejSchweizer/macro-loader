@@ -102,6 +102,8 @@ POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
 POSTGRES_USER = "macro-loader"
 POSTGRES_SYNC_USER = "macro-loader-sync"
+POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS = 900_000
+POSTGRES_FEATURE_REFRESH_TIMEOUT_MS = 900_000
 POSTGRES_ADVISORY_LOCK_NAMESPACE = "macro-loader:postgres-gold-sync:v1"
 
 TransactionResult = TypeVar("TransactionResult")
@@ -217,7 +219,11 @@ class PostgresAdminConfig:
     user: str
     database: str
     password: str = field(repr=False)
-    timeout_policy: PostgresTimeoutPolicy = field(default_factory=PostgresTimeoutPolicy)
+    timeout_policy: PostgresTimeoutPolicy = field(
+        default_factory=lambda: PostgresTimeoutPolicy(
+            statement_timeout_ms=POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS
+        )
+    )
 
     def __post_init__(self) -> None:
         if self.host != POSTGRES_HOST:
@@ -2131,6 +2137,17 @@ def _is_features_view_publication_statement(statement: str) -> bool:
     )
 
 
+def _defer_intermediate_feature_view_statement(version: int, statement: str) -> bool:
+    """Defer repeated legacy view rebuilds until the atomic raw-table cutover."""
+    return 24 <= version < 31 and _is_features_view_publication_statement(statement)
+
+
+def _refresh_feature_views(cursor: CursorPort) -> None:
+    """Apply a bounded long-query allowance only to the dependent view refresh."""
+    cursor.execute(f"SET LOCAL statement_timeout = '{POSTGRES_FEATURE_REFRESH_TIMEOUT_MS}ms'")
+    cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+
+
 def _raise_sanitized_error(operation: str, error: Exception) -> NoReturn:
     sqlstate = getattr(error, "sqlstate", None)
     if sqlstate == "55P03":
@@ -2345,7 +2362,7 @@ class _PostgresGoldSyncTransaction:
         for timestamp in plan.deletes:
             self._cursor.execute(_DELETE_DIGEST_SQL, (dataset_id, timestamp))
         if plan.inserts or plan.updates or plan.deletes:
-            self._cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+            _refresh_feature_views(self._cursor)
         expected = GoldTargetSummary(state.row_count, state.min_timestamp, state.max_timestamp)
         if self.summary(dataset_id) != expected:
             raise ValueError("PostgreSQL Gold post-write summary does not match source")
@@ -2569,7 +2586,7 @@ class PostgresGoldSyncRepository:
                 if actual != expected:
                     raise ValueError("PostgreSQL Gold post-write summary does not match source")
                 if plan.inserts or plan.updates or plan.deletes:
-                    cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+                    _refresh_feature_views(cursor)
                 if _digest_map(
                     _PostgresGoldSyncTransaction(cursor).read_digests(dataset_id)
                 ) != _digest_map(plan.source_digests):
@@ -2894,6 +2911,8 @@ class PostgresGoldSchemaMigrator:
                     if version in applied_versions:
                         continue
                     for statement in statements:
+                        if _defer_intermediate_feature_view_statement(version, statement):
+                            continue
                         if statement == _FEATURES_VIEW_DDL:
                             cursor.execute("SELECT to_regclass(%s)", (_FEATURES_VIEW,))
                             existing_features_view = cursor.fetchone()

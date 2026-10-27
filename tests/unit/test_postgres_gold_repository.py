@@ -424,7 +424,7 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
         "SET application_name = 'macro-loader'",
         "SET TIME ZONE 'UTC'",
         "SET lock_timeout = '5000ms'",
-        "SET statement_timeout = '300000ms'",
+        "SET statement_timeout = '900000ms'",
         "SET idle_in_transaction_session_timeout = '30000ms'",
         "SET jit = off",
     ]
@@ -448,6 +448,34 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader"' not in ddl
     assert all(table.name != "fed_policy_features_daily" for table in module._SCHEMA_SPECIFICATION)
     assert ("commit", None, None) in connection.events
+
+
+def test_admin_migration_timeout_is_bounded_and_longer_than_runtime_sync() -> None:
+    admin = module.PostgresAdminConfig("10.10.1.3", 54321, "postgres", "macro_loader", "secret")
+    runtime = module.PostgresTimeoutPolicy()
+
+    assert admin.timeout_policy.statement_timeout_ms == 900_000
+    assert admin.timeout_policy.statement_timeout_ms > runtime.statement_timeout_ms == 300_000
+    assert module.POSTGRES_FEATURE_REFRESH_TIMEOUT_MS == 900_000
+
+
+@pytest.mark.parametrize("version", (24, 25, 28, 30))
+def test_intermediate_legacy_view_publication_is_deferred_until_cutover(version: int) -> None:
+    assert module._defer_intermediate_feature_view_statement(
+        version, module._LEGACY_FEATURES_VIEW_REBUILD_MIGRATION[0]
+    )
+    assert module._defer_intermediate_feature_view_statement(
+        version, module._LEGACY_FEATURES_VIEW_REBUILD_MIGRATION[1]
+    )
+    assert not module._defer_intermediate_feature_view_statement(version, "SELECT 1")
+
+
+def test_feature_view_publication_is_not_deferred_at_or_after_cutover() -> None:
+    drop_view = module._LEGACY_FEATURES_VIEW_REBUILD_MIGRATION[0]
+
+    assert not module._defer_intermediate_feature_view_statement(23, drop_view)
+    assert not module._defer_intermediate_feature_view_statement(31, drop_view)
+    assert not module._defer_intermediate_feature_view_statement(32, drop_view)
 
 
 def test_retirement_migration_archives_fed_data_before_removing_active_columns() -> None:
@@ -912,6 +940,8 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     assert sum(query.startswith('INSERT INTO "macro_loader"."macro_raw_') for query in queries) > 0
     assert sum(query.startswith('DELETE FROM "macro_loader"."macro_raw_') for query in queries) > 0
     assert "SELECT macro_loader.refresh_macro_features_explicit()" in queries
+    refresh_index = queries.index("SELECT macro_loader.refresh_macro_features_explicit()")
+    assert queries[refresh_index - 1] == "SET LOCAL statement_timeout = '900000ms'"
     assert "TRUNCATE" not in "\n".join(queries)
     assert ("commit", None, None) in connection.events
     assert ("rollback", None, None) not in connection.events
