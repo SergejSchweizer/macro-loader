@@ -41,6 +41,10 @@ the replacement. Admin-only migration statements have a bounded 15-minute timeou
 full-history cutovers. Ordinary runtime sync retains a 5-minute statement timeout, with a
 bounded 15-minute local override only for its dependency-ordered full-history feature-view
 refresh. Connection, lock, and idle-transaction timeout bounds remain active.
+Migration 33 also repairs historical ledger/object drift for retired Fed storage: it
+replays the idempotent archive-and-drop prefix after feature-table publication, preserving
+any orphaned `fed_policy_features_daily` rows in `macro_loader_retired` before removing
+the stale active table and enforcing the owned-table contract.
 
 Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
 then registry-derived native OHLC fields in series-major order with `open`, `high`,
