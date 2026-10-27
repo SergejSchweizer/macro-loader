@@ -15,20 +15,24 @@ Historical Fed acceptance evidence is retained, and the independent FRED provide
 active for its ordinary registered macro series.
 
 The executable Gold contract is currently schema version **11** and feature version
-**6** (`application.gold_frame`). PostgreSQL synchronization populates
-`macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
-rebuilt or refreshed from that table and is the serving projection for the causal
-feature catalog. It uses every available `macro_raw.timestamp_m1`; pre-2010 rows are
-not filtered out and remain NULL where the source or causal warm-up does not provide a
-value.
+**6** (`application.gold_frame`). PostgreSQL schema migration 31 creates one
+`macro_loader.macro_raw_<feature>` table for each of the 25 registered source series,
+backfills them from the previous wide `macro_loader.macro_raw`, then drops that wide
+relation. It is a one-time migration source only: runtime sync and the materialized view
+do not read, write, or recreate it. The `macro_loader.macro_features` materialized view
+is rebuilt from a full-outer-join projection of the feature tables and then computes the
+closed-world causal feature catalog. It preserves all available timestamps, including
+pre-2010 rows, and exposes NULL where source data or causal warm-up is unavailable.
 
 Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
 then registry-derived native OHLC fields in series-major order with `open`, `high`,
 `low`, `close` per series. The OHLC series are `vix`, `vix9d`, `vix3m`, `vix6m`,
 `vix1y`, and `move`, yielding 24 nullable Float64 fields (`vix_open` through
-`move_close`). PostgreSQL `macro_raw` stores the same 24 nullable `DOUBLE PRECISION`
-values after its generated `available_at_utc` column; `macro_features` exposes these
-raw values through its closed-world feature catalog. Scalar series have no OHLC fields.
+`move_close`). Each OHLC feature table stores its four nullable `DOUBLE PRECISION`
+values; each scalar feature table stores nullable `indexvalue DOUBLE PRECISION`.
+Every table orders columns as `timestamp_m1 TIMESTAMPTZ(6)` primary key, generated
+non-null `available_at_utc TIMESTAMPTZ(6)`, then native values. `macro_features` exposes
+the rejoined raw values through its closed-world feature catalog.
 For each of the six OHLC series, the serving view also
 exposes six nullable decimal-fraction transformations: `(high-low)/close` and
 `(close-open)/open` for the current valid bar plus trailing-five-valid-metric means, and
@@ -554,7 +558,7 @@ The version-12 PostgreSQL `macro_features` view contract adds the following null
 price series only; signed/non-price `estr` is excluded. Lag counts refer to non-NULL
 source-level observation rows, not elapsed calendar days. This describes the repository's
 view contract and does not assert that any production database has been migrated or
-populated. Derived values belong only to `macro_features`, not `macro_raw` or canonical
+populated. Derived values belong only to `macro_features`, not raw feature tables or canonical
 Gold.
 
 For RSI-derived columns, Wilder RSI for period `n` uses gains
@@ -629,11 +633,11 @@ schema or host-crontab state. Historical source and acceptance artifacts are ret
 audit records. No Fed-specific operator commands or schedule are documented here. The
 separate FRED provider and its registered macro series remain active.
 
-### PR-167 PostgreSQL Serving Availability Contract
+### PostgreSQL Serving Availability Contract (introduced in PR-167)
 
 PR-167 defines `available_at_utc` as PostgreSQL-serving metadata, not as a new
-canonical Gold column. The implementation contract is that `macro_loader.macro_raw`
-contains a generated, non-null `available_at_utc` and that the
+canonical Gold column. The current contract is that every `macro_loader.macro_raw_<feature>`
+table contains a generated, non-null `available_at_utc` and that the
 `macro_loader.macro_features` materialized view exposes that same value for each
 `timestamp_m1` row. It is `00:00:00 UTC` on the first Monday-Friday date strictly
 after the UTC observation date represented by `timestamp_m1`: Monday through
@@ -938,7 +942,7 @@ execute the documented commands in order and emit sanitized reports under
 `artifacts/acceptance/`; neither runner is part of the normal cron path.
 
 The view's raw-source projections are named `*_log_level` and contain the
-natural logarithm of the corresponding positive `macro_raw.*_level` value.
-Missing or non-positive values are exposed as `NULL`; the original levels
-remain in `macro_raw`. A delta sync explicitly refreshes the materialized view
+natural logarithm of the corresponding positive raw feature level. Missing or
+non-positive values are exposed as `NULL`; original levels remain in their
+feature-specific raw tables. A delta sync explicitly refreshes the materialized view
 after applying its row mutations.

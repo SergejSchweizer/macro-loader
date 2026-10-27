@@ -21,18 +21,20 @@ series.
 
 The current Gold semantic contract is schema version **11** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
-`application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL synchronization populates
-`macro_raw`, and the `macro_features` materialized view is refreshed from it,
-including the causal XETRA-compatible transformations.
+`application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL schema migration 31 moves the
+serving store to one `macro_loader.macro_raw_<feature>` table per registered source.
+The previous wide `macro_loader.macro_raw` is used only as the migration's historical
+backfill input, then dropped; runtime synchronization never writes to or recreates it.
+The `macro_loader.macro_features` materialized view is projected from the feature tables.
 
 Gold columns are ordered as `timestamp_m1`, every registered `<series>_level` in
 registry order, then native OHLC fields in OHLC-series registry order and field order
-`open`, `high`, `low`, `close`. The OHLC series are `vix`, `vix9d`, `vix3m`, `vix6m`,
-`vix1y`, and `move` (24 nullable Float64 columns, for example `vix_open` and
-`move_close`). These values pass through to nullable PostgreSQL `DOUBLE PRECISION`
-columns in `macro_raw` and the closed-world `macro_features` view; scalar series have no
-OHLC columns. `available_at_utc` remains generated in `macro_raw` and exposed by the
-view.
+`open`, `high`, `low`, `close`. The six OHLC series (`vix`, `vix9d`, `vix3m`, `vix6m`,
+`vix1y`, and `move`) each have a table with nullable `open/high/low/close DOUBLE PRECISION`;
+each of the 19 scalar series has nullable `indexvalue DOUBLE PRECISION`. Every table uses
+`timestamp_m1 TIMESTAMPTZ(6)` as its primary key and has the same generated, non-null
+`available_at_utc TIMESTAMPTZ(6)`. `macro_features` reconstructs the source projection
+and exposes the same availability timestamp.
 
 For the six OHLC series only, `macro_features` also provides `*_high_low_range_1obs` and
 `*_high_low_range_5obs` as `(high-low)/close`, `*_intraday_return_1obs` and
@@ -59,7 +61,7 @@ bars, and `*_donchian_breakout_down` is true when current low is strictly below 
 20-bar minimum low. The current bar is excluded from those channel bounds. Their warm-up
 or invalid-input results are NULL. All windows follow source observations across sparse
 calendar dates; no helper columns are exposed and none of these outputs is added to
-`macro_raw` or canonical Gold.
+the feature-specific raw tables or canonical Gold.
 
 Before implementing a backlog PR, coding agents must read `AGENTS.md`, `BACKLOG.md`, and `ARCHITECTURE.md`.
 
@@ -135,6 +137,50 @@ Prefer `typing.Protocol`, immutable contracts, pure transformations, and constru
 | `us_5y` | FRED (`DGS5`) | U.S. 5-year constant-maturity Treasury yield, percent |
 
 No additional MVP series may be introduced without a separate backlog PR and matching contract updates.
+
+### PostgreSQL raw-feature table catalogue
+
+Migration 31 creates exactly one `macro_loader.macro_raw_<feature>` base table for each
+series below. All tables are daily and share `timestamp_m1 TIMESTAMPTZ(6)` (primary key)
+and generated `available_at_utc TIMESTAMPTZ(6)`. The six native-OHLC tables add nullable
+`open`, `high`, `low`, and `close DOUBLE PRECISION`; each scalar table adds nullable
+`indexvalue DOUBLE PRECISION`. “Local Silver range” is the persisted repository lake
+inventory checked 2026-10-27, not a claim about a production PostgreSQL deployment.
+Series newly registered in PRs 177–180 are not yet present in that local Silver snapshot;
+their exposed source periods are stated instead. Sparse source gaps remain absent.
+
+| Feature / table | Provider source ID | Columns after timestamp/availability | Range recorded for this repository | Meaning |
+|---|---|---|---|---|
+| `vix` / `macro_raw_vix` | CBOE `VIX_History.csv` | `open, high, low, close` | Local Silver 1990-01-02–2026-10-12 | S&P 500 30-day implied volatility |
+| `vix9d` / `macro_raw_vix9d` | CBOE `VIX9D_History.csv` | OHLC | Local Silver 2011-01-04–2026-10-12 | S&P 500 9-day implied volatility |
+| `vix3m` / `macro_raw_vix3m` | CBOE `VIX3M_History.csv` | OHLC | Local Silver 2009-09-18–2026-10-12 | S&P 500 3-month implied volatility |
+| `vix6m` / `macro_raw_vix6m` | CBOE `VIX6M_History.csv` | OHLC | Local Silver 2008-01-02–2026-10-12 | S&P 500 6-month implied volatility |
+| `vix1y` / `macro_raw_vix1y` | CBOE `VIX1Y_History.csv` | OHLC | Local Silver 2007-01-03–2026-10-12 | S&P 500 1-year implied volatility |
+| `vstoxx` / `macro_raw_vstoxx` | STOXX `V2TX` | `indexvalue` | Local Silver 1999-01-04–2026-10-12 | Euro-area equity volatility index |
+| `vstoxx1m` / `macro_raw_vstoxx1m` | STOXX `V6I1` | `indexvalue` | Source files 1999-01-04–2026-10-26; not yet in local Silver | 1-month VSTOXX term structure |
+| `vstoxx2m` / `macro_raw_vstoxx2m` | STOXX `V6I2` | `indexvalue` | Source files 1999-01-04–2026-10-26; not yet in local Silver | 2-month VSTOXX term structure |
+| `vstoxx3m` / `macro_raw_vstoxx3m` | STOXX `V6I3` | `indexvalue` | Source files 1999-01-04–2026-10-26; not yet in local Silver | 3-month VSTOXX term structure |
+| `move` / `macro_raw_move` | Yahoo Finance `^MOVE` | OHLC | Local Silver 2002-11-12–2026-10-09 | U.S. Treasury-bond implied volatility |
+| `ciss` / `macro_raw_ciss` | ECB `CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX` | `indexvalue` | Local Silver 1980-01-03–2026-09-02 | Euro-area composite systemic-stress indicator |
+| `ciss_money` / `macro_raw_ciss_money` | ECB `CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON` | `indexvalue` | Source catalog from 1999-01-01; not yet in local Silver | Money-market contribution to New-CISS |
+| `ciss_bonds` / `macro_raw_ciss_bonds` | ECB `CISS.D.U2.Z0Z.4F.EC.SS_BMN.CON` | `indexvalue` | Source catalog from 1999-01-01; not yet in local Silver | Bond-market contribution to New-CISS |
+| `ciss_equity` / `macro_raw_ciss_equity` | ECB `CISS.D.U2.Z0Z.4F.EC.SS_EMN.CON` | `indexvalue` | Source catalog from 1999-01-01; not yet in local Silver | Equity-market contribution to New-CISS |
+| `ciss_financials` / `macro_raw_ciss_financials` | ECB `CISS.D.U2.Z0Z.4F.EC.SS_FIN.CON` | `indexvalue` | Source catalog from 1999-01-01; not yet in local Silver | Financial-intermediary contribution to New-CISS |
+| `estr` / `macro_raw_estr` | ECB `EST.B.EU000A2X2A25.WT` | `indexvalue` | Local Silver 2019-10-01–2026-09-03 | Euro short-term rate |
+| `euro_hy_oas` / `macro_raw_euro_hy_oas` | FRED `BAMLHE00EHYIOAS` | `indexvalue` | Local Silver 1997-12-31–2026-10-08; current FRED exposure is rolling | Euro high-yield option-adjusted spread (percent) |
+| `euro_hy_yield` / `macro_raw_euro_hy_yield` | FRED `BAMLHE00EHYIEY` | `indexvalue` | FRED exposure 2023-10-27 onward; not yet in local Silver | Euro high-yield effective yield (percent) |
+| `euro_hy_ytw` / `macro_raw_euro_hy_ytw` | FRED `BAMLHE00EHYISYTW` | `indexvalue` | FRED exposure 2023-10-27 onward; not yet in local Silver | Euro high-yield yield-to-worst (percent) |
+| `euro_hy_total_return` / `macro_raw_euro_hy_total_return` | FRED `BAMLHE00EHYITRIV` | `indexvalue` | FRED exposure 2023-10-27 onward; not yet in local Silver | Euro high-yield total-return index level |
+| `us_3m` / `macro_raw_us_3m` | FRED `DGS3MO` | `indexvalue` | Source history from 1981-09-01; not yet in local Silver | U.S. 3-month Treasury yield (percent) |
+| `us_2y` / `macro_raw_us_2y` | FRED `DGS2` | `indexvalue` | Local Silver 1976-06-01–2026-10-08 | U.S. 2-year Treasury yield (percent) |
+| `us_5y` / `macro_raw_us_5y` | FRED `DGS5` | `indexvalue` | Source history from 1962-01-02; not yet in local Silver | U.S. 5-year Treasury yield (percent) |
+| `us_10y` / `macro_raw_us_10y` | FRED `DGS10` | `indexvalue` | Local Silver 1962-01-02–2026-10-08 | U.S. 10-year Treasury yield (percent) |
+| `usd_broad` / `macro_raw_usd_broad` | FRED `DTWEXBGS` | `indexvalue` | Local Silver 2006-01-02–2026-10-02 | Trade-weighted broad U.S. dollar index |
+
+The latest source observation and each lake's durable coverage can differ. A source that
+publishes a shorter history does not remove previously retained rows. After cutover,
+ordinary Gold synchronization writes these tables transactionally, including corrections
+and deletions, and refreshes `macro_features` from their joined projection.
 
 ### STOXX term-structure raw features
 
@@ -382,29 +428,36 @@ PostgreSQL is a serving/research replica, not the canonical data store. The only
 
 ```text
 canonical source: lake/gold/dataset=macro_features_daily/...
-consumer table:  macro_loader.macro_raw
+raw tables:      macro_loader.macro_raw_<feature> (25 tables)
+consumer view:   macro_loader.macro_features
 sync state:      macro_loader_sync.gold_sync_state
 row digests:     macro_loader_sync.gold_row_hashes
 ```
 
-`timestamp_m1` is stored as `TIMESTAMPTZ(6)` and the database session is UTC. Feature columns are nullable `DOUBLE PRECISION`. Sync metadata never pollutes the consumer table.
+Migration 31 transactionally backfills each feature table from the former wide
+`macro_loader.macro_raw` and drops that wide relation. It is a one-time migration source;
+no runtime sync path writes to or recreates it. Every feature table has the common ordered
+columns `timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY`, generated non-null
+`available_at_utc TIMESTAMPTZ(6)`, then either nullable OHLC fields (`open`, `high`,
+`low`, `close`) or nullable scalar `indexvalue DOUBLE PRECISION`. All timestamps are
+microsecond-precision UTC. Exact provider identifiers, persisted/source-history periods,
+shape, and feature meaning are catalogued in the [raw-feature table catalogue](#postgresql-raw-feature-table-catalogue).
+Sync state and row digests stay in the separate `macro_loader_sync` schema.
 
-The PostgreSQL `macro_features` materialized view (feature-view contract version 12)
-exposes one `*_log_level`
-column per ordinary raw source, calculated as `ln(macro_raw.<source>_level)` when
-the source is positive; non-positive or missing source values become `NULL`.
-The PR-168 merged contract removes Fed-policy origins and derived columns from
-`macro_raw` and `macro_features`; production deployment is not asserted.
-Historical Fed acceptance artifacts remain available for audit. The view is explicitly
-refreshed after a successful raw-table delta and exposes the complete
-available `macro_raw` timestamp history, including pre-2010 observations.
+The PostgreSQL `macro_features` materialized view (feature-view contract version 16)
+reconstructs the ordered Gold source projection by full-outer-joining the 25 feature
+tables on `timestamp_m1`, then computes its closed-world derived columns. It preserves
+sparse dates and NULLs, including pre-2010 observations; it does not carry values across
+dates. The view is refreshed in the same PostgreSQL transaction as a successful raw-table
+delta. This code and local validation do not assert that migration 31 has run in production.
+Historical Fed acceptance artifacts remain available for audit.
 
 #### PR-171: Composite and Statistical Feature Semantics
 
 The version-12 PostgreSQL `macro_features` view adds the following series-prefixed,
 nullable `DOUBLE PRECISION` columns for every `PRICE_FEATURE_SERIES` (all positive-level
 price series; signed/non-price `estr` is excluded). These are serving-view transformations
-only: they do not add columns to `macro_raw` or canonical Gold. Every lag/window is measured
+only: they do not add columns to the raw feature tables or canonical Gold. Every lag/window is measured
 on the source series' non-null observation rows, not calendar days.
 
 | Column suffix | Formula | Warm-up and NULL rules |
@@ -451,11 +504,11 @@ Volume transformations, market breadth, and cross-instrument dispersion are excl
 the current user scope. The raw contract has no applicable `volume_level` field or
 cross-instrument panel.
 
-### PR-167 availability-time contract (merged)
+### Availability-time contract (introduced in PR-167; carried by migration 31)
 
 The PR-167 implementation contract adds a generated, non-null `available_at_utc`
-to PostgreSQL-serving table `macro_loader.macro_raw`; the `macro_features`
-materialized view exposes the same value. For a UTC observation date represented
+to every PostgreSQL raw table; the `macro_features` materialized view exposes the
+same value. For a UTC observation date represented
 by `timestamp_m1`, availability is `00:00:00 UTC` on the first Monday-Friday date
 strictly after that observation date. Weekends therefore roll forward to Monday.
 Public holidays are not excluded: these data span market calendars and this

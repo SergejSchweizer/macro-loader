@@ -23,6 +23,7 @@ from application.registry import OHLC_FIELDS, OHLC_SERIES
 POSTGRES_DATASET_ID = "macro_features_daily"
 POSTGRES_CONSUMER_SCHEMA = "macro_loader"
 POSTGRES_CONSUMER_TABLE = "macro_raw"
+POSTGRES_RAW_TABLE_PREFIX = "macro_raw_"
 POSTGRES_SYNC_SCHEMA = "macro_loader_sync"
 POSTGRES_SYNC_STATE_TABLE = "gold_sync_state"
 POSTGRES_ROW_HASH_TABLE = "gold_row_hashes"
@@ -34,6 +35,9 @@ POSTGRES_OHLC_COLUMNS = tuple(
     f"{series_id}_{field}" for series_id in OHLC_SERIES for field in OHLC_FIELDS
 )
 POSTGRES_RAW_COLUMNS = GOLD_COLUMNS
+POSTGRES_RAW_TABLES = tuple(
+    f"{POSTGRES_RAW_TABLE_PREFIX}{series_id}" for series_id in GOLD_SOURCE_SERIES
+)
 TransactionResult = TypeVar("TransactionResult")
 
 

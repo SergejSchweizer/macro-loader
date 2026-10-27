@@ -29,9 +29,9 @@ from application.postgres_conformance import PostgresConformanceReport
 from application.postgres_conformance_service import GoldPostgresConformanceVerifier
 from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
-    POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
     POSTGRES_RAW_COLUMNS,
+    POSTGRES_RAW_TABLES,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldRowPayload,
@@ -39,6 +39,7 @@ from application.postgres_sync import (
     GoldSyncTransaction,
 )
 from application.postgres_sync_service import GoldPostgresDeltaSync
+from application.registry import OHLC_FIELDS, OHLC_SERIES
 from ingestion.postgres_conformance_verifier import PostgresLiveDatabaseConformanceInspector
 from ingestion.postgres_gold_repository import (
     PostgresAdminConfig,
@@ -86,6 +87,36 @@ def _postgres_target(dsn: str) -> tuple[str, int, str]:
         int(settings.get("port", "5432")),
         settings.get("dbname", "macro_loader_test"),
     )
+
+
+def _insert_level_values(
+    connection: psycopg.Connection[object],
+    timestamps: Sequence[datetime],
+    series_values: dict[str, Sequence[float | None]],
+) -> None:
+    """Write test fixtures through the feature-table layout used by current syncs."""
+    for index, timestamp in enumerate(timestamps):
+        for series, observations in series_values.items():
+            value = observations[index]
+            if value is None:
+                continue
+            if series in OHLC_SERIES:
+                columns = ("timestamp_m1", "close")
+                row = (timestamp, value)
+            else:
+                columns = ("timestamp_m1", "indexvalue")
+                row = (timestamp, value)
+            quoted = ", ".join('"' + column + '"' for column in columns)
+            placeholders = ", ".join("%s" for _ in columns)
+            connection.execute(
+                f'INSERT INTO macro_loader."macro_raw_{series}" ({quoted}) VALUES ({placeholders})',
+                row,
+            )
+
+
+def _clear_feature_tables(connection: psycopg.Connection[object]) -> None:
+    for table in POSTGRES_RAW_TABLES:
+        connection.execute(f'DELETE FROM macro_loader."{table}"')
 
 
 def _runtime_dsn(dsn: str, user: str, password: str) -> str:
@@ -674,7 +705,7 @@ def test_real_postgres_independent_conformance_verifier_passes(
             "consumer_row_count": 1,
             "digest_row_count": 1,
             "role_count": 3,
-            "schema_table_count": 4,
+            "schema_table_count": 28,
             "temporal_probe_count": 2,
         },
     )
@@ -692,18 +723,27 @@ def test_real_postgres_migrations_are_idempotent_and_round_trip(
             """SELECT data_type, datetime_precision, is_nullable, is_generated,
                       generation_expression
                FROM information_schema.columns
-               WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw'
+               WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw_vix'
                  AND column_name = 'available_at_utc'"""
         ).fetchone()
         columns = connection.execute(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema = %s AND table_name = %s",
-            (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
+            (POSTGRES_CONSUMER_SCHEMA, "macro_raw_vix"),
         ).fetchall()
+        raw_tables = connection.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'macro_loader' AND table_type = 'BASE TABLE' "
+            "AND table_name LIKE 'macro_raw_%' ORDER BY table_name"
+        ).fetchall()
+        assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (
+            None,
+        )
         migrations = connection.execute(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
-    assert {column[0] for column in columns} == {*POSTGRES_RAW_COLUMNS, "available_at_utc"}
+    assert {column[0] for column in columns} == {"timestamp_m1", "available_at_utc", *OHLC_FIELDS}
+    assert tuple(row[0] for row in raw_tables) == tuple(sorted(POSTGRES_RAW_TABLES))
     assert not any(column[0].startswith("fed_") for column in columns)
     assert availability_column is not None
     assert availability_column[:4] == (
@@ -1020,12 +1060,12 @@ def test_real_postgres_generated_availability_uses_next_weekday_in_raw_and_view(
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             cursor.executemany(
-                'INSERT INTO macro_loader.macro_raw ("timestamp_m1") VALUES (%s)',
+                'INSERT INTO macro_loader.macro_raw_vix ("timestamp_m1") VALUES (%s)',
                 ((timestamp,) for timestamp in observations),
             )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         raw_values = connection.execute(
-            """SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_raw
+            """SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_raw_vix
                ORDER BY timestamp_m1"""
         ).fetchall()
         view_values = connection.execute(
@@ -1043,9 +1083,9 @@ def test_real_postgres_generated_availability_uses_next_weekday_in_raw_and_view(
     (
         (
             "changed consumer row",
-            'UPDATE macro_loader.macro_raw SET "vix_level" = 999.0',
+            'UPDATE macro_loader.macro_raw_vix SET "close" = 999.0',
         ),
-        ("missing consumer row", "DELETE FROM macro_loader.macro_raw"),
+        ("missing consumer row", "DELETE FROM macro_loader.macro_raw_vix"),
         (
             "changed digest",
             "UPDATE macro_loader_sync.gold_row_hashes SET row_sha256 = 'f' || repeat('f', 63)",
@@ -1186,10 +1226,7 @@ def test_real_postgres_xetra_returns_match_independent_reference(
     timestamps = [_timestamp(day) for day in range(1, len(levels) + 1)]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
-                zip(timestamps, levels, strict=True),
-            )
+            _insert_level_values(cursor.connection, timestamps, {"vix": levels})
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         row = connection.execute(
             """SELECT "vix_log_return_1obs", "vix_return_geom_5obs_pct",
@@ -1220,10 +1257,7 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
     timestamps = [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(65)]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
-                zip(timestamps, levels, strict=True),
-            )
+            _insert_level_values(cursor.connection, timestamps, {"vix": levels})
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         row = connection.execute(
             """SELECT "vix_sma_ratio_5_20", "vix_rsi_7obs", "vix_rsi_14obs",
@@ -1266,17 +1300,14 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
     ]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                "INSERT INTO macro_loader.macro_raw "
-                '("timestamp_m1", "vix_level", "estr_level") VALUES (%s, %s, %s)',
-                (
-                    (timestamp, level, -1.0)
-                    for timestamp, level in zip(timestamps, levels, strict=True)
-                ),
+            _insert_level_values(
+                cursor.connection,
+                timestamps,
+                {"vix": levels, "estr": [-1.0] * len(timestamps)},
             )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         counts = connection.execute(
-            "SELECT (SELECT count(*) FROM macro_loader.macro_raw), "
+            "SELECT (SELECT count(*) FROM macro_loader.macro_raw_vix), "
             "(SELECT count(*) FROM macro_loader.macro_features)"
         ).fetchone()
         row = connection.execute(
@@ -1429,16 +1460,15 @@ def test_real_postgres_pr170_extended_windows_match_reference_and_ignore_future_
 
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)',
-                zip(timestamps, levels, strict=True),
-            )
+            _insert_level_values(cursor.connection, timestamps, {"vix": levels})
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         full_history_row = connection.execute(
             f"SELECT {select_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
             (target,),
         ).fetchone()
-        connection.execute("DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 > %s", (target,))
+        connection.execute(
+            "DELETE FROM macro_loader.macro_raw_vix WHERE timestamp_m1 > %s", (target,)
+        )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         truncated_row = connection.execute(
             f"SELECT {select_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
@@ -1474,13 +1504,9 @@ def test_real_postgres_pr170_wilder_rsi_flat_gain_and_loss_boundaries(
 
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         for _name, levels, expected in cases:
-            connection.execute("DELETE FROM macro_loader.macro_raw")
+            _clear_feature_tables(connection)
             with connection.cursor() as cursor:
-                cursor.executemany(
-                    'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") '
-                    "VALUES (%s, %s)",
-                    zip(timestamps, levels, strict=True),
-                )
+                _insert_level_values(cursor.connection, timestamps, {"vix": levels})
             connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
             actual = connection.execute(
                 'SELECT "vix_rsi_3obs", "vix_rsi_5obs", "vix_rsi_7obs", '
@@ -1560,12 +1586,12 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     "drift_sql",
     (
         "ALTER TABLE macro_loader_sync.gold_row_hashes DROP COLUMN row_sha256",
-        "ALTER TABLE macro_loader.macro_raw ADD COLUMN forbidden INTEGER",
+        "ALTER TABLE macro_loader.macro_raw_vix ADD COLUMN forbidden INTEGER",
         "ALTER TABLE macro_loader_sync.gold_sync_state "
         "ALTER COLUMN schema_version TYPE TEXT USING schema_version::text",
-        "ALTER TABLE macro_loader.macro_raw ALTER COLUMN timestamp_m1 TYPE TIMESTAMPTZ(3)",
+        "ALTER TABLE macro_loader.macro_raw_vix ALTER COLUMN timestamp_m1 TYPE TIMESTAMPTZ(3)",
         "ALTER TABLE macro_loader_sync.gold_sync_state ALTER COLUMN source_build_id DROP NOT NULL",
-        "ALTER TABLE macro_loader.macro_raw DROP CONSTRAINT macro_raw_pkey",
+        "ALTER TABLE macro_loader.macro_raw_vix DROP CONSTRAINT macro_raw_vix_pkey",
     ),
     ids=("missing", "extra", "wrong-type", "wrong-precision", "wrong-nullability", "wrong-key"),
 )
@@ -1614,9 +1640,9 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
             ("CREATE", "CREATE TABLE macro_loader.forbidden (id INTEGER)"),
             (
                 "ALTER",
-                "ALTER TABLE macro_loader.macro_raw ADD COLUMN forbidden INTEGER",
+                "ALTER TABLE macro_loader.macro_raw_vix ADD COLUMN forbidden INTEGER",
             ),
-            ("DROP", "DROP TABLE macro_loader.macro_raw"),
+            ("DROP", "DROP TABLE macro_loader.macro_raw_vix"),
             ("unrelated SELECT", "SELECT * FROM unrelated.private_data"),
         ):
             try:
@@ -1631,7 +1657,7 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
         grant_option = runtime_connection.execute(
             """SELECT has_table_privilege(
                 current_user,
-                'macro_loader.macro_raw',
+                'macro_loader.macro_raw_vix',
                 'SELECT WITH GRANT OPTION'
             )"""
         ).fetchone()
@@ -1644,7 +1670,8 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
 
     with psycopg.connect(postgres_dsn) as admin_connection:
         grant_result = admin_connection.execute(
-            "SELECT has_table_privilege('runtime-grant-probe', 'macro_loader.macro_raw', 'SELECT')"
+            "SELECT has_table_privilege("
+            "'runtime-grant-probe', 'macro_loader.macro_raw_vix', 'SELECT')"
         )
         assert grant_result.fetchone() == (False,)
 
@@ -1666,9 +1693,11 @@ def test_real_postgres_pr171_exact_schema_and_no_raw_or_gold_leakage(
         ).fetchall()
         raw_columns = {
             row[0]
+            for table in POSTGRES_RAW_TABLES
             for row in connection.execute(
-                """SELECT column_name FROM information_schema.columns
-                   WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw'"""
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'macro_loader' AND table_name = %s",
+                (table,),
             ).fetchall()
         }
         comment = connection.execute(
@@ -1738,26 +1767,8 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
     )
     target_index = count - 8
     target_timestamp = timestamps[target_index]
-    insert_columns = ", ".join(f'"{series}_level"' for series in PRICE_FEATURE_SERIES)
-    placeholders = ", ".join("%s" for _ in range(len(PRICE_FEATURE_SERIES) + 1))
-    insert_sql = (
-        'INSERT INTO macro_loader.macro_raw ("timestamp_m1", '
-        f"{insert_columns}) VALUES ({placeholders})"
-    )
-    insert_rows = [
-        (
-            timestamp,
-            *(series_levels[series][index] for series in PRICE_FEATURE_SERIES),
-        )
-        for index, timestamp in enumerate(timestamps)
-    ]
-
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        with connection.cursor() as cursor:
-            cursor.executemany(
-                insert_sql,
-                insert_rows,
-            )
+        _insert_level_values(connection, timestamps, series_levels)
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         full_rows = connection.execute(
             f"SELECT timestamp_m1, {select_list} FROM macro_loader.macro_features "
@@ -1789,9 +1800,11 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
                         )
 
         full_target = full_rows[-1][1:]
-        connection.execute(
-            "DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 > %s", (target_timestamp,)
-        )
+        for table in POSTGRES_RAW_TABLES:
+            connection.execute(
+                f'DELETE FROM macro_loader."{table}" WHERE timestamp_m1 > %s',
+                (target_timestamp,),
+            )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         truncated_target = connection.execute(
             f"SELECT {select_list} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
@@ -1837,13 +1850,8 @@ def test_real_postgres_pr171_negative_correlation_and_zero_variance_are_preserve
             ("all-loss", [300.0 - index for index in range(300)]),
         )
         for scenario, levels in scenarios:
-            connection.execute("DELETE FROM macro_loader.macro_raw")
-            with connection.cursor() as cursor:
-                cursor.executemany(
-                    'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") '
-                    "VALUES (%s, %s)",
-                    zip(timestamps, levels, strict=True),
-                )
+            _clear_feature_tables(connection)
+            _insert_level_values(connection, timestamps, {"vix": levels})
             connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
             row = connection.execute(
                 f"SELECT {projection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",

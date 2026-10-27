@@ -11,7 +11,7 @@ from typing import NoReturn, Protocol, TypeVar, cast
 
 import psycopg
 
-from application.gold_frame import GOLD_COLUMNS
+from application.gold_frame import GOLD_COLUMNS, GOLD_SOURCE_SERIES
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
     FEATURE_POSTGRES_TYPES,
@@ -31,6 +31,7 @@ from application.postgres_sync import (
     POSTGRES_LEVEL_COLUMNS,
     POSTGRES_OHLC_COLUMNS,
     POSTGRES_RAW_COLUMNS,
+    POSTGRES_RAW_TABLES,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SESSION_TIMEZONE,
     POSTGRES_SYNC_SCHEMA,
@@ -283,7 +284,7 @@ def _ema_state_cte(
 ) -> str:
     """Build a private SMA-seeded EMA recurrence over an ordered source relation."""
     cte = _quote(state_name or f"{series}_ema_{period}_state")
-    relation = source_relation or _CONSUMER
+    relation = source_relation or _RAW_PROJECTION
     value = _quote(value_column or f"{series}_level")
     initial_valid = "input.levels[1] IS NOT NULL" if allow_nonpositive else "input.levels[1] > 0"
     next_index = "state.observation_index + 1"
@@ -377,6 +378,42 @@ _RETIRED_LEGACY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_legacy_raw_co
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
+_RAW_TABLE_BY_SERIES = {
+    series: f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(f'macro_raw_{series}')}"
+    for series in GOLD_SOURCE_SERIES
+}
+
+
+def _raw_feature_projection() -> str:
+    """Reconstruct the canonical wide row shape from sparse feature-specific tables."""
+    aliases = {series: f"raw_{index}" for index, series in enumerate(GOLD_SOURCE_SERIES)}
+    first = GOLD_SOURCE_SERIES[0]
+    joins = " ".join(
+        f"FULL OUTER JOIN {_RAW_TABLE_BY_SERIES[series]} AS {aliases[series]} USING (timestamp_m1)"
+        for series in GOLD_SOURCE_SERIES[1:]
+    )
+    timestamp = ", ".join(f"{aliases[series]}.timestamp_m1" for series in GOLD_SOURCE_SERIES)
+    available = ", ".join(f"{aliases[series]}.available_at_utc" for series in GOLD_SOURCE_SERIES)
+    projected: list[str] = [
+        f"COALESCE({timestamp}) AS timestamp_m1",
+        f"COALESCE({available}) AS available_at_utc",
+    ]
+    for series in GOLD_SOURCE_SERIES:
+        if series in OHLC_SERIES:
+            projected.extend(
+                f"{aliases[series]}.{_quote(field)} AS {_quote(f'{series}_{field}')}"
+                for field in OHLC_FIELDS
+            )
+            projected.append(f"{aliases[series]}.close AS {_quote(f'{series}_level')}")
+        else:
+            projected.append(f"{aliases[series]}.indexvalue AS {_quote(f'{series}_level')}")
+    return (
+        f"(SELECT {', '.join(projected)} FROM {_RAW_TABLE_BY_SERIES[first]} "
+        f"AS {aliases[first]} {joins})"
+    )
+
+
+_RAW_PROJECTION = _raw_feature_projection()
 _AVAILABLE_AT_EXPRESSION = """(
     (
         ("timestamp_m1" AT TIME ZONE 'UTC')::date
@@ -493,6 +530,7 @@ _OWNERSHIP_MIGRATIONS = tuple(
     f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
     for schema, table in (
         (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
+        *((POSTGRES_CONSUMER_SCHEMA, table) for table in POSTGRES_RAW_TABLES),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
         (POSTGRES_SYNC_SCHEMA, _MIGRATION_LEDGER_TABLE),
@@ -609,7 +647,7 @@ END
 $$"""
 
 
-def _macro_features_view_query() -> str:
+def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
     """Build the closed-world SQL definition from the executable catalog."""
     source_ctes: list[str] = []
     joins: list[str] = []
@@ -649,7 +687,7 @@ def _macro_features_view_query() -> str:
         source_ctes.append(
             f"{source} AS MATERIALIZED (SELECT timestamp_m1, {level} AS level, {lag_sql}, "
             "row_number() OVER ordered AS observation_number "
-            f"FROM {_CONSUMER} WHERE {level} IS NOT NULL "
+            f"FROM {raw_relation} WHERE {level} IS NOT NULL "
             "WINDOW ordered AS (ORDER BY timestamp_m1))"
         )
         gain_loss_sql = (
@@ -886,7 +924,7 @@ def _macro_features_view_query() -> str:
                 source_ctes.append(
                     f"{metric} AS MATERIALIZED (SELECT timestamp_m1, CASE WHEN "
                     f"{finite_operands} AND {denominator} > 0.0 THEN {formula} END AS value "
-                    f"FROM {_CONSUMER})"
+                    f"FROM {raw_relation})"
                 )
                 source_ctes.append(
                     f"{valid_metric} AS MATERIALIZED (SELECT timestamp_m1, value, "
@@ -927,8 +965,8 @@ def _macro_features_view_query() -> str:
             source_ctes.append(
                 f"{gap_source} AS MATERIALIZED (SELECT current_bar.timestamp_m1, "
                 f"current_bar.{open_column} AS open, previous_bar.close AS previous_close "
-                f"FROM {_CONSUMER} AS current_bar LEFT JOIN LATERAL ("
-                f"SELECT source_bar.{close_column} AS close FROM {_CONSUMER} AS source_bar "
+                f"FROM {raw_relation} AS current_bar LEFT JOIN LATERAL ("
+                f"SELECT source_bar.{close_column} AS close FROM {raw_relation} AS source_bar "
                 "WHERE source_bar.timestamp_m1 < current_bar.timestamp_m1 AND "
                 f"{finite.format(source_close, source_close)} "
                 "ORDER BY source_bar.timestamp_m1 DESC LIMIT 1) AS previous_bar ON TRUE "
@@ -995,7 +1033,7 @@ def _macro_features_view_query() -> str:
                 f"{ohlc_rows} AS MATERIALIZED (SELECT timestamp_m1, "
                 f"{open_column} AS open, {high_column} AS high, {low_column} AS low, "
                 f"{close_column} AS close, row_number() OVER (ORDER BY timestamp_m1) "
-                f"AS observation_number FROM {_CONSUMER} WHERE {finite_ohlc})"
+                f"AS observation_number FROM {raw_relation} WHERE {finite_ohlc})"
             )
             source_ctes.append(
                 f"{ohlc_windows} AS MATERIALIZED (SELECT *, "
@@ -1112,7 +1150,7 @@ def _macro_features_view_query() -> str:
             )
 
             for period in MACD_PRICE_EMA_PERIODS:
-                source_ctes.append(_ema_state_cte(series, period))
+                source_ctes.append(_ema_state_cte(series, period, source_relation=raw_relation))
             macd_input = _quote(f"{series}_macd_input")
             ema12_state = _quote(f"{series}_ema_12_state")
             ema26_state = _quote(f"{series}_ema_26_state")
@@ -1120,7 +1158,7 @@ def _macro_features_view_query() -> str:
                 f"{macd_input} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"CASE WHEN ema12.ema IS NOT NULL AND ema26.ema IS NOT NULL "
                 f"THEN ema12.ema - ema26.ema END AS macd_line "
-                f"FROM {_CONSUMER} AS raw "
+                f"FROM {raw_relation} AS raw "
                 f"LEFT JOIN {ema12_state} AS ema12 ON ema12.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema26_state} AS ema26 ON ema26.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1144,7 +1182,7 @@ def _macro_features_view_query() -> str:
                 f"{macd_base} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"raw.{_quote(f'{series}_level')} AS level, "
                 f"macd_input.macd_line, signal.ema AS macd_signal "
-                f"FROM {_CONSUMER} AS raw JOIN {macd_input} AS macd_input "
+                f"FROM {raw_relation} AS raw JOIN {macd_input} AS macd_input "
                 f"ON macd_input.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {signal_state} AS signal ON signal.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1255,7 +1293,7 @@ def _macro_features_view_query() -> str:
                 helper_selects.append(f"return_ac_{lag}.value AS {pair_column}")
 
             for period in EMA_PERIODS:
-                source_ctes.append(_ema_state_cte(series, period))
+                source_ctes.append(_ema_state_cte(series, period, source_relation=raw_relation))
             ema_aligned = _quote(f"{series}_ema_aligned")
             ema_history = _quote(f"{series}_ema_history")
             ema_features = _quote(f"{series}_ema_features")
@@ -1266,7 +1304,7 @@ def _macro_features_view_query() -> str:
                 f"{ema_aligned} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"raw.{_quote(f'{series}_level')} AS level, "
                 f"ema5.ema AS ema5, ema9.ema AS ema9, ema21.ema AS ema21 "
-                f"FROM {_CONSUMER} AS raw "
+                f"FROM {raw_relation} AS raw "
                 f"LEFT JOIN {ema5_state} AS ema5 ON ema5.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema9_state} AS ema9 ON ema9.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema21_state} AS ema21 ON ema21.timestamp_m1 = raw.timestamp_m1)"
@@ -1394,13 +1432,13 @@ def _macro_features_view_query() -> str:
         f'SELECT raw."timestamp_m1", '
         'raw."available_at_utc" AS "available_at_utc", '
         f"{raw_select}, {', '.join(ordered_features)} "
-        f"FROM {_CONSUMER} raw {' '.join(joins)}"
+        f"FROM {raw_relation} raw {' '.join(joins)}"
     )
 
 
 _FEATURES_VIEW_DDL = _macro_features_view_query()
 _FEATURES_VIEW_MIGRATION = (
-    _FEATURES_VIEW_DDL,
+    _macro_features_view_query(_CONSUMER),
     f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
     f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
     f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
@@ -1418,6 +1456,62 @@ _FEATURES_VIEW_REBUILD_MIGRATION = (
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
 )
+_LEGACY_FEATURES_VIEW_DDL = _macro_features_view_query(_CONSUMER)
+_LEGACY_FEATURES_VIEW_REBUILD_MIGRATION = (
+    f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW}",
+    _LEGACY_FEATURES_VIEW_DDL,
+    f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
+    f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+    f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
+    f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
+)
+
+
+def _feature_raw_table_migrations() -> tuple[str, ...]:
+    statements: list[str] = [f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW} CASCADE"]
+    for series in GOLD_SOURCE_SERIES:
+        table = _RAW_TABLE_BY_SERIES[series]
+        value_columns = OHLC_FIELDS if series in OHLC_SERIES else ("indexvalue",)
+        column_definitions = ",\n    ".join(
+            f"{_quote(column)} DOUBLE PRECISION NULL" for column in value_columns
+        )
+        statements.append(
+            f"CREATE TABLE IF NOT EXISTS {table} ("
+            f"timestamp_m1 TIMESTAMPTZ(6) NOT NULL PRIMARY KEY, "
+            f"{_AVAILABLE_AT_COLUMN_DDL}, {column_definitions})"
+        )
+        if series in OHLC_SERIES:
+            source_columns = tuple(f"{series}_{field}" for field in OHLC_FIELDS)
+        else:
+            source_columns = (f"{series}_level",)
+        quoted_source = ", ".join(_quote(column) for column in source_columns)
+        target_columns = ", ".join(_quote(column) for column in ("timestamp_m1", *value_columns))
+        assignments = ", ".join(
+            f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in value_columns
+        )
+        non_null = " OR ".join(f"{_quote(column)} IS NOT NULL" for column in source_columns)
+        statements.append(
+            f"INSERT INTO {table} ({target_columns}) "
+            f"SELECT {_quote('timestamp_m1')}, {quoted_source} FROM {_CONSUMER} "
+            f"WHERE {non_null} ON CONFLICT (timestamp_m1) DO UPDATE SET {assignments}"
+        )
+        statements.extend(
+            (
+                f"ALTER TABLE {table} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+                f"GRANT SELECT ON TABLE {table} TO {_quote(POSTGRES_USER)}",
+                f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE {table} "
+                f"TO {_quote(POSTGRES_SYNC_USER)}",
+                f"REVOKE INSERT, UPDATE, DELETE ON TABLE {table} FROM {_quote(POSTGRES_USER)}",
+            )
+        )
+    statements.append(f"DROP TABLE {_CONSUMER}")
+    statements.extend(_FEATURES_VIEW_REBUILD_MIGRATION)
+    return tuple(statements)
+
+
+_FEATURE_RAW_TABLE_MIGRATION = _feature_raw_table_migrations()
 _FEATURES_VIEW_REFRESH_FUNCTION = """CREATE OR REPLACE FUNCTION
 macro_loader.refresh_macro_features_explicit()
 RETURNS void
@@ -1582,7 +1676,7 @@ _RETIRED_FED_ARCHIVE_MIGRATION = (
     + ", ".join(
         f"DROP COLUMN IF EXISTS {_quote(column)}" for column in _RETIRED_FED_ORIGIN_COLUMNS
     ),
-    _FEATURES_VIEW_DDL,
+    _LEGACY_FEATURES_VIEW_DDL,
     f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
     f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
     f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
@@ -1597,19 +1691,20 @@ def _normalize_view_definition(value: str) -> str:
 
 
 def _assert_generated_availability(cursor: CursorPort) -> None:
-    cursor.execute(
-        _GENERATED_AVAILABILITY_SQL,
-        (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
-    )
-    row = cursor.fetchone()
-    if row is None or len(row) != 2 or row[0] != "ALWAYS" or not isinstance(row[1], str):
-        raise ValueError("PostgreSQL available_at_utc is not a generated column")
-    expression = " ".join(row[1].lower().replace('"', "").split())
-    timezone_expression_present = "timezone(" in expression or "at time zone" in expression
-    if not timezone_expression_present or any(
-        marker not in expression for marker in _AVAILABILITY_EXPRESSION_MARKERS
-    ):
-        raise ValueError("PostgreSQL available_at_utc generation expression differs")
+    for table in POSTGRES_RAW_TABLES:
+        cursor.execute(
+            _GENERATED_AVAILABILITY_SQL,
+            (POSTGRES_CONSUMER_SCHEMA, table),
+        )
+        row = cursor.fetchone()
+        if row is None or len(row) != 2 or row[0] != "ALWAYS" or not isinstance(row[1], str):
+            raise ValueError(f"PostgreSQL {table}.available_at_utc is not a generated column")
+        expression = " ".join(row[1].lower().replace('"', "").split())
+        timezone_expression_present = "timezone(" in expression or "at time zone" in expression
+        if not timezone_expression_present or any(
+            marker not in expression for marker in _AVAILABILITY_EXPRESSION_MARKERS
+        ):
+            raise ValueError(f"PostgreSQL {table}.available_at_utc generation expression differs")
 
 
 _FEATURES_VIEW_DEFINITION = _normalize_view_definition(_FEATURES_VIEW_DDL.split(" AS ", 1)[1])
@@ -1651,25 +1746,23 @@ _TIMESTAMPTZ6_NOT_NULL = PostgresColumnSpecification(
     "timestamp_m1", "timestamp with time zone", 6, False
 )
 _SCHEMA_SPECIFICATION = (
-    PostgresTableSpecification(
-        POSTGRES_CONSUMER_SCHEMA,
-        POSTGRES_CONSUMER_TABLE,
-        (_TIMESTAMPTZ6_NOT_NULL,)
-        + tuple(
-            PostgresColumnSpecification(column, "double precision", None, True)
-            for column in POSTGRES_LEVEL_COLUMNS
-            if column not in _ADDED_LEVEL_COLUMNS
+    *(
+        PostgresTableSpecification(
+            POSTGRES_CONSUMER_SCHEMA,
+            f"macro_raw_{series}",
+            (
+                _TIMESTAMPTZ6_NOT_NULL,
+                PostgresColumnSpecification(
+                    "available_at_utc", "timestamp with time zone", 6, False
+                ),
+            )
+            + tuple(
+                PostgresColumnSpecification(column, "double precision", None, True)
+                for column in (OHLC_FIELDS if series in OHLC_SERIES else ("indexvalue",))
+            ),
+            ("timestamp_m1",),
         )
-        + (PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),)
-        + tuple(
-            PostgresColumnSpecification(column, "double precision", None, True)
-            for column in POSTGRES_OHLC_COLUMNS
-        )
-        + tuple(
-            PostgresColumnSpecification(column, "double precision", None, True)
-            for column in _ADDED_LEVEL_COLUMNS
-        ),
-        ("timestamp_m1",),
+        for series in GOLD_SOURCE_SERIES
     ),
     PostgresTableSpecification(
         POSTGRES_SYNC_SCHEMA,
@@ -1719,42 +1812,44 @@ _MIGRATIONS = (
     (_CONSUMER_RENAME_MIGRATION,),
     _FEATURES_VIEW_MIGRATION,
     _RAW_ONLY_LAYOUT_MIGRATION,
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     _FEATURES_VIEW_REFRESH_MIGRATION,
     # The view now publishes explicit *_log_level columns instead of levels.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Rebuild again for the explicit *_log_level column-name contract.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     ("SELECT 1",),
     # Older layout migrations could recreate macro_raw before the Fed columns existed.
     ("SELECT 1",),
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Add deterministic serving availability and rebuild the public projection.
-    _AVAILABLE_AT_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    _AVAILABLE_AT_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Archive legacy Fed data under a schema absent from runtime grants, then
     # remove it from the active raw table and materialized serving view.
     _RETIRED_FED_ARCHIVE_MIGRATION,
     # Rebuild under a new migration version so already-retired installations receive
     # the extended scalar-level feature catalog without rewriting historical migrations.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-171's level-only composite and statistical feature contract.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-172's private EMA recurrence and six EMA trend outputs.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-173's private signed MACD signal EMA and relative outputs.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Preserve native OHLC fields without dropping or rewriting existing raw rows.
-    _OHLC_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    _OHLC_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-175's OHLC bar range, intraday return, and overnight gap features.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish OHLC stochastic oscillators and nullable Donchian breakout flags.
-    _FEATURES_VIEW_REBUILD_MIGRATION,
+    _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Add newly registered STOXX term-structure and CISS contribution source columns.
-    _ADDED_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    _ADDED_LEVEL_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Add registered Euro-HY source columns without rewriting migration 28.
-    _EURO_HY_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    _EURO_HY_LEVEL_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Add registered Treasury tenor columns without rewriting migration 29.
-    _US_TREASURY_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    _US_TREASURY_LEVEL_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
+    # Backfill the per-feature raw tables, then atomically retire the wide macro_raw table.
+    _FEATURE_RAW_TABLE_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -1788,19 +1883,9 @@ WHERE namespaces.nspname IN (%s, %s) AND constraints.contype IN ('p', 'u')
 GROUP BY namespaces.nspname, classes.relname, constraints.contype
 ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 
-_INSERT_ROW_SQL = (
-    f"INSERT INTO {_CONSUMER} ("
-    f"{', '.join(_quote(column) for column in POSTGRES_RAW_COLUMNS)}) "
-    f"VALUES ({', '.join('%s' for _ in POSTGRES_RAW_COLUMNS)}) "
-    f'ON CONFLICT ("timestamp_m1") DO UPDATE SET '
-    + ", ".join(f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in _RAW_FEATURE_COLUMNS)
-)
-_UPDATE_ROW_SQL = (
-    f"UPDATE {_CONSUMER} SET "
-    + ", ".join(f"{_quote(column)} = %s" for column in _RAW_FEATURE_COLUMNS)
-    + f" WHERE {_quote('timestamp_m1')} = %s"
-)
-_DELETE_ROW_SQL = f"DELETE FROM {_CONSUMER} WHERE {_quote('timestamp_m1')} = %s"
+_INSERT_ROW_SQL = "per-feature upserts are generated from the immutable raw-series registry"
+_UPDATE_ROW_SQL = _INSERT_ROW_SQL
+_DELETE_ROW_SQL = "per-feature deletes are generated from the immutable raw-series registry"
 _UPSERT_DIGEST_SQL = f"""INSERT INTO {_ROW_HASHES} (dataset_id, timestamp_m1, row_sha256)
 VALUES (%s, %s, %s)
 ON CONFLICT (dataset_id, timestamp_m1)
@@ -1808,13 +1893,13 @@ DO UPDATE SET row_sha256 = EXCLUDED.row_sha256"""
 _DELETE_DIGEST_SQL = f"DELETE FROM {_ROW_HASHES} WHERE dataset_id = %s AND timestamp_m1 = %s"
 _CONSUMER_ROWS_SQL = (
     f"SELECT {', '.join(_quote(column) for column in POSTGRES_RAW_COLUMNS)} "
-    f"FROM {_CONSUMER} WHERE ("
+    f"FROM {_RAW_PROJECTION} AS reconstructed WHERE ("
     + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _RAW_FEATURE_COLUMNS)
     + f") ORDER BY {_quote('timestamp_m1')}"
 )
 _TARGET_SUMMARY_SQL = (
     f"SELECT COUNT(*), MIN({_quote('timestamp_m1')}), MAX({_quote('timestamp_m1')}) "
-    f"FROM {_CONSUMER} WHERE ("
+    f"FROM {_RAW_PROJECTION} AS reconstructed WHERE ("
     + " OR ".join(f"{_quote(column)} IS NOT NULL" for column in _RAW_FEATURE_COLUMNS)
     + ")"
 )
@@ -1958,6 +2043,39 @@ def _row_update_params(row: GoldRowPayload) -> tuple[object, ...]:
     )
 
 
+def _apply_feature_row(cursor: CursorPort, row: GoldRowPayload) -> None:
+    values_by_column = dict(zip(_RAW_FEATURE_COLUMNS, row.values, strict=True))
+    for series in GOLD_SOURCE_SERIES:
+        database_columns = OHLC_FIELDS if series in OHLC_SERIES else ("indexvalue",)
+        source_columns = (
+            tuple(f"{series}_{field}" for field in OHLC_FIELDS)
+            if series in OHLC_SERIES
+            else (f"{series}_level",)
+        )
+        values = tuple(values_by_column[column] for column in source_columns)
+        if series in OHLC_SERIES and values_by_column[f"{series}_level"] != values[-1]:
+            raise ValueError(f"PostgreSQL OHLC source level must equal {series}_close")
+        table = _RAW_TABLE_BY_SERIES[series]
+        if all(value is None for value in values):
+            cursor.execute(f"DELETE FROM {table} WHERE timestamp_m1 = %s", (row.timestamp_m1,))
+            continue
+        columns = ("timestamp_m1", *database_columns)
+        assignments = ", ".join(
+            f"{_quote(column)} = EXCLUDED.{_quote(column)}" for column in database_columns
+        )
+        cursor.execute(
+            f"INSERT INTO {table} ({', '.join(_quote(column) for column in columns)}) "
+            f"VALUES ({', '.join('%s' for _ in columns)}) "
+            f"ON CONFLICT (timestamp_m1) DO UPDATE SET {assignments}",
+            (row.timestamp_m1, *values),
+        )
+
+
+def _delete_feature_timestamp(cursor: CursorPort, timestamp: datetime) -> None:
+    for table in _RAW_TABLE_BY_SERIES.values():
+        cursor.execute(f"DELETE FROM {table} WHERE timestamp_m1 = %s", (timestamp,))
+
+
 def _advisory_lock_key(dataset_id: str) -> int:
     identity = f"{POSTGRES_ADVISORY_LOCK_NAMESPACE}:{dataset_id}".encode("ascii")
     return int.from_bytes(sha256(identity).digest()[:8], byteorder="big", signed=True)
@@ -2025,13 +2143,11 @@ class _PostgresGoldSyncTransaction:
             if row.timestamp_m1 not in digests:
                 raise ValueError("Gold delta mutation is missing its source row digest")
         for row in plan.inserts:
-            self._cursor.execute(_INSERT_ROW_SQL, _row_insert_params(row))
+            _apply_feature_row(self._cursor, row)
         for row in plan.updates:
-            self._cursor.execute(_UPDATE_ROW_SQL, _row_update_params(row))
-            self._require_exactly_one_row("update")
+            _apply_feature_row(self._cursor, row)
         for timestamp in plan.deletes:
-            self._cursor.execute(_DELETE_ROW_SQL, (timestamp,))
-            self._require_exactly_one_row("delete")
+            _delete_feature_timestamp(self._cursor, timestamp)
         for row in (*plan.inserts, *plan.updates):
             self._cursor.execute(
                 _UPSERT_DIGEST_SQL,
@@ -2237,15 +2353,11 @@ class PostgresGoldSyncRepository:
                 )
                 self._assert_schema_contract(cursor)
                 for row in plan.inserts:
-                    cursor.execute(_INSERT_ROW_SQL, _row_insert_params(row))
+                    _apply_feature_row(cursor, row)
                 for row in plan.updates:
-                    cursor.execute(_UPDATE_ROW_SQL, _row_update_params(row))
-                    if cursor.rowcount != 1:
-                        raise ValueError("PostgreSQL Gold update affected an unexpected row count")
+                    _apply_feature_row(cursor, row)
                 for timestamp in plan.deletes:
-                    cursor.execute(_DELETE_ROW_SQL, (timestamp,))
-                    if cursor.rowcount != 1:
-                        raise ValueError("PostgreSQL Gold delete affected an unexpected row count")
+                    _delete_feature_timestamp(cursor, timestamp)
 
                 for row in (*plan.inserts, *plan.updates):
                     cursor.execute(
@@ -2267,6 +2379,8 @@ class PostgresGoldSyncRepository:
                 )
                 if actual != expected:
                     raise ValueError("PostgreSQL Gold post-write summary does not match source")
+                if plan.inserts or plan.updates or plan.deletes:
+                    cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
                 if _digest_map(
                     _PostgresGoldSyncTransaction(cursor).read_digests(dataset_id)
                 ) != _digest_map(plan.source_digests):
@@ -2366,6 +2480,19 @@ class PostgresGoldSyncRepository:
         }
         if actual_keys != expected_keys:
             raise ValueError("PostgreSQL key contract does not match specification")
+        for table in POSTGRES_RAW_TABLES:
+            qualified = f"{POSTGRES_CONSUMER_SCHEMA}.{table}"
+            for role, expected in (
+                (POSTGRES_USER, True),
+                (POSTGRES_SYNC_USER, True),
+                ("public", False),
+            ):
+                cursor.execute(
+                    "SELECT has_table_privilege(%s, %s, 'SELECT')",
+                    (role, qualified),
+                )
+                if cursor.fetchone() != (expected,):
+                    raise ValueError(f"PostgreSQL raw table grants differ for {role}")
         PostgresGoldSyncRepository._assert_features_view_contract(cursor)
 
     @staticmethod
@@ -2574,8 +2701,12 @@ class PostgresGoldSchemaReconstructor:
                         (version,),
                     )
                 cursor.execute("RESET ROLE")
+                for table in POSTGRES_RAW_TABLES:
+                    cursor.execute(
+                        f"GRANT SELECT ON TABLE {_quote(POSTGRES_CONSUMER_SCHEMA)}."
+                        f"{_quote(table)} TO {_quote(POSTGRES_USER)}"
+                    )
                 for schema, table in (
-                    (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
                     (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
                     (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
                 ):
