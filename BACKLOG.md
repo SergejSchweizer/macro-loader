@@ -9,17 +9,46 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-197: Validate Raw JSON Types Before Long-Table Casting
+
+PR name: `fix-long-feature-values-migration`
+Status: In progress — local regression and production migration pending
+Updated: 2026-10-27
+Git branch: `pr-197/fix-long-feature-values-migration`
+Git status: in-progress
+Agent lane: correct migration 34 raw-value type validation before production rollout
+Depends on: PR-196 (merged to `origin/main`)
+Commit: pending
+Design patterns: Versioned Migration, independent source validation.
+
+Description:
+- R1: Keep migration 34's invalid-source validation on raw JSONB values; only the
+  population projection may cast supported numeric/boolean values to `DOUBLE PRECISION`.
+- R2: Add a regression assertion that protects the distinction between raw validation
+  and typed population SQL. Production's failed v34 attempt rolled back atomically, so
+  production remains on v33 until this correction is merged.
+
+Acceptance:
+- A1 verifies raw JSONB comparisons are used for type/null validation and the insert
+  projection remains `DOUBLE PRECISION`, including booleans encoded as `1.0`/`0.0`.
+- A2 executes migration 34's refresh function on a disposable PostgreSQL fixture and
+  verifies populated rows and boolean encodings.
+- A3 passes local `make quality-gate`; no GitHub Actions.
+- A4 applies migration 34 to authorized production, then independently verifies table
+  schema, feature coverage, row counts, sampled values and replay refresh.
+
 ### PR-196: Publish PostgreSQL Transformations In A Long Feature-Values Table
 
 PR name: `macro-feature-values-long-table`
-Status: In progress — implementation and migration QA pending
+Status: Merged — implementation merged; production migration blocked on PR-197 correction
 Updated: 2026-10-27
 Git branch: `pr-196/macro-feature-values-long-table`
-Git status: in-progress
+PR: [#196](https://github.com/SergejSchweizer/macro-loader/pull/196) (merged)
+Git status: merged
 Agent lane: expose the complete PostgreSQL transformation catalog in a row-oriented relation
 Depends on: PR-195 (merged to `origin/main`)
-Commit: `feat(pr-196): store long-form values as doubles`; `refactor(pr-196): derive long
-  feature values directly from raw tables`
+Commit: `c477c4a` (squash merge); original commits: `feat(pr-196): store long-form values
+  as doubles`; `refactor(pr-196): derive long feature values directly from raw tables`
 Design patterns: Repository, Unit of Work, explicit feature-catalog projection.
 
 Description:

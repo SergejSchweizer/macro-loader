@@ -448,7 +448,11 @@ def _raw_derived_extended_view_query() -> str:
 
 
 def _feature_value_select_sql(
-    relation: str, feature_names: tuple[str, ...], *, supported_types_only: bool = True
+    relation: str,
+    feature_names: tuple[str, ...],
+    *,
+    supported_types_only: bool = True,
+    raw_values: bool = False,
 ) -> str:
     if not feature_names:
         raise ValueError("feature value projection cannot be empty")
@@ -479,8 +483,9 @@ def _feature_value_select_sql(
         "WHEN 'false' THEN 0.0::double precision ELSE NULL END "
         "ELSE (fields.value #>> '{}')::double precision END"
     )
+    selected_value = "fields.value" if raw_values else value_expression
     return (
-        f"SELECT source.timestamp_m1, fields.key AS feature_name, {value_expression} AS value "
+        f"SELECT source.timestamp_m1, fields.key AS feature_name, {selected_value} AS value "
         f"FROM {relation} AS source "
         "CROSS JOIN LATERAL jsonb_each(to_jsonb(source)) AS fields(key, value) "
         f"WHERE fields.key = ANY(ARRAY[{allowed_names}]::text[]) "
@@ -1680,11 +1685,13 @@ _FEATURE_VALUE_ALL_SOURCE_SQL = " UNION ALL ".join(
             _FEATURE_VALUE_PRIMARY_SOURCE,
             FEATURE_VALUE_PRIMARY_NAMES,
             supported_types_only=False,
+            raw_values=True,
         ),
         _feature_value_select_sql(
             _FEATURE_VALUE_EXTENDED_SOURCE,
             FEATURE_VALUE_EXTENDED_NAMES,
             supported_types_only=False,
+            raw_values=True,
         ),
     )
 )
