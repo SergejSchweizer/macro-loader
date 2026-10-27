@@ -9,14 +9,57 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-200: Retire Wide Feature Views And Publish Long View As `macro_features`
+
+PR name: `rename-long-feature-materialized-view`
+Status: In progress — PR branch; production rename/removal pending local QA
+Updated: 2026-10-27
+Git branch: `pr-200/rename-long-feature-materialized-view`
+PR: not opened
+Git status: in-progress
+Agent lane: make the raw-derived long transformation materialized view the sole public feature view
+Depends on: PR-199 (merged to `origin/main`)
+Commit: pending
+Design patterns: Versioned Migration, Materialized View, Catalog Conformance.
+
+Description:
+- R1: Rename the populated `macro_loader.macro_feature_values` materialized view to
+  `macro_loader.macro_features`; preserve its rows and four-column long-form contract,
+  generated availability, indexes, ownership, and consumer/sync SELECT access.
+- R2: Retire the superseded wide public views `macro_loader.macro_features` and
+  `macro_loader.macro_features_extended` before the rename, plus the private
+  `macro_feature_raw_projection` and `macro_feature_transform_<series>` materialized
+  views used only by that wide-view chain. Preserve all `macro_raw_<feature>` tables,
+  canonical Gold sync tables/state, and the independent raw-derived long-view calculation.
+- R3: Update the refresh routine, runtime schema verifier, role provisioner, migrations,
+  README, architecture, and tests so only the long-form `macro_loader.macro_features`
+  transformation view remains; reject any retired view objects after migration.
+- R4: Apply as a new idempotent migration, avoiding any long-view recomputation during
+  rename. Confirm existing rows/indexes survive, then run a zero-change sync replay and
+  independent production conformance after local QA.
+
+Acceptance:
+- A1 disposable PostgreSQL upgrade verifies migration 36 removes precisely the retired
+  wide/private view chain, renames the populated long materialized view in place, keeps
+  its data, columns, indexes, owner, grants, and valid refresh routine, and is replay-safe.
+- A2 runtime and independent verifiers confirm `macro_features` has exactly
+  `timestamp_m1`, `available_at_utc`, `feature_name`, `value DOUBLE PRECISION`, and no
+  obsolete wide, extended, raw-projection, or per-series transform materialized views
+  remain in `macro_loader`.
+- A3 focused mathematical/source-parity tests and `make quality-gate` pass locally. No
+  GitHub Actions or remote quality gates.
+- A4 production migration preserves all existing long-view rows, removes only the
+  explicitly retired materialized views, passes independent conformance, and a canonical
+  `postgres-sync` replay reports zero inserted/updated/deleted Gold rows.
+
 ### PR-199: Publish Long Transformations As A Raw-Derived Materialized View
 
 PR name: `long-feature-values-materialized-view`
-Status: PR #199 open — local checks passed; production full-history acceptance pending
+Status: Merged — production migration 35 and long-view population completed; PR-200 adds the requested sole-view rename/removal
 Updated: 2026-10-27
 Git branch: `pr-199/long-feature-materialized-view`
-PR: [#199](https://github.com/SergejSchweizer/macro-loader/pull/199) (open)
-Git status: pushed-local-checks-passed
+PR: [#199](https://github.com/SergejSchweizer/macro-loader/pull/199) (merged)
+Git status: merged
 Agent lane: publish the 1,720 typed transformations directly from the core raw feature tables
 Depends on: PR-198 (merged to `origin/main`)
 Commit: `9342d28 feat(pr-199): replace long table with raw-derived materialized view`
@@ -46,6 +89,12 @@ Acceptance:
   verify catalog coverage, counts, sampled values, and a zero-change sync replay. If the full
   raw-source refresh exceeds the configured bound, keep production unchanged and report that
   the selected materialized-view design needs a separate runtime-boundary decision.
+
+Production migration 35 completed on 2026-10-27. Read-only production checks found
+11,794,988 unique rows across 1,720 features (1962-01-02 through 2026-10-27), no
+NaN/Infinity, correct indexes/grants, and 200 sampled values/availability timestamps
+matching the existing feature views. The production CLI conformance run and zero-change
+replay are still being verified; PR-200 owns the subsequent view retirement and rename.
 
 ### PR-198: Materialize The Long-Table Source Once Per Refresh
 

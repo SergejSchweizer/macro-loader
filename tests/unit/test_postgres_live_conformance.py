@@ -3,8 +3,6 @@ from __future__ import annotations
 import pytest
 
 from application.macro_feature_catalog import (
-    EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
-    EXTENDED_MACRO_FEATURE_VIEW_VERSION,
     FEATURE_VALUE_CATALOG_FINGERPRINT,
     FEATURE_VALUE_SCHEMA_VERSION,
 )
@@ -12,17 +10,9 @@ from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
 from ingestion.postgres_conformance_verifier import PostgresLiveDatabaseConformanceInspector
 from ingestion.postgres_gold_repository import (
-    _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
-    _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED,
-    _EXTENDED_FEATURES_VIEW_DEFINITION,
     _FEATURE_VALUE_POPULATION_SQL,
-    _FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
-    _FEATURES_VIEW_COLUMNS_EXPECTED,
-    _FEATURES_VIEW_DEFINITION,
     _POSTGRES_OWNER_ROLE,
     _SCHEMA_SPECIFICATION,
-    MACRO_FEATURE_VIEW_FINGERPRINT,
-    MACRO_FEATURE_VIEW_VERSION,
     POSTGRES_HOST,
     POSTGRES_PORT,
     POSTGRES_USER,
@@ -89,29 +79,18 @@ class FakeCursor:
             ]
         elif "obj_description(classes.oid" in query and params == (
             POSTGRES_CONSUMER_SCHEMA,
-            "macro_features_extended",
+            "macro_features",
         ):
             self._one = (
                 "m",
                 _POSTGRES_OWNER_ROLE,
-                f"macro feature view version={EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
-                f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}",
-                _EXTENDED_FEATURES_VIEW_DEFINITION,
-            )
-        elif "obj_description(classes.oid" in query and params == (
-            POSTGRES_CONSUMER_SCHEMA,
-            "macro_feature_values",
-        ):
-            self._one = (
-                "m",
-                _POSTGRES_OWNER_ROLE,
-                f"macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
+                f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
                 f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
             )
         elif (
             "FROM pg_attribute AS attributes" in query
             and isinstance(params, tuple)
-            and str(params[0]).endswith(".macro_feature_values")
+            and str(params[0]).endswith(".macro_features")
         ):
             self._many = [
                 (1, "timestamp_m1", "timestamp(6) with time zone"),
@@ -119,46 +98,18 @@ class FakeCursor:
                 (3, "feature_name", "text"),
                 (4, "value", "double precision"),
             ]
+        elif "SELECT relname FROM pg_class AS relations" in query:
+            self._many = []
         elif "SELECT pg_get_viewdef(classes.oid, true)" in query:
             from ingestion.postgres_gold_repository import _FEATURE_VALUES_DDL
 
             self._one = (_FEATURE_VALUES_DDL,)
-        elif "obj_description(classes.oid" in query:
-            self._one = (
-                "m",
-                _POSTGRES_OWNER_ROLE,
-                f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-                f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
-                _FEATURES_VIEW_DEFINITION,
-            )
-        elif "FROM pg_attribute AS attributes" in query and params == (
-            f"{POSTGRES_CONSUMER_SCHEMA}.macro_features_extended",
-        ):
-            self._many = [
-                (
-                    ordinal,
-                    name,
-                    _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
-                    False,
-                )
-                for ordinal, name in enumerate(_EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
-            ]
-        elif "FROM pg_attribute AS attributes" in query:
-            self._many = [
-                (
-                    ordinal,
-                    name,
-                    _FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
-                    False,
-                )
-                for ordinal, name in enumerate(_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
-            ]
         elif "FROM pg_indexes" in query:
             unique = "timestamp_feature" in query
             index_name = (
-                "macro_feature_values_timestamp_feature_uidx"
+                "macro_features_timestamp_feature_uidx"
                 if unique
-                else "macro_feature_values_feature_timestamp_idx"
+                else "macro_features_feature_timestamp_idx"
             )
             index_columns = (
                 "(timestamp_m1, feature_name)" if unique else "(feature_name, timestamp_m1)"
@@ -166,7 +117,7 @@ class FakeCursor:
             unique_sql = "UNIQUE " if unique else ""
             self._one = (
                 f"CREATE {unique_sql}INDEX {index_name} "
-                f"ON macro_loader.macro_feature_values USING btree {index_columns}",
+                f"ON macro_loader.macro_features USING btree {index_columns}",
             )
         elif query == _FEATURE_VALUE_POPULATION_SQL:
             self._one = (100, 100, 20, 20, 0, 0, 0)
@@ -181,7 +132,7 @@ class FakeCursor:
             self._one = (True, False)
         elif "has_table_privilege" in query:
             assert params is not None
-            if "macro_feature_values" in str(params) and "'SELECT')" not in query:
+            if "macro_features" in str(params) and "'SELECT')" not in query:
                 self._one = (False,)
                 return self
             if "'SELECT')" in query and "'INSERT')" not in query:
@@ -190,7 +141,7 @@ class FakeCursor:
             has_dml = (
                 params[0] == POSTGRES_SYNC_ROLE
                 and "schema_migrations" not in str(params[1])
-                and "macro_feature_values" not in str(params[1])
+                and "macro_features" not in str(params[1])
             )
             self._one = (True, has_dml)
             self._one = (self._one[0], self._one[1], self._one[1], self._one[1])
