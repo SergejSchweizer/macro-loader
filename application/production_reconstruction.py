@@ -9,6 +9,7 @@ from typing import Protocol
 
 from application.postgres_conformance import PostgresConformanceReport
 from application.postgres_sync import GoldSyncResult
+from application.registry import SERIES_REGISTRY
 
 _STAGES = (
     "maintenance",
@@ -101,8 +102,8 @@ class ProductionReconstruction:
     series_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        if len(self.series_ids) != 13 or len(set(self.series_ids)) != 13:
-            raise ValueError("production reconstruction requires exactly 13 unique series")
+        if self.series_ids != tuple(SERIES_REGISTRY):
+            raise ValueError("production reconstruction requires every registered series in order")
 
     def run(self) -> ProductionReconstructionReport:
         completed: list[str] = []

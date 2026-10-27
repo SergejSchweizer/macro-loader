@@ -17,6 +17,7 @@ from application.postgres_sync import (
     GoldRowPayload,
     GoldSyncState,
 )
+from application.registry import OHLC_SERIES, SERIES_REGISTRY
 
 
 def _ts(day: int, *, micros: int = 0) -> datetime:
@@ -57,7 +58,7 @@ def test_row_digest_is_deterministic_and_value_sensitive() -> None:
 
 def test_postgres_raw_sync_contract_contains_only_non_fed_source_levels() -> None:
     assert POSTGRES_RAW_COLUMNS[0] == "timestamp_m1"
-    assert len(POSTGRES_RAW_COLUMNS) == 38
+    assert len(POSTGRES_RAW_COLUMNS) == 1 + len(SERIES_REGISTRY) + 4 * len(OHLC_SERIES)
     assert POSTGRES_RAW_COLUMNS[-24:] == tuple(
         f"{series}_{field}"
         for series in ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")

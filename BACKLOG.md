@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-176: Add OHLC Stochastic And Donchian Features
 
 PR name: `add-stochastic-donchian-features`
-Status: Ready
+Status: Merged
 Updated: 2026-10-27
-PR: [#176](https://github.com/SergejSchweizer/macro-loader/pull/176) (open)
+PR: [#176](https://github.com/SergejSchweizer/macro-loader/pull/176) (merged)
 Git branch: `pr-176/add-stochastic-donchian-features`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: PostgreSQL OHLC feature projection and independent mathematical/schema QA
 Depends on: PR-175 (merged to `origin/main`)
-Commit: `b51a282 feat(pr-176): add stochastic and donchian view features`
+Commit: `c3da4cf feat(pr-176): add OHLC stochastic and Donchian features` (GitHub squash merge)
 Design patterns: Registry-driven Projection, Pure Transformation, Materialized View.
 
 Description:
@@ -55,14 +55,14 @@ Acceptance:
 ### PR-177: Add VSTOXX 1M/2M/3M Source Series
 
 PR name: `add-vstoxx-term-structure-series`
-Status: Planned
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#177](https://github.com/SergejSchweizer/macro-loader/pull/177) (open)
 Git branch: `pr-177/add-vstoxx-term-structure-series`
-Git status: not-started (branch absent)
+Git status: pushed-local-checks-passed
 Agent lane: STOXX source adapter and provider-level QA
 Depends on: PR-176
-Commit: pending
+Commit: `aadf953 feat(pr-177): add vstoxx term structure sources`
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
@@ -237,7 +237,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 is active and PR-177 through PR-181 are planned. No production migration or
+PR-176 is merged and PR-177 is open; PR-178 through PR-181 are planned. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.

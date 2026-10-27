@@ -9,7 +9,7 @@ from application.errors import ProviderHttpError
 from application.ports.http import HttpRequest, HttpResponse, RequestContext
 from application.ports.market_data import ProviderRequest
 from application.registry import series_contract
-from ingestion.stoxx_provider import StoxxProvider
+from ingestion.stoxx_provider import STOXX_SOURCES, StoxxProvider
 
 NOW = datetime(2026, 8, 19, 2, tzinfo=UTC)
 PAYLOAD = b"DATE;V2TX\n2026-08-10;18.0\n2026-08-11;19.0\n2026-08-19;20.0\n"
@@ -67,6 +67,54 @@ def test_live_stoxx_indexvalue_column_is_accepted() -> None:
 
     assert frame.get_column("observation_date").to_list() == [date(2026, 8, 10), date(2026, 8, 19)]
     assert frame.get_column("value").to_list() == [18.0, 20.0]
+
+
+@pytest.mark.parametrize(
+    ("series_id", "symbol", "url"),
+    (
+        ("vstoxx1m", "V6I1", "h_v6i1.txt"),
+        ("vstoxx2m", "V6I2", "h_v6i2.txt"),
+        ("vstoxx3m", "V6I3", "h_v6i3.txt"),
+    ),
+)
+def test_term_structure_series_parse_matching_symbol_and_use_source_url(
+    series_id: str, symbol: str, url: str
+) -> None:
+    payload = (
+        f"Date;Symbol;Indexvalue\n"
+        f"04.01.1999;{symbol};21.25\n"
+        f"05.01.1999;{symbol};22.5\n"
+        "06.01.1999;OTHER;99.0\n"
+    ).encode()
+    transport = FakeTransport(HttpResponse(200, payload, {}))
+    frame = StoxxProvider(transport, clock=lambda: NOW).fetch(
+        series_contract(series_id), request("bootstrap")
+    )
+
+    assert frame.get_column("series_id").unique().item() == series_id
+    assert frame.get_column("source_id").unique().item() == symbol
+    assert frame.get_column("source_url").unique().item().endswith(url)
+    assert frame.get_column("observation_date").to_list() == [date(1999, 1, 4), date(1999, 1, 5)]
+    assert frame.get_column("value").to_list() == [21.25, 22.5]
+    assert transport.calls[0][0].url.endswith(url)
+
+
+def test_term_structure_update_filters_full_file_to_exact_logical_delta() -> None:
+    payload = (
+        b"Date;Symbol;Indexvalue\n"
+        b"10.08.2026;V6I1;18.0\n11.08.2026;V6I1;19.0\n"
+        b"19.08.2026;V6I1;20.0\n20.08.2026;V6I1;21.0\n"
+    )
+    provider = StoxxProvider(FakeTransport(HttpResponse(200, payload, {})), clock=lambda: NOW)
+
+    frame = provider.fetch(series_contract("vstoxx1m"), request())
+
+    assert frame.get_column("observation_date").to_list() == [date(2026, 8, 11), date(2026, 8, 19)]
+
+
+def test_stoxx_source_catalog_is_closed_and_vstoxx_remains_registered() -> None:
+    assert tuple(STOXX_SOURCES) == ("V2TX", "V6I1", "V6I2", "V6I3")
+    assert STOXX_SOURCES["V2TX"].series_id == "vstoxx"
 
 
 def test_only_registered_vstoxx_contract_is_accepted() -> None:

@@ -144,7 +144,7 @@ def test_reconstruction_rejects_mutating_replay() -> None:
 
 
 def test_reconstruction_requires_exactly_thirteen_unique_series() -> None:
-    with pytest.raises(ValueError, match="13 unique"):
+    with pytest.raises(ValueError, match="every registered series"):
         ProductionReconstruction(OperationsStub(), tuple(SERIES_REGISTRY)[:-1])
 
 

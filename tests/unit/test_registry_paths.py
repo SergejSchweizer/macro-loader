@@ -43,6 +43,9 @@ def test_initial_registry_contains_exact_canonical_series() -> None:
         "vix6m",
         "vix1y",
         "vstoxx",
+        "vstoxx1m",
+        "vstoxx2m",
+        "vstoxx3m",
         "move",
         "ciss",
         "estr",
@@ -51,7 +54,7 @@ def test_initial_registry_contains_exact_canonical_series() -> None:
         "us_10y",
         "usd_broad",
     )
-    assert len(INITIAL_SERIES) == 13
+    assert len(INITIAL_SERIES) == 16
     assert all(entry.source_id and entry.unit for entry in INITIAL_SERIES)
 
 
@@ -59,6 +62,23 @@ def test_vstoxx_is_unambiguous_scalar_full_file() -> None:
     contract = series_contract("vstoxx")
     assert contract.provider is Provider.STOXX
     assert contract.native_shape is NativeShape.SCALAR
+    assert contract.fetch_capability is FetchCapability.FULL_FILE
+
+
+@pytest.mark.parametrize(
+    ("series_id", "source_id"),
+    (("vstoxx1m", "V6I1"), ("vstoxx2m", "V6I2"), ("vstoxx3m", "V6I3")),
+)
+def test_vstoxx_term_series_contracts_are_daily_scalar_full_files(
+    series_id: str, source_id: str
+) -> None:
+    contract = series_contract(series_id)
+    assert contract.provider is Provider.STOXX
+    assert contract.source_id == source_id
+    assert contract.unit == "index_points"
+    assert contract.native_shape is NativeShape.SCALAR
+    assert contract.frequency is Frequency.DAILY
+    assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY
     assert contract.fetch_capability is FetchCapability.FULL_FILE
 
 

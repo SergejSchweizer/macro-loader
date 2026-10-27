@@ -114,6 +114,9 @@ Prefer `typing.Protocol`, immutable contracts, pure transformations, and constru
 | `vix6m` | CBOE | 6-month implied volatility |
 | `vix1y` | CBOE | 1-year implied volatility |
 | `vstoxx` | STOXX | Euro-area equity implied volatility |
+| `vstoxx1m` | STOXX (`V6I1`) | 1-month Euro-area equity implied volatility |
+| `vstoxx2m` | STOXX (`V6I2`) | 2-month Euro-area equity implied volatility |
+| `vstoxx3m` | STOXX (`V6I3`) | 3-month Euro-area equity implied volatility |
 | `move` | Yahoo Finance | US Treasury implied volatility |
 | `ciss` | ECB | euro-area systemic stress |
 | `estr` | ECB | euro short-term rate |
@@ -123,6 +126,21 @@ Prefer `typing.Protocol`, immutable contracts, pure transformations, and constru
 | `usd_broad` | FRED | broad US-dollar index |
 
 No additional MVP series may be introduced without a separate backlog PR and matching contract updates.
+
+### STOXX term-structure raw features
+
+`vstoxx1m`, `vstoxx2m`, and `vstoxx3m` are daily STOXX implied-volatility index
+observations sourced respectively from `V6I1`, `V6I2`, and `V6I3`. The official files
+are [`h_v6i1.txt`](https://www.stoxx.com/document/Indices/Current/HistoricalData/h_v6i1.txt),
+[`h_v6i2.txt`](https://www.stoxx.com/document/Indices/Current/HistoricalData/h_v6i2.txt),
+and [`h_v6i3.txt`](https://www.stoxx.com/document/Indices/Current/HistoricalData/h_v6i3.txt).
+Each provider row contains `Date`, `Symbol`, and `Indexvalue`; the canonical scalar is
+stored in `value` with the exact source symbol, source URL, observation date, and UTC
+fetch time in Bronze. Values are in index points, with no synthetic dates or carry-forward.
+The files exposed history from 1999-01-04 through 2026-10-26 when checked on 2026-10-27;
+the newest exposed date changes as STOXX publishes data. These are full-file sources:
+bootstrap keeps all exposed observations, while an update persists only its requested
+logical date range.
 
 ## Source Update Policy
 
@@ -227,7 +245,7 @@ Feature semantics are fixed and causal:
 - `delta_Nobs(t) = x(t) - x(previous Nth valid observation)`;
 - every source level includes a causal `delta_1obs`; existing 5- and 20-observation deltas remain available according to the feature family;
 - 60-observation z-scores use the last 60 valid observations including `t` and population standard deviation (`ddof=0`);
-- each of the 13 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
+- each of the 16 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each eligible source level includes XETRA-compatible log returns over 1, 2, 3, 4, 5, 8, 10, and 20 observations; cumulative geometric returns over 4, 5, 8, 10, 16, and 20 observations; average one-observation log returns over 5, 10, and 20 observations; and sample log-return volatility over 5, 8, 10, 20, 32, 40, and 96 observations. Geometric-return columns retain the `_pct` suffix but store decimal fractions (`0.05` means 5%);
 - eligible source levels also include SMA ratios `(5,15)`, `(5,20)`, `(10,20)`, `(10,40)`; Wilder RSI over 3, 5, 7, and 14 observations; ROC over 1, 2, 3, 4, 5, 8, 10, and 20 observations; and rolling drawdown over 20, 32, 60, and 96 observations. These are complete-window, observation-based calculations; RSI uses Wilder recurrence, with fully flat gain/loss windows as `NULL` and all-gain/all-loss windows as 100/0;
