@@ -403,12 +403,12 @@ def test_retirement_migration_archives_fed_data_before_removing_active_columns()
         'DROP TABLE IF EXISTS "macro_loader_sync"."fed_policy_features_daily"'
     )
     assert 'DROP COLUMN IF EXISTS "available_at_utc"' not in sql
-    assert module._FEATURES_VIEW_DDL in migration
+    assert module._LEGACY_FEATURES_VIEW_DDL in migration
     feature_migration = "\n".join(module._MIGRATIONS[24])
-    assert module._FEATURES_VIEW_DDL in feature_migration
+    assert module._LEGACY_FEATURES_VIEW_DDL in feature_migration
 
     ohlc_feature_migration = "\n".join(module._MIGRATIONS[25])
-    assert module._FEATURES_VIEW_DDL in ohlc_feature_migration
+    assert module._LEGACY_FEATURES_VIEW_DDL in ohlc_feature_migration
     assert f"version={module.MACRO_FEATURE_VIEW_VERSION}" in ohlc_feature_migration
     assert module.MACRO_FEATURE_VIEW_FINGERPRINT in ohlc_feature_migration
     legacy_migration = "\n".join(module._FED_POLICY_RENAME_MIGRATION)
@@ -441,18 +441,84 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert module.MACRO_FEATURE_VIEW_FINGERPRINT in final_migration
 
 
+def test_feature_table_cutover_migration_backfills_all_registered_series_and_drops_wide_table() -> (
+    None
+):
+    statements = module._FEATURE_RAW_TABLE_MIGRATION
+    table_creates = tuple(
+        statement for statement in statements if statement.startswith("CREATE TABLE IF NOT EXISTS")
+    )
+    backfills = tuple(statement for statement in statements if statement.startswith("INSERT INTO"))
+
+    assert len(module.POSTGRES_RAW_TABLES) == 25
+    assert tuple(spec.name for spec in module._SCHEMA_SPECIFICATION[:25]) == tuple(
+        module.POSTGRES_RAW_TABLES
+    )
+    assert len(table_creates) == len(module.POSTGRES_RAW_TABLES)
+    assert len(backfills) == len(module.POSTGRES_RAW_TABLES)
+    assert all("TIMESTAMPTZ(6) NOT NULL PRIMARY KEY" in statement for statement in table_creates)
+    assert all("GENERATED ALWAYS AS" in statement for statement in table_creates)
+    assert all('FROM "macro_loader"."macro_raw"' in statement for statement in backfills)
+    euro_oas = next(sql for sql in backfills if "macro_raw_euro_hy_oas" in sql)
+    assert '"euro_hy_oas_level"' in euro_oas
+    assert '"euro_hy_yield_level"' in next(
+        sql for sql in backfills if "macro_raw_euro_hy_yield" in sql
+    )
+    assert statements.index('DROP TABLE "macro_loader"."macro_raw"') > max(
+        statements.index(sql) for sql in backfills
+    )
+    assert statements[-1] == module._FEATURES_VIEW_REBUILD_MIGRATION[-1]
+    assert 'FROM "macro_loader"."macro_raw"' not in module._CONSUMER_ROWS_SQL
+    assert 'FROM "macro_loader"."macro_raw"' not in module._FEATURES_VIEW_DDL
+
+
+def test_feature_row_writer_routes_scalar_and_ohlc_values_to_their_own_tables() -> None:
+    class RecordingCursor:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, object]] = []
+
+        def execute(self, query: str, params: object = None) -> None:
+            self.calls.append((query, params))
+
+    cursor = RecordingCursor()
+    row = _row(1, 2.5)
+    module._apply_feature_row(cursor, row)
+    inserts = [(query, params) for query, params in cursor.calls if query.startswith("INSERT INTO")]
+
+    assert len(inserts) == len(module.POSTGRES_RAW_TABLES)
+    vix_insert = next(item for item in inserts if '"macro_raw_vix"' in item[0])
+    assert '"open", "high", "low", "close"' in vix_insert[0]
+    assert vix_insert[1] == (_ts(1), 2.5, 2.5, 2.5, 2.5)
+    scalar_insert = next(item for item in inserts if '"macro_raw_us_3m"' in item[0])
+    assert '"indexvalue"' in scalar_insert[0]
+    assert scalar_insert[1] == (_ts(1), 2.5)
+
+
+def test_feature_row_writer_rejects_divergent_ohlc_close_and_level() -> None:
+    class RecordingCursor:
+        def execute(self, query: str, params: object = None) -> None:
+            raise AssertionError("invalid rows must be rejected before database writes")
+
+    values = [None] * (len(POSTGRES_RAW_COLUMNS) - 1)
+    positions = {name: index - 1 for index, name in enumerate(POSTGRES_RAW_COLUMNS)}
+    values[positions["vix_level"]] = 10.0
+    values[positions["vix_close"]] = 9.0
+    with pytest.raises(ValueError, match="must equal vix_close"):
+        module._apply_feature_row(RecordingCursor(), GoldRowPayload(_ts(1), tuple(values)))
+
+
 def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_order() -> None:
     migration = "\n".join(module._MIGRATIONS[24])
     raw_spec = next(
         spec
         for spec in module._SCHEMA_SPECIFICATION
-        if spec.schema == "macro_loader" and spec.name == "macro_raw"
+        if spec.schema == "macro_loader" and spec.name == "macro_raw_vix"
     )
     names = tuple(column.name for column in raw_spec.columns)
-    expected_raw_ohlc = POSTGRES_RAW_COLUMNS[-24:]
+    expected_raw_ohlc = tuple(f"vix_{field}" for field in module.OHLC_FIELDS)
 
-    assert names.index("available_at_utc") < names.index("vix_open")
-    assert tuple(name for name in names if name in expected_raw_ohlc) == expected_raw_ohlc
+    assert names.index("available_at_utc") < names.index("open")
+    assert tuple(name for name in names if name in module.OHLC_FIELDS) == module.OHLC_FIELDS
     assert all(
         f'"{column}" DOUBLE PRECISION NULL' in module._CONSUMER_DDL for column in expected_raw_ohlc
     )
@@ -467,20 +533,24 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     )
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
-    assert module._FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-2])
+    assert module._LEGACY_FEATURES_VIEW_DDL in module._MIGRATIONS[24]
+    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-3])
     assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in (
-        "\n".join(module._MIGRATIONS[-3])
+        "\n".join(module._MIGRATIONS[-4])
     )
     assert 'ADD COLUMN IF NOT EXISTS "euro_hy_total_return_level" DOUBLE PRECISION NULL' in (
         prior_euro_hy_migration
     )
+    treasury_migration = "\n".join(module._MIGRATIONS[-2])
+    assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in treasury_migration
+    assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration
+    assert treasury_migration.count("ADD COLUMN IF NOT EXISTS") == 2
     final_migration = "\n".join(module._MIGRATIONS[-1])
-    assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in (final_migration)
-    assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in (final_migration)
-    assert final_migration.count("ADD COLUMN IF NOT EXISTS") == 2
-    assert "DROP TABLE" not in final_migration
-    assert "DELETE FROM" not in final_migration
+    assert 'DROP TABLE "macro_loader"."macro_raw"' in final_migration
+    assert 'INSERT INTO "macro_loader"."macro_raw_euro_hy_oas"' in final_migration
+    assert "macro_raw_vix" in final_migration and "macro_raw_usd_broad" in final_migration
+    assert len(module.POSTGRES_RAW_TABLES) == 25
+    assert not any(spec.name == "macro_raw" for spec in module._SCHEMA_SPECIFICATION)
     assert "version=16" in final_migration
 
 
@@ -498,7 +568,8 @@ def test_generated_availability_contract_fails_closed(
     class MetadataCursor:
         def execute(self, query: str, params: object = None) -> None:
             assert query == module._GENERATED_AVAILABILITY_SQL
-            assert params == ("macro_loader", "macro_raw")
+            assert params is not None and params[0] == "macro_loader"
+            assert params[1] in module.POSTGRES_RAW_TABLES
 
         def fetchone(self) -> tuple[str, str] | None:
             return metadata
@@ -518,7 +589,8 @@ def test_generated_availability_accepts_postgres_at_time_zone_deparser() -> None
     class MetadataCursor:
         def execute(self, query: str, params: object = None) -> None:
             assert query == module._GENERATED_AVAILABILITY_SQL
-            assert params == ("macro_loader", "macro_raw")
+            assert params is not None and params[0] == "macro_loader"
+            assert params[1] in module.POSTGRES_RAW_TABLES
 
         def fetchone(self) -> tuple[str, str]:
             return ("ALWAYS", expression)
@@ -530,7 +602,9 @@ def test_macro_features_materialized_view_projects_non_fed_derived_features() ->
     ddl = module._FEATURES_VIEW_DDL
 
     assert 'CREATE MATERIALIZED VIEW IF NOT EXISTS "macro_loader"."macro_features"' in ddl
-    assert 'FROM "macro_loader"."macro_raw"' in ddl
+    assert '"macro_loader"."macro_raw_vix"' in ddl
+    assert '"macro_loader"."macro_raw_usd_broad"' in ddl
+    assert 'FROM "macro_loader"."macro_raw"' not in ddl
     assert module._FEATURES_VIEW_COLUMNS_EXPECTED[:2] == (
         "timestamp_m1",
         "available_at_utc",
@@ -581,7 +655,7 @@ def test_gold_sync_sql_contains_only_non_fed_raw_columns() -> None:
         f'"{column}"' in module._CONSUMER_ROWS_SQL for column in module._RETIRED_FED_ORIGIN_COLUMNS
     )
     assert '"vix_level" IS NOT NULL' in module._CONSUMER_ROWS_SQL
-    assert 'ON CONFLICT ("timestamp_m1") DO UPDATE SET' in module._INSERT_ROW_SQL
+    assert "per-feature upserts" in module._INSERT_ROW_SQL
     assert '"vix_level" IS NOT NULL' in module._TARGET_SUMMARY_SQL
 
 
@@ -735,13 +809,14 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     queries = _execute_queries(connection)
     lock_index = next(i for i, query in enumerate(queries) if "pg_advisory_xact_lock" in query)
     insert_index = next(
-        i for i, query in enumerate(queries) if query.startswith('INSERT INTO "macro_loader"')
-    )
-    update_index = next(
-        i for i, query in enumerate(queries) if query.startswith('UPDATE "macro_loader"')
+        i
+        for i, query in enumerate(queries)
+        if query.startswith('INSERT INTO "macro_loader"."macro_raw_')
     )
     delete_index = next(
-        i for i, query in enumerate(queries) if query.startswith('DELETE FROM "macro_loader"')
+        i
+        for i, query in enumerate(queries)
+        if query.startswith('DELETE FROM "macro_loader"."macro_raw_')
     )
     summary_index = next(i for i, query in enumerate(queries) if query.startswith("SELECT COUNT"))
     state_index = next(
@@ -749,10 +824,10 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
         for i, query in enumerate(queries)
         if 'INSERT INTO "macro_loader_sync"."gold_sync_state"' in query
     )
-    assert lock_index < insert_index < update_index < delete_index < summary_index < state_index
-    assert queries.count(module._INSERT_ROW_SQL) == 1
-    assert queries.count(module._UPDATE_ROW_SQL) == 1
-    assert queries.count(module._DELETE_ROW_SQL) == 1
+    assert lock_index < insert_index < delete_index < summary_index < state_index
+    assert sum(query.startswith('INSERT INTO "macro_loader"."macro_raw_') for query in queries) > 0
+    assert sum(query.startswith('DELETE FROM "macro_loader"."macro_raw_') for query in queries) > 0
+    assert "SELECT macro_loader.refresh_macro_features_explicit()" in queries
     assert "TRUNCATE" not in "\n".join(queries)
     assert ("commit", None, None) in connection.events
     assert ("rollback", None, None) not in connection.events
@@ -799,7 +874,9 @@ def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() ->
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
     repository.apply_delta(POSTGRES_DATASET_ID, plan, _state())
     queries = _execute_queries(connection)
-    assert queries.count(module._INSERT_ROW_SQL) == 2
+    assert sum(query.startswith('INSERT INTO "macro_loader"."macro_raw_') for query in queries) == (
+        2 * len(module.POSTGRES_RAW_TABLES)
+    )
     assert all("TRUNCATE" not in query and "DROP TABLE" not in query for query in queries)
 
 
@@ -812,7 +889,9 @@ def test_transaction_failure_rolls_back_and_error_is_sanitized() -> None:
         (),
         (GoldRowDigest(_ts(1), "a" * 64),),
     )
-    connection = FakeConnection(summary_row=(1, _ts(1), _ts(1)), fail_on="UPDATE")
+    connection = FakeConnection(
+        summary_row=(1, _ts(1), _ts(1)), fail_on='INSERT INTO "macro_loader"."macro_raw_vix"'
+    )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
     with pytest.raises(PostgresGoldRepositoryError) as exc_info:
         repository.apply_delta(

@@ -13,6 +13,7 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
     POSTGRES_RAW_COLUMNS,
+    POSTGRES_RAW_TABLES,
     POSTGRES_ROW_HASH_TABLE,
     POSTGRES_SESSION_TIMEZONE,
     POSTGRES_SYNC_SCHEMA,
@@ -63,6 +64,9 @@ def test_only_one_gold_dataset_and_exact_postgres_identities() -> None:
         "macro_loader",
         "macro_raw",
     )
+    assert len(POSTGRES_RAW_TABLES) == 25
+    assert "macro_raw_us_2y" in POSTGRES_RAW_TABLES
+    assert POSTGRES_RAW_TABLES.count("macro_raw_us_2y") == 1
     assert (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE, POSTGRES_ROW_HASH_TABLE) == (
         "macro_loader_sync",
         "gold_sync_state",

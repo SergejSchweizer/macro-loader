@@ -30,6 +30,7 @@ from application.postgres_delta import gold_row_sha256
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
     POSTGRES_RAW_COLUMNS,
+    POSTGRES_RAW_TABLES,
     GoldDeltaPlan,
     GoldRowDigest,
     GoldRowPayload,
@@ -146,19 +147,9 @@ def _expected_gold_columns() -> tuple[str, ...]:
     )
 
 
-def _expected_raw_table_columns() -> tuple[str, ...]:
-    added_level_columns = postgres_module._ADDED_LEVEL_COLUMNS
-    return (
-        "timestamp_m1",
-        *(
-            f"{series_id}_level"
-            for series_id in SERIES_REGISTRY
-            if f"{series_id}_level" not in added_level_columns
-        ),
-        "available_at_utc",
-        *_OHLC_COLUMNS,
-        *added_level_columns,
-    )
+def _expected_feature_table_columns(series_id: str) -> tuple[str, ...]:
+    values = _OHLC_FIELDS if series_id in _OHLC_SERIES else ("indexvalue",)
+    return ("timestamp_m1", "available_at_utc", *values)
 
 
 _OHLC_BAR_SUFFIXES = (
@@ -295,6 +286,30 @@ def _column_rows(connection: psycopg.Connection[object], relation: str) -> list[
     ).fetchall()
 
 
+def _insert_feature_source_row(
+    connection: psycopg.Connection[object], timestamp: datetime, values: dict[str, float | None]
+) -> None:
+    """Insert one source date into each feature table with at least one actual value."""
+    for series_id, contract in SERIES_REGISTRY.items():
+        names = _OHLC_FIELDS if contract.native_shape is NativeShape.OHLC else ("indexvalue",)
+        source_names = (
+            tuple(f"{series_id}_{field}" for field in _OHLC_FIELDS)
+            if contract.native_shape is NativeShape.OHLC
+            else (f"{series_id}_level",)
+        )
+        row_values = tuple(values.get(name) for name in source_names)
+        if not any(value is not None for value in row_values):
+            continue
+        columns = ("timestamp_m1", *names)
+        quoted_columns = ", ".join('"' + column + '"' for column in columns)
+        placeholders = ", ".join("%s" for _ in columns)
+        connection.execute(
+            f'INSERT INTO macro_loader."macro_raw_{series_id}" '
+            f"({quoted_columns}) VALUES ({placeholders})",
+            (timestamp, *row_values),
+        )
+
+
 def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     rows = _column_rows(connection, "macro_loader.macro_features")
     names = tuple(str(row[0]) for row in rows)
@@ -332,13 +347,24 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     )
     assert tuple(name for name in names if "_stoch_" in name) == expected_stochastic
     assert tuple(name for name in names if "_donchian_" in name) == expected_donchian
-    raw_names = tuple(str(row[0]) for row in _column_rows(connection, "macro_loader.macro_raw"))
     all_new = (*expected_derived, *expected_stochastic, *expected_donchian)
+    raw_relations = connection.execute(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = 'macro_loader' AND table_type = 'BASE TABLE' "
+        "AND table_name LIKE 'macro_raw_%' ORDER BY table_name"
+    ).fetchall()
+    assert tuple(row[0] for row in raw_relations) == tuple(sorted(POSTGRES_RAW_TABLES))
+    assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (None,)
+    raw_names = tuple(
+        column[0]
+        for series_id in SERIES_REGISTRY
+        for column in _column_rows(connection, f"macro_loader.macro_raw_{series_id}")
+    )
     assert not set(all_new).intersection(raw_names)
     assert not set(all_new).intersection(_expected_gold_columns())
 
 
-@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_30"))
+@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_31"))
 def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
@@ -354,7 +380,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     assert _OHLC_SERIES == ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
     assert len(_OHLC_COLUMNS) == 24
 
-    if migration_mode == "upgrade_25_to_30":
+    if migration_mode == "upgrade_25_to_31":
         with psycopg.connect(postgres_dsn) as connection:
             legacy_timestamp, legacy_fingerprint, legacy_feature_columns = _seed_v25_baseline(
                 connection, monkeypatch
@@ -399,17 +425,25 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
         ledger = connection.execute(
             f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"
         ).fetchall()
-        raw_rows = _column_rows(connection, "macro_loader.macro_raw")
-        raw_names = tuple(str(row[0]) for row in raw_rows)
         assert ledger == [(version,) for version in range(1, expected_migrations + 1)]
-        assert raw_names == _expected_raw_table_columns()
-        assert raw_rows[0][1:] == ("timestamp(6) with time zone", True)
-        raw_schema = {str(row[0]): row[1:] for row in raw_rows}
+        table_names = tuple(
+            row[0]
+            for row in connection.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'macro_loader' AND table_type = 'BASE TABLE' "
+                "ORDER BY table_name"
+            ).fetchall()
+        )
+        assert table_names == tuple(sorted(POSTGRES_RAW_TABLES))
+        assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (
+            None,
+        )
         for series_id in SERIES_REGISTRY:
-            assert raw_schema[f"{series_id}_level"] == ("double precision", False)
-        assert raw_schema["available_at_utc"] == ("timestamp(6) with time zone", True)
-        for column in _OHLC_COLUMNS:
-            assert raw_schema[column] == ("double precision", False)
+            raw_rows = _column_rows(connection, f"macro_loader.macro_raw_{series_id}")
+            assert tuple(row[0] for row in raw_rows) == _expected_feature_table_columns(series_id)
+            assert raw_rows[0][1:] == ("timestamp(6) with time zone", True)
+            assert raw_rows[1][1:] == ("timestamp(6) with time zone", True)
+            assert all(row[1:] == ("double precision", False) for row in raw_rows[2:])
         _assert_view_contract(connection)
         view_comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
@@ -418,11 +452,11 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             f"macro feature view version=16; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
         )
 
-        if migration_mode == "upgrade_25_to_30":
+        if migration_mode == "upgrade_25_to_31":
             legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
             expected_available = datetime(2026, 1, 5, tzinfo=UTC)
             preserved_raw = connection.execute(
-                "SELECT vix_level, available_at_utc FROM macro_loader.macro_raw "
+                "SELECT close, available_at_utc FROM macro_loader.macro_raw_vix "
                 "WHERE timestamp_m1 = %s",
                 (legacy_timestamp,),
             ).fetchone()
@@ -438,10 +472,11 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
                 42.0,
                 expected_available,
             )
-            connection.execute(
-                "DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 = %s",
-                (legacy_timestamp,),
-            )
+            for raw_table in POSTGRES_RAW_TABLES:
+                connection.execute(
+                    f'DELETE FROM macro_loader."{raw_table}" WHERE timestamp_m1 = %s',
+                    (legacy_timestamp,),
+                )
             connection.commit()
 
         timestamp = datetime(2026, 1, 5, tzinfo=UTC)
@@ -487,8 +522,8 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             datetime(2026, 1, 6, tzinfo=UTC),
         )
         raw_passthrough = connection.execute(
-            "SELECT vix_level, vix_close, vix_open, available_at_utc "
-            "FROM macro_loader.macro_raw WHERE timestamp_m1 = %s",
+            "SELECT close, open, available_at_utc "
+            "FROM macro_loader.macro_raw_vix WHERE timestamp_m1 = %s",
             (timestamp,),
         ).fetchone()
         view_passthrough = connection.execute(
@@ -496,7 +531,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             "FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
             (timestamp,),
         ).fetchone()
-        assert raw_passthrough == expected_passthrough
+        assert raw_passthrough == (values["vix_close"], values["vix_open"], expected_passthrough[3])
         assert view_passthrough == (
             pytest.approx(math.log(values["vix_level"])),
             values["vix_close"],
@@ -648,8 +683,6 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
         bars_by_series[series] = bars
 
     raw_columns = POSTGRES_RAW_COLUMNS[1:]
-    quoted_columns = ", ".join(f'"{column}"' for column in ("timestamp_m1", *raw_columns))
-    placeholders = ", ".join("%s" for _ in range(len(raw_columns) + 1))
     with psycopg.connect(postgres_dsn) as connection:
         for row_index, timestamp in enumerate(timestamps):
             values = {column: 40.0 for column in raw_columns}
@@ -660,10 +693,7 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
                 values[f"{series}_high"] = high
                 values[f"{series}_low"] = low
                 values[f"{series}_close"] = close
-            connection.execute(
-                f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})",
-                (timestamp, *(values[column] for column in raw_columns)),
-            )
+            _insert_feature_source_row(connection, timestamp, values)
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
 
     output_columns = tuple(
@@ -720,10 +750,7 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
         future_values[f"{series}_low"] = close - 5.0
         future_values[f"{series}_close"] = close
     with psycopg.connect(postgres_dsn) as connection:
-        connection.execute(
-            f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})",
-            (future_timestamp, *(future_values[column] for column in raw_columns)),
-        )
+        _insert_feature_source_row(connection, future_timestamp, future_values)
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         after = connection.execute(
             f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
@@ -827,8 +854,6 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
         bars_by_series[series] = series_bars
 
     raw_columns = POSTGRES_RAW_COLUMNS[1:]
-    quoted_columns = ", ".join(f'"{column}"' for column in ("timestamp_m1", *raw_columns))
-    placeholders = ", ".join("%s" for _ in range(len(raw_columns) + 1))
     with psycopg.connect(postgres_dsn) as connection:
         for row_index, timestamp in enumerate(timestamps):
             values: dict[str, float | None] = {column: 40.0 for column in raw_columns}
@@ -837,10 +862,7 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
                 values[f"{series}_level"] = bar[3] if bar is not None else 40.0
                 for field, value in zip(_OHLC_FIELDS, bar or (None, None, None, None), strict=True):
                     values[f"{series}_{field}"] = value
-            connection.execute(
-                f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})",
-                (timestamp, *(values[column] for column in raw_columns)),
-            )
+            _insert_feature_source_row(connection, timestamp, values)
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
 
     output_columns = tuple(
@@ -909,10 +931,7 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
         future_values[f"{series}_low"] = close - 5.0
         future_values[f"{series}_close"] = close
     with psycopg.connect(postgres_dsn) as connection:
-        connection.execute(
-            f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})",
-            (future_timestamp, *(future_values[column] for column in raw_columns)),
-        )
+        _insert_feature_source_row(connection, future_timestamp, future_values)
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         after_future = connection.execute(
             f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",

@@ -168,14 +168,14 @@ Acceptance:
 ### PR-180: Add U.S. Three-Month And Five-Year Treasury Series
 
 PR name: `add-us-treasury-3m-5y-series`
-Status: Ready
+Status: Merged
 Updated: 2026-10-27
-PR: [#180](https://github.com/SergejSchweizer/macro-loader/pull/180) (open)
+PR: [#180](https://github.com/SergejSchweizer/macro-loader/pull/180) (merged)
 Git branch: `pr-180/add-us-treasury-3m-5y-series`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: FRED Treasury registration and provider QA
 Depends on: PR-179
-Commit: `f05d49e feat(pr-180): add treasury 3m and 5y series`
+Commit: `40cbed7 feat(pr-180): add treasury 3m and 5y series` (GitHub squash merge)
 Design patterns: Registry/Factory, Pure Parser.
 
 Description:
@@ -200,11 +200,11 @@ Acceptance:
 ### PR-181: Cut Over To Per-Feature PostgreSQL Raw Tables
 
 PR name: `publish-feature-specific-raw-tables`
-Status: Planned
+Status: In Progress
 Updated: 2026-10-27
-PR: not created
+PR: not created; implementation active
 Git branch: `pr-181/publish-feature-specific-raw-tables`
-Git status: not-started (branch absent)
+Git status: in-progress (local branch created from merged `origin/main`)
 Agent lane: PostgreSQL raw-table projection, migration, backfill, and schema QA
 Depends on: PR-180
 Commit: pending
@@ -252,7 +252,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-179 are merged; PR-180 is in progress and PR-181 is planned. No production migration or
+PR-176 through PR-180 are merged; PR-181 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
