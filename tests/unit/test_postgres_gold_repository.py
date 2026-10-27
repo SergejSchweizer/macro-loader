@@ -126,23 +126,50 @@ class FakeCursor:
                 for specification in module._SCHEMA_SPECIFICATION
             ]
         elif "FROM pg_class AS classes" in query:
-            self.one = (
-                "m",
-                module._POSTGRES_OWNER_ROLE,
-                f"macro feature view version={module.MACRO_FEATURE_VIEW_VERSION}; "
-                f"fingerprint={module.MACRO_FEATURE_VIEW_FINGERPRINT}",
-                module._FEATURES_VIEW_DEFINITION,
-            )
+            if isinstance(params, tuple) and params[1] == "macro_features_extended":
+                self.one = (
+                    "m",
+                    module._POSTGRES_OWNER_ROLE,
+                    f"macro feature view version={module.EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
+                    f"fingerprint={module.EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}",
+                    module._EXTENDED_FEATURES_VIEW_DEFINITION,
+                )
+            else:
+                self.one = (
+                    "m",
+                    module._POSTGRES_OWNER_ROLE,
+                    f"macro feature view version={module.MACRO_FEATURE_VIEW_VERSION}; "
+                    f"fingerprint={module.MACRO_FEATURE_VIEW_FINGERPRINT}",
+                    module._FEATURES_VIEW_DEFINITION,
+                )
         elif "FROM pg_attribute AS attributes" in query:
-            self.many = [
+            extended_view = isinstance(params, tuple) and str(params[0]).endswith(
+                ".macro_features_extended"
+            )
+            expected_names = (
+                module._EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED
+                if extended_view
+                else module._FEATURES_VIEW_COLUMNS_EXPECTED
+            )
+            expected_types = (
+                module._EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED
+                if extended_view
+                else module._FEATURES_VIEW_COLUMN_TYPES_EXPECTED
+            )
+            expected_columns = [
                 (
                     ordinal,
                     name,
-                    module._FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
+                    expected_types[name],
                     False,
                 )
-                for ordinal, name in enumerate(module._FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
+                for ordinal, name in enumerate(expected_names, start=1)
             ]
+            self.many = (
+                list(self.connection.extended_view_columns)
+                if extended_view and self.connection.extended_view_columns is not None
+                else expected_columns
+            )
         elif "has_table_privilege" in query:
             self.one = (params[0] != "public",) if isinstance(params, tuple) else (True,)
         elif query.startswith("SELECT dataset_id"):
@@ -175,6 +202,7 @@ class FakeConnection:
         rowcounts: dict[str, int] | None = None,
         summary_row: tuple[object, ...] = (0, None, None),
         fail_on: str | None = None,
+        extended_view_columns: tuple[tuple[object, ...], ...] | None = None,
     ) -> None:
         self.state_row = state_row
         self.digest_rows = digest_rows
@@ -182,6 +210,7 @@ class FakeConnection:
         self.rowcounts = {} if rowcounts is None else rowcounts
         self.summary_row = summary_row
         self.fail_on = fail_on
+        self.extended_view_columns = extended_view_columns
         self.events: list[tuple[str, object, object]] = []
 
     def cursor(self) -> FakeCursor:
@@ -211,6 +240,43 @@ class Factory:
 
 def _execute_queries(connection: FakeConnection) -> list[str]:
     return [str(query) for kind, query, _ in connection.events if kind == "execute"]
+
+
+def test_schema_contract_verifies_extended_materialized_view() -> None:
+    module.PostgresGoldSyncRepository._assert_features_view_contract(FakeConnection().cursor())
+
+
+@pytest.mark.parametrize(
+    ("problem", "error_message"),
+    (
+        ("missing", "columns differ"),
+        ("reordered", "columns differ"),
+        ("wrong_type", "type differs"),
+    ),
+)
+def test_schema_contract_rejects_extended_view_column_drift(
+    problem: str, error_message: str
+) -> None:
+    expected = [
+        (
+            ordinal,
+            name,
+            module._EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
+            False,
+        )
+        for ordinal, name in enumerate(module._EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
+    ]
+    if problem == "missing":
+        columns = tuple(expected[:-1])
+    elif problem == "reordered":
+        expected[2], expected[3] = expected[3], expected[2]
+        columns = tuple(expected)
+    else:
+        expected[2] = (expected[2][0], expected[2][1], "text", expected[2][3])
+        columns = tuple(expected)
+    cursor = FakeConnection(extended_view_columns=columns).cursor()
+    with pytest.raises(ValueError, match=error_message):
+        module.PostgresGoldSyncRepository._assert_features_view_contract(cursor)
 
 
 def test_schema_reconstructor_recreates_only_loader_schemas_and_revalidates_contract(
@@ -439,6 +505,9 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert module._FEATURES_VIEW_DDL in final_migration
     assert "version=16" in final_migration
     assert module.MACRO_FEATURE_VIEW_FINGERPRINT in final_migration
+    assert module._EXTENDED_FEATURES_VIEW_DDL in final_migration
+    assert "version=1" in final_migration
+    assert module.EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT in final_migration
 
 
 def test_feature_table_cutover_migration_backfills_all_registered_series_and_drops_wide_table() -> (
@@ -534,24 +603,25 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._LEGACY_FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-3])
+    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-4])
     assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in (
-        "\n".join(module._MIGRATIONS[-4])
+        "\n".join(module._MIGRATIONS[-5])
     )
     assert 'ADD COLUMN IF NOT EXISTS "euro_hy_total_return_level" DOUBLE PRECISION NULL' in (
         prior_euro_hy_migration
     )
-    treasury_migration = "\n".join(module._MIGRATIONS[-2])
+    treasury_migration = "\n".join(module._MIGRATIONS[-3])
     assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in treasury_migration
     assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration
     assert treasury_migration.count("ADD COLUMN IF NOT EXISTS") == 2
-    final_migration = "\n".join(module._MIGRATIONS[-1])
-    assert 'DROP TABLE "macro_loader"."macro_raw"' in final_migration
-    assert 'INSERT INTO "macro_loader"."macro_raw_euro_hy_oas"' in final_migration
-    assert "macro_raw_vix" in final_migration and "macro_raw_usd_broad" in final_migration
+    cutover_migration = "\n".join(module._MIGRATIONS[-2])
+    assert 'DROP TABLE "macro_loader"."macro_raw"' in cutover_migration
+    assert 'INSERT INTO "macro_loader"."macro_raw_euro_hy_oas"' in cutover_migration
+    assert "macro_raw_vix" in cutover_migration and "macro_raw_usd_broad" in cutover_migration
     assert len(module.POSTGRES_RAW_TABLES) == 25
     assert not any(spec.name == "macro_raw" for spec in module._SCHEMA_SPECIFICATION)
-    assert "version=16" in final_migration
+    extended_migration = "\n".join(module._MIGRATIONS[-1])
+    assert "macro_features_extended" in extended_migration
 
 
 @pytest.mark.parametrize(

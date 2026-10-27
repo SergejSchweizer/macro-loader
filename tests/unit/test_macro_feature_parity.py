@@ -2,15 +2,26 @@ from __future__ import annotations
 
 import math
 
-from application.macro_feature_catalog import FEATURE_COLUMNS
+from application.macro_feature_catalog import EXTENDED_FEATURE_COLUMNS, FEATURE_COLUMNS
 from application.macro_feature_parity import compare_catalog_to_sql
-from ingestion.postgres_gold_repository import _FEATURES_VIEW_DDL
+from ingestion.postgres_gold_repository import (
+    _EXTENDED_FEATURE_SERIES_DDLS,
+    _EXTENDED_FEATURES_VIEW_DDL,
+    _FEATURES_VIEW_DDL,
+)
 
 
 def test_catalog_is_fully_projected_by_postgres_view() -> None:
     report = compare_catalog_to_sql(_FEATURES_VIEW_DDL, FEATURE_COLUMNS)
     assert report.passed
     assert report.compared_columns == FEATURE_COLUMNS
+
+
+def test_extended_catalog_is_fully_projected_by_companion_postgres_view() -> None:
+    sql = " ".join((*_EXTENDED_FEATURE_SERIES_DDLS, _EXTENDED_FEATURES_VIEW_DDL))
+    report = compare_catalog_to_sql(sql, EXTENDED_FEATURE_COLUMNS)
+    assert report.passed
+    assert report.compared_columns == EXTENDED_FEATURE_COLUMNS
 
 
 def test_dropped_or_renamed_projection_fails_closed() -> None:

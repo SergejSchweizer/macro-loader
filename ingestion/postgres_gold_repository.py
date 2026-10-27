@@ -13,6 +13,11 @@ import psycopg
 
 from application.gold_frame import GOLD_COLUMNS, GOLD_SOURCE_SERIES
 from application.macro_feature_catalog import (
+    EXTENDED_FEATURE_COLUMNS,
+    EXTENDED_FEATURE_POSTGRES_TYPES,
+    EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
+    EXTENDED_MACRO_FEATURE_VIEW_VERSION,
+    EXTENDED_RAW_SERIES,
     FEATURE_COLUMNS,
     FEATURE_POSTGRES_TYPES,
     MACRO_FEATURE_VIEW_FINGERPRINT,
@@ -305,7 +310,8 @@ def _ema_state_cte(
     return (
         f"{cte} AS MATERIALIZED (WITH RECURSIVE input AS ("
         f"SELECT array_agg(timestamp_m1 ORDER BY timestamp_m1) AS timestamps, "
-        f"array_agg({value} ORDER BY timestamp_m1) AS levels FROM {relation}), state AS ("
+        f"array_agg({value} ORDER BY timestamp_m1) AS levels "
+        f"FROM {relation} AS ema_input), state AS ("
         "SELECT 1 AS observation_index, input.timestamps[1] AS timestamp_m1, "
         "input.levels[1] AS level, "
         f"CASE WHEN {initial_valid} THEN 1 ELSE 0 END AS seed_count, "
@@ -377,28 +383,32 @@ _RETIRED_HASH_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_policy_row_hash
 _RETIRED_LEGACY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_legacy_raw_columns"'
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
+_EXTENDED_FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_extended"'
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
+_EXTENDED_FEATURES_VIEW_COLUMNS = EXTENDED_FEATURE_COLUMNS[1:]
 _RAW_TABLE_BY_SERIES = {
     series: f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(f'macro_raw_{series}')}"
     for series in GOLD_SOURCE_SERIES
 }
 
 
-def _raw_feature_projection() -> str:
+def _raw_feature_projection(raw_series: tuple[str, ...] = GOLD_SOURCE_SERIES) -> str:
     """Reconstruct the canonical wide row shape from sparse feature-specific tables."""
-    aliases = {series: f"raw_{index}" for index, series in enumerate(GOLD_SOURCE_SERIES)}
-    first = GOLD_SOURCE_SERIES[0]
+    if not raw_series:
+        raise ValueError("raw feature projection requires at least one registered series")
+    aliases = {series: f"raw_{index}" for index, series in enumerate(raw_series)}
+    first = raw_series[0]
     joins = " ".join(
         f"FULL OUTER JOIN {_RAW_TABLE_BY_SERIES[series]} AS {aliases[series]} USING (timestamp_m1)"
-        for series in GOLD_SOURCE_SERIES[1:]
+        for series in raw_series[1:]
     )
-    timestamp = ", ".join(f"{aliases[series]}.timestamp_m1" for series in GOLD_SOURCE_SERIES)
-    available = ", ".join(f"{aliases[series]}.available_at_utc" for series in GOLD_SOURCE_SERIES)
+    timestamp = ", ".join(f"{aliases[series]}.timestamp_m1" for series in raw_series)
+    available = ", ".join(f"{aliases[series]}.available_at_utc" for series in raw_series)
     projected: list[str] = [
         f"COALESCE({timestamp}) AS timestamp_m1",
         f"COALESCE({available}) AS available_at_utc",
     ]
-    for series in GOLD_SOURCE_SERIES:
+    for series in raw_series:
         if series in OHLC_SERIES:
             projected.extend(
                 f"{aliases[series]}.{_quote(field)} AS {_quote(f'{series}_{field}')}"
@@ -647,9 +657,19 @@ END
 $$"""
 
 
-def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
+def _macro_features_view_query(
+    raw_relation: str = _RAW_PROJECTION,
+    *,
+    view_relation: str = _FEATURES_VIEW,
+    raw_series: tuple[str, ...] = RAW_SERIES,
+    price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
+    feature_columns: tuple[str, ...] = _FEATURES_VIEW_COLUMNS,
+) -> str:
     """Build the closed-world SQL definition from the executable catalog."""
-    source_ctes: list[str] = []
+    source_projection = _quote("macro_feature_source_projection")
+    source_ctes: list[str] = [
+        f"{source_projection} AS MATERIALIZED (SELECT * FROM {raw_relation} AS base_projection)"
+    ]
     joins: list[str] = []
     feature_select: list[str] = []
     macro_lags = macro_delta_lags(MACRO_POLICY)
@@ -667,7 +687,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
             }
         )
     )
-    for series in RAW_SERIES:
+    for series in raw_series:
         level = _quote(f"{series}_level")
         source = _quote(f"{series}_source")
         changes = _quote(f"{series}_changes")
@@ -687,7 +707,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
         source_ctes.append(
             f"{source} AS MATERIALIZED (SELECT timestamp_m1, {level} AS level, {lag_sql}, "
             "row_number() OVER ordered AS observation_number "
-            f"FROM {raw_relation} WHERE {level} IS NOT NULL "
+            f"FROM {source_projection} AS source_source WHERE {level} IS NOT NULL "
             "WINDOW ordered AS (ORDER BY timestamp_m1))"
         )
         gain_loss_sql = (
@@ -802,7 +822,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
             f"{', '.join(rsi_value_expressions)} FROM {feature_input} AS changes)"
         )
         expressions: list[str] = []
-        for window in LOG_RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for window in LOG_RETURN_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"{_quote(f'log_return_{window}')} AS {_quote(f'{series}_log_return_{window}obs')}"
             )
@@ -826,35 +846,35 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"{_quote(f'change_lag_{lag}')}) OVER window_{window}, 0.0) END END AS "
                 f"{_quote(f'{series}_momentum_autocorr_{lag}_{window}obs')}"
             )
-        for window in RETURN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for window in RETURN_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
                 f"THEN exp(sum({_quote('log_return_1')}) OVER window_{window}) - 1.0 "
                 f"END AS {_quote(f'{series}_return_geom_{window}obs_pct')}"
             )
-        for window in RETURN_MEAN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for window in RETURN_MEAN_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
                 f"THEN avg({_quote('log_return_1')}) OVER window_{window} "
                 f"END AS {_quote(f'{series}_return_mean_{window}obs')}"
             )
-        for window in VOLATILITY_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for window in VOLATILITY_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"CASE WHEN count({_quote('log_return_1')}) OVER window_{window} = {window} "
                 f"THEN stddev_samp({_quote('log_return_1')}) OVER window_{window} "
                 f"END AS {_quote(f'{series}_volatility_{window}obs')}"
             )
-        for short, long in SMA_RATIO_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for short, long in SMA_RATIO_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"CASE WHEN count(level) OVER window_{long} = {long} THEN "
                 f"avg(level) OVER window_{short} / nullif(avg(level) OVER window_{long}, 0) "
                 f"END AS {_quote(f'{series}_sma_ratio_{short}_{long}')}"
             )
-        for period in RSI_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for period in RSI_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"changes.{_quote(f'rsi_value_{period}')} AS {_quote(f'{series}_rsi_{period}obs')}"
             )
-        if series in PRICE_FEATURE_SERIES:
+        if series in price_feature_series:
             rsi_5 = f"changes.{_quote('rsi_value_5')}"
             rsi_15 = f"changes.{_quote(f'rsi_value_{RSI_COMPOSITE_INTERNAL_WINDOW}')}"
             expressions.append(
@@ -862,20 +882,20 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"THEN {rsi_5} / NULLIF({rsi_15}, 0.0) END "
                 f"AS {_quote(f'{series}_rsi_ratio_5_15')}"
             )
-        for window in ROC_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for window in ROC_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
                 f"THEN level / {_quote(f'lag_{window}')} - 1.0 "
                 f"END AS {_quote(f'{series}_roc_{window}obs')}"
             )
-        if series in PRICE_FEATURE_SERIES:
+        if series in price_feature_series:
             expressions.append(
                 f"CASE WHEN level > 0 AND {_quote('lag_4')} > 0 "
                 f"AND {_quote('lag_8')} > 0 THEN "
                 f"(level / {_quote('lag_4')} - 1.0) - (level / {_quote('lag_8')} - 1.0) "
                 f"END AS {_quote(f'{series}_roc_acceleration_4_8')}"
             )
-        for window in DRAWDOWN_WINDOWS if series in PRICE_FEATURE_SERIES else ():
+        for window in DRAWDOWN_WINDOWS if series in price_feature_series else ():
             expressions.append(
                 f"CASE WHEN count(level) OVER window_{window} = {window} "
                 f"THEN level / nullif(max(level) OVER window_{window}, 0) - 1.0 "
@@ -924,7 +944,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 source_ctes.append(
                     f"{metric} AS MATERIALIZED (SELECT timestamp_m1, CASE WHEN "
                     f"{finite_operands} AND {denominator} > 0.0 THEN {formula} END AS value "
-                    f"FROM {raw_relation})"
+                    f"FROM {source_projection} AS raw_bars)"
                 )
                 source_ctes.append(
                     f"{valid_metric} AS MATERIALIZED (SELECT timestamp_m1, value, "
@@ -965,8 +985,8 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
             source_ctes.append(
                 f"{gap_source} AS MATERIALIZED (SELECT current_bar.timestamp_m1, "
                 f"current_bar.{open_column} AS open, previous_bar.close AS previous_close "
-                f"FROM {raw_relation} AS current_bar LEFT JOIN LATERAL ("
-                f"SELECT source_bar.{close_column} AS close FROM {raw_relation} AS source_bar "
+                f"FROM {source_projection} AS current_bar LEFT JOIN LATERAL ("
+                f"SELECT source_bar.{close_column} AS close FROM {source_projection} AS source_bar "
                 "WHERE source_bar.timestamp_m1 < current_bar.timestamp_m1 AND "
                 f"{finite.format(source_close, source_close)} "
                 "ORDER BY source_bar.timestamp_m1 DESC LIMIT 1) AS previous_bar ON TRUE "
@@ -1033,7 +1053,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"{ohlc_rows} AS MATERIALIZED (SELECT timestamp_m1, "
                 f"{open_column} AS open, {high_column} AS high, {low_column} AS low, "
                 f"{close_column} AS close, row_number() OVER (ORDER BY timestamp_m1) "
-                f"AS observation_number FROM {raw_relation} WHERE {finite_ohlc})"
+                f"AS observation_number FROM {source_projection} AS raw_bars WHERE {finite_ohlc})"
             )
             source_ctes.append(
                 f"{ohlc_windows} AS MATERIALIZED (SELECT *, "
@@ -1121,7 +1141,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                     "donchian_breakout_down",
                 )
             )
-        if series in PRICE_FEATURE_SERIES:
+        if series in price_feature_series:
             rsi5_valid = _quote(f"{series}_rsi5_observations")
             rsi5_history = _quote(f"{series}_rsi5_history")
             slope_name = _quote(f"{series}_rsi5_slope_3")
@@ -1150,7 +1170,9 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
             )
 
             for period in MACD_PRICE_EMA_PERIODS:
-                source_ctes.append(_ema_state_cte(series, period, source_relation=raw_relation))
+                source_ctes.append(
+                    _ema_state_cte(series, period, source_relation=source_projection)
+                )
             macd_input = _quote(f"{series}_macd_input")
             ema12_state = _quote(f"{series}_ema_12_state")
             ema26_state = _quote(f"{series}_ema_26_state")
@@ -1158,7 +1180,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"{macd_input} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"CASE WHEN ema12.ema IS NOT NULL AND ema26.ema IS NOT NULL "
                 f"THEN ema12.ema - ema26.ema END AS macd_line "
-                f"FROM {raw_relation} AS raw "
+                f"FROM {source_projection} AS raw "
                 f"LEFT JOIN {ema12_state} AS ema12 ON ema12.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema26_state} AS ema26 ON ema26.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1182,7 +1204,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"{macd_base} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"raw.{_quote(f'{series}_level')} AS level, "
                 f"macd_input.macd_line, signal.ema AS macd_signal "
-                f"FROM {raw_relation} AS raw JOIN {macd_input} AS macd_input "
+                f"FROM {source_projection} AS raw JOIN {macd_input} AS macd_input "
                 f"ON macd_input.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {signal_state} AS signal ON signal.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1293,7 +1315,9 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 helper_selects.append(f"return_ac_{lag}.value AS {pair_column}")
 
             for period in EMA_PERIODS:
-                source_ctes.append(_ema_state_cte(series, period, source_relation=raw_relation))
+                source_ctes.append(
+                    _ema_state_cte(series, period, source_relation=source_projection)
+                )
             ema_aligned = _quote(f"{series}_ema_aligned")
             ema_history = _quote(f"{series}_ema_history")
             ema_features = _quote(f"{series}_ema_features")
@@ -1304,7 +1328,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"{ema_aligned} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"raw.{_quote(f'{series}_level')} AS level, "
                 f"ema5.ema AS ema5, ema9.ema AS ema9, ema21.ema AS ema21 "
-                f"FROM {raw_relation} AS raw "
+                f"FROM {source_projection} AS raw "
                 f"LEFT JOIN {ema5_state} AS ema5 ON ema5.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema9_state} AS ema9 ON ema9.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema21_state} AS ema21 ON ema21.timestamp_m1 = raw.timestamp_m1)"
@@ -1357,7 +1381,7 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
             f"{' '.join(helper_joins)})"
         )
         joins.append(f"LEFT JOIN {features} ON {features}.timestamp_m1 = raw.timestamp_m1")
-        for column in _FEATURES_VIEW_COLUMNS:
+        for column in feature_columns:
             if (
                 column.startswith(f"{series}_delta_")
                 or column.startswith(f"{series}_zscore_")
@@ -1411,32 +1435,114 @@ def _macro_features_view_query(raw_relation: str = _RAW_PROJECTION) -> str:
                 f"raw.{_quote(f'{series}_{field}')} AS {_quote(f'{series}_{field}')}"
             )
             for series in OHLC_SERIES
+            if series in raw_series
             for field in OHLC_FIELDS
         }
     )
     ordered_features = [
         feature_expressions.get(column, cross_expressions.get(column, ""))
-        for column in _FEATURES_VIEW_COLUMNS
-        if column not in {f"{series}_log_level" for series in PRICE_FEATURE_SERIES}
+        for column in feature_columns
+        if column not in {f"{series}_log_level" for series in price_feature_series}
     ]
     if any(not expression for expression in ordered_features):
         raise ValueError("macro feature catalog contains an expression without SQL projection")
     raw_select = ", ".join(
         f"CASE WHEN raw.{_quote(f'{series}_level')} > 0 "
         f"THEN ln(raw.{_quote(f'{series}_level')}) END AS {_quote(f'{series}_log_level')}"
-        for series in PRICE_FEATURE_SERIES
+        for series in price_feature_series
+    )
+    projected_features = ", ".join(
+        expression for expression in (raw_select, *ordered_features) if expression
     )
     return (
-        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURES_VIEW} AS WITH "
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {view_relation} AS WITH "
         f"{', '.join(source_ctes)} "
         f'SELECT raw."timestamp_m1", '
         'raw."available_at_utc" AS "available_at_utc", '
-        f"{raw_select}, {', '.join(ordered_features)} "
-        f"FROM {raw_relation} raw {' '.join(joins)}"
+        f"{projected_features} "
+        f"FROM {source_projection} raw {' '.join(joins)}"
     )
 
 
 _FEATURES_VIEW_DDL = _macro_features_view_query()
+_FEATURE_RAW_PROJECTION_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_feature_raw_projection"'
+_FEATURE_RAW_PROJECTION_DDL = (
+    f"CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURE_RAW_PROJECTION_VIEW} AS "
+    f"{_RAW_PROJECTION[1:-1]}"
+)
+_EXTENDED_FEATURE_SERIES_RELATIONS = {
+    series: f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(f'macro_feature_transform_{series}')}"
+    for series in EXTENDED_RAW_SERIES
+}
+_EXTENDED_FEATURE_SERIES_DDLS = tuple(
+    _macro_features_view_query(
+        raw_relation=_raw_feature_projection((series,)),
+        view_relation=_EXTENDED_FEATURE_SERIES_RELATIONS[series],
+        raw_series=(series,),
+        price_feature_series=(series,),
+        feature_columns=tuple(
+            column for column in _EXTENDED_FEATURES_VIEW_COLUMNS if column.startswith(f"{series}_")
+        ),
+    )
+    for series in EXTENDED_RAW_SERIES
+)
+
+
+def _assembled_features_view_query(
+    *,
+    view_relation: str,
+    raw_series: tuple[str, ...],
+    feature_columns: tuple[str, ...],
+    relations: Mapping[str, str],
+) -> str:
+    aliases = {series: f"transformed_{index}" for index, series in enumerate(raw_series)}
+    joins = " ".join(
+        f"LEFT JOIN {relations[series]} AS {aliases[series]} "
+        f"ON {aliases[series]}.timestamp_m1 = raw.timestamp_m1"
+        for series in raw_series
+    )
+    cross_expressions = {
+        "vix9d_vix_ratio": (
+            'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" END'
+        ),
+        "vix_vix3m_ratio": (
+            'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" END'
+        ),
+        "vix9d_vix3m_log_ratio": (
+            'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+            'THEN ln(raw."vix9d_level" / raw."vix3m_level") END'
+        ),
+        "vix3m_minus_vix": 'raw."vix3m_level" - raw."vix_level"',
+        "vix6m_minus_vix": 'raw."vix6m_level" - raw."vix_level"',
+        "vix1y_minus_vix": 'raw."vix1y_level" - raw."vix_level"',
+        "us_10y_minus_us_2y": 'raw."us_10y_level" - raw."us_2y_level"',
+    }
+    expressions: list[str] = []
+    for column in feature_columns:
+        if column in cross_expressions:
+            expressions.append(f"{cross_expressions[column]} AS {_quote(column)}")
+            continue
+        series = next(
+            (candidate for candidate in raw_series if column.startswith(f"{candidate}_")),
+            None,
+        )
+        if series is not None:
+            expressions.append(f"{aliases[series]}.{_quote(column)} AS {_quote(column)}")
+        else:
+            raise ValueError(f"macro feature catalog has no serving expression for {column}")
+    return (
+        f"CREATE MATERIALIZED VIEW IF NOT EXISTS {view_relation} AS "
+        f"SELECT raw.timestamp_m1, raw.available_at_utc, {', '.join(expressions)} "
+        f"FROM {_FEATURE_RAW_PROJECTION_VIEW} AS raw {joins}"
+    )
+
+
+_EXTENDED_FEATURES_VIEW_DDL = _assembled_features_view_query(
+    view_relation=_EXTENDED_FEATURES_VIEW,
+    raw_series=EXTENDED_RAW_SERIES,
+    feature_columns=_EXTENDED_FEATURES_VIEW_COLUMNS,
+    relations=_EXTENDED_FEATURE_SERIES_RELATIONS,
+)
 _FEATURES_VIEW_MIGRATION = (
     _macro_features_view_query(_CONSUMER),
     f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
@@ -1466,6 +1572,58 @@ _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION = (
     f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}",
     f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_SYNC_USER)}",
+)
+
+_EXTENDED_FEATURES_MIGRATION = (
+    _FEATURE_RAW_PROJECTION_DDL,
+    f"ALTER MATERIALIZED VIEW {_FEATURE_RAW_PROJECTION_VIEW} "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"REVOKE ALL ON {_FEATURE_RAW_PROJECTION_VIEW} FROM PUBLIC, "
+    f"{_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    *(
+        statement
+        for series, ddl in zip(EXTENDED_RAW_SERIES, _EXTENDED_FEATURE_SERIES_DDLS, strict=True)
+        for statement in (
+            ddl,
+            f"ALTER MATERIALIZED VIEW {_EXTENDED_FEATURE_SERIES_RELATIONS[series]} "
+            f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+            f"REVOKE ALL ON {_EXTENDED_FEATURE_SERIES_RELATIONS[series]} FROM PUBLIC, "
+            f"{_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+        )
+    ),
+    _FEATURES_VIEW_DDL,
+    f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
+    f"'macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+    f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}'",
+    f"ALTER MATERIALIZED VIEW {_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT ON {_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    _EXTENDED_FEATURES_VIEW_DDL,
+    f"COMMENT ON MATERIALIZED VIEW {_EXTENDED_FEATURES_VIEW} IS "
+    f"'macro feature view version={EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
+    f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}'",
+    f"ALTER MATERIALIZED VIEW {_EXTENDED_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"GRANT SELECT ON {_EXTENDED_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, "
+    f"{_quote(POSTGRES_SYNC_USER)}",
+    "CREATE OR REPLACE FUNCTION macro_loader.refresh_macro_features_explicit() "
+    "RETURNS void LANGUAGE plpgsql SECURITY DEFINER "
+    "SET search_path = pg_catalog, macro_loader SET join_collapse_limit = 1 AS $$ BEGIN "
+    f"REFRESH MATERIALIZED VIEW {_FEATURES_VIEW}; "
+    f"REFRESH MATERIALIZED VIEW {_FEATURE_RAW_PROJECTION_VIEW}; "
+    + " ".join(
+        f"REFRESH MATERIALIZED VIEW {relation};"
+        for relation in _EXTENDED_FEATURE_SERIES_RELATIONS.values()
+    )
+    + " "
+    "REFRESH MATERIALIZED VIEW macro_loader.macro_features_extended; "
+    "END; $$",
+    "ALTER FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
+    f"GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+    f"REVOKE ALL ON {_EXTENDED_FEATURES_VIEW} FROM PUBLIC",
+    f"GRANT SELECT ON {_EXTENDED_FEATURES_VIEW} TO {_quote(POSTGRES_USER)}, "
+    f"{_quote(POSTGRES_SYNC_USER)}",
 )
 
 
@@ -1719,10 +1877,32 @@ _FEATURES_VIEW_COLUMN_TYPES_EXPECTED = {
     **FEATURE_POSTGRES_TYPES,
 }
 _FEATURES_VIEW_DEFINITION_MARKERS = (
-    "with vix_source as",
+    "vix_source as",
     "raw.timestamp_m1",
     "raw.available_at_utc",
     "vix9d_vix3m_log_ratio",
+)
+_EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED = (
+    "timestamp_m1",
+    "available_at_utc",
+    *_EXTENDED_FEATURES_VIEW_COLUMNS,
+)
+_EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED = {
+    "timestamp_m1": "timestamp(6) with time zone",
+    "available_at_utc": "timestamp(6) with time zone",
+    **EXTENDED_FEATURE_POSTGRES_TYPES,
+}
+if len(_EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED) > 1600:
+    raise ValueError("extended macro feature view exceeds PostgreSQL's column limit")
+_EXTENDED_FEATURES_VIEW_DEFINITION_MARKERS = (
+    "macro_feature_raw_projection",
+    "macro_feature_transform_vstoxx1m",
+    "vstoxx1m_log_return_1obs",
+    "us_5y_macd_hist_relative",
+    "raw.available_at_utc",
+)
+_EXTENDED_FEATURES_VIEW_DEFINITION = _normalize_view_definition(
+    _EXTENDED_FEATURES_VIEW_DDL.split(" AS ", 1)[1]
 )
 
 
@@ -1850,6 +2030,9 @@ _MIGRATIONS = (
     _US_TREASURY_LEVEL_COLUMN_MIGRATION + _LEGACY_FEATURES_VIEW_REBUILD_MIGRATION,
     # Backfill the per-feature raw tables, then atomically retire the wide macro_raw table.
     _FEATURE_RAW_TABLE_MIGRATION,
+    # Publish transformation outputs for the additional registered price-level series
+    # without exceeding PostgreSQL's per-relation column limit.
+    _EXTENDED_FEATURES_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -2572,6 +2755,83 @@ class PostgresGoldSyncRepository:
             if cursor.fetchone() != (select_expected,):
                 raise ValueError(f"PostgreSQL macro feature view grants differ for {role}")
 
+        cursor.execute(
+            """SELECT classes.relkind, roles.rolname,
+                      obj_description(classes.oid, 'pg_class'),
+                      pg_get_viewdef(classes.oid, true)
+               FROM pg_class AS classes
+               JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+               JOIN pg_roles AS roles ON roles.oid = classes.relowner
+              WHERE namespaces.nspname = %s AND classes.relname = %s""",
+            (POSTGRES_CONSUMER_SCHEMA, "macro_features_extended"),
+        )
+        extended_view = cursor.fetchone()
+        if extended_view is None or len(extended_view) != 4:
+            raise ValueError("PostgreSQL extended macro feature view is missing")
+        if extended_view[0] != "m" or extended_view[1] != _POSTGRES_OWNER_ROLE:
+            raise ValueError("PostgreSQL extended macro feature view kind or owner differs")
+        extended_comment = extended_view[2] if isinstance(extended_view[2], str) else ""
+        expected_extended_comment = (
+            f"macro feature view version={EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
+            f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}"
+        )
+        if extended_comment != expected_extended_comment:
+            raise ValueError("PostgreSQL extended macro feature view version differs")
+        extended_definition = extended_view[3] if isinstance(extended_view[3], str) else ""
+        normalized_extended_definition = _normalize_view_definition(extended_definition).replace(
+            '"', ""
+        )
+        missing_extended_markers = tuple(
+            marker
+            for marker in _EXTENDED_FEATURES_VIEW_DEFINITION_MARKERS
+            if marker not in normalized_extended_definition
+        )
+        if missing_extended_markers:
+            raise ValueError(
+                "PostgreSQL extended macro feature view definition differs: "
+                + ",".join(missing_extended_markers)
+            )
+        cursor.execute(
+            """SELECT attributes.attnum, attributes.attname,
+                      format_type(attributes.atttypid, attributes.atttypmod),
+                      attributes.attnotnull
+               FROM pg_attribute AS attributes
+               WHERE attributes.attrelid = %s::regclass
+                 AND attributes.attnum > 0 AND NOT attributes.attisdropped
+              ORDER BY attributes.attnum""",
+            (f"{POSTGRES_CONSUMER_SCHEMA}.macro_features_extended",),
+        )
+        extended_columns = cursor.fetchall()
+        extended_names = tuple(row[1] for row in extended_columns)
+        if extended_names != _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED:
+            raise ValueError(
+                "PostgreSQL extended macro feature view columns differ: "
+                + repr((extended_names[:20], _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED[:20]))
+            )
+        for ordinal, column in enumerate(extended_columns, start=1):
+            if len(column) != 4 or column[0] != ordinal:
+                raise ValueError("PostgreSQL extended macro feature view column order differs")
+            expected_type = _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED[
+                str(extended_names[ordinal - 1])
+            ]
+            if column[2] != expected_type:
+                raise ValueError("PostgreSQL extended macro feature view column type differs")
+            if column[3] is not False:
+                raise ValueError(
+                    "PostgreSQL extended macro feature view column nullability differs"
+                )
+        for role, select_expected in (
+            (POSTGRES_USER, True),
+            (POSTGRES_SYNC_USER, True),
+            ("public", False),
+        ):
+            cursor.execute(
+                "SELECT has_table_privilege(%s, %s, 'SELECT')",
+                (role, f"{POSTGRES_CONSUMER_SCHEMA}.macro_features_extended"),
+            )
+            if cursor.fetchone() != (select_expected,):
+                raise ValueError(f"PostgreSQL extended macro feature view grants differ for {role}")
+
 
 class PostgresGoldSchemaMigrator:
     """Admin-only adapter for idempotent serving-schema migrations."""
@@ -2628,6 +2888,13 @@ class PostgresGoldSchemaMigrator:
                     if version in applied_versions:
                         continue
                     for statement in statements:
+                        if statement == _FEATURES_VIEW_DDL:
+                            cursor.execute("SELECT to_regclass(%s)", (_FEATURES_VIEW,))
+                            existing_features_view = cursor.fetchone()
+                            if existing_features_view and existing_features_view[0] is not None:
+                                continue
+                        if statement.startswith("CREATE MATERIALIZED VIEW IF NOT EXISTS "):
+                            cursor.execute("SET LOCAL join_collapse_limit = 1")
                         if (
                             fresh_install
                             and version < len(_MIGRATIONS)

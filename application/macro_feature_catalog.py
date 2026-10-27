@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
 from application.momentum_features import MOMENTUM_POLICY
-from application.registry import OHLC_FIELDS, OHLC_SERIES
+from application.registry import OHLC_FIELDS, OHLC_SERIES, SERIES_REGISTRY
 from application.return_features import (
     LEVEL_ZSCORE_WINDOW,
     LOG_RETURN_WINDOWS,
@@ -38,9 +38,16 @@ from application.volatility_features import VOLATILITY_SERIES
 MACRO_FEATURE_VIEW_VERSION = 16
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
+REGISTERED_RAW_SERIES: tuple[str, ...] = tuple(SERIES_REGISTRY)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
 PRICE_FEATURE_SERIES: tuple[str, ...] = tuple(
     series for series in RAW_SERIES if series not in SIGNED_LEVEL_SERIES
+)
+EXTENDED_RAW_SERIES: tuple[str, ...] = tuple(
+    series for series in REGISTERED_RAW_SERIES if series not in RAW_SERIES
+)
+EXTENDED_PRICE_FEATURE_SERIES: tuple[str, ...] = tuple(
+    series for series in EXTENDED_RAW_SERIES if series not in SIGNED_LEVEL_SERIES
 )
 PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "raw_log",
@@ -91,11 +98,20 @@ class MacroFeatureSpec:
     postgres_type: str = "double precision"
 
 
-def _source_specs() -> tuple[MacroFeatureSpec, ...]:
+def _source_specs(
+    *,
+    raw_series: tuple[str, ...] = RAW_SERIES,
+    price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
+    include_ohlc: bool = True,
+    include_cross_series: bool = True,
+) -> tuple[MacroFeatureSpec, ...]:
     specs: list[MacroFeatureSpec] = []
-    for series in PRICE_FEATURE_SERIES:
+    ohlc_series = (
+        tuple(series for series in OHLC_SERIES if series in raw_series) if include_ohlc else ()
+    )
+    for series in price_feature_series:
         # The serving view exposes the natural-log transform of each raw
-        # source; the untransformed values remain in ``macro_raw``.
+        # source; native values remain in their feature-specific raw tables.
         specs.append(
             MacroFeatureSpec(
                 f"{series}_log_level",
@@ -104,7 +120,7 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 "ln(source level) when source level is positive",
             )
         )
-    for series in OHLC_SERIES:
+    for series in ohlc_series:
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_{field}",
@@ -114,7 +130,7 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
             for field in OHLC_FIELDS
         )
-    for series in OHLC_SERIES:
+    for series in ohlc_series:
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_{family}_{window}obs",
@@ -162,6 +178,8 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             for suffix in OHLC_DONCHIAN_SUFFIXES
         )
     for series in VOLATILITY_SERIES:
+        if series not in raw_series:
+            continue
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_delta_{lag}obs",
@@ -180,6 +198,8 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
         )
     for series, lags in macro_delta_lags(MACRO_POLICY).items():
+        if series not in raw_series:
+            continue
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_delta_{lag}obs",
@@ -189,18 +209,21 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
             for lag in lags
         )
-    specs.extend(
-        (
-            MacroFeatureSpec("vix9d_vix_ratio", "term_structure", None, "vix9d/vix"),
-            MacroFeatureSpec("vix_vix3m_ratio", "term_structure", None, "vix/vix3m"),
-            MacroFeatureSpec("vix9d_vix3m_log_ratio", "term_structure", None, "ln(vix9d/vix3m)"),
-            MacroFeatureSpec("vix3m_minus_vix", "term_structure", None, "vix3m-vix"),
-            MacroFeatureSpec("vix6m_minus_vix", "term_structure", None, "vix6m-vix"),
-            MacroFeatureSpec("vix1y_minus_vix", "term_structure", None, "vix1y-vix"),
-            MacroFeatureSpec("us_10y_minus_us_2y", "cross_series", None, "us_10y-us_2y"),
+    if include_cross_series:
+        specs.extend(
+            (
+                MacroFeatureSpec("vix9d_vix_ratio", "term_structure", None, "vix9d/vix"),
+                MacroFeatureSpec("vix_vix3m_ratio", "term_structure", None, "vix/vix3m"),
+                MacroFeatureSpec(
+                    "vix9d_vix3m_log_ratio", "term_structure", None, "ln(vix9d/vix3m)"
+                ),
+                MacroFeatureSpec("vix3m_minus_vix", "term_structure", None, "vix3m-vix"),
+                MacroFeatureSpec("vix6m_minus_vix", "term_structure", None, "vix6m-vix"),
+                MacroFeatureSpec("vix1y_minus_vix", "term_structure", None, "vix1y-vix"),
+                MacroFeatureSpec("us_10y_minus_us_2y", "cross_series", None, "us_10y-us_2y"),
+            )
         )
-    )
-    for series in PRICE_FEATURE_SERIES:
+    for series in price_feature_series:
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_sma_ratio_{short}_{long}",
@@ -356,7 +379,7 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             )
             for lag, window in RETURN_AUTOCORRELATION_LAG_WINDOWS
         )
-    for series in PRICE_FEATURE_SERIES:
+    for series in price_feature_series:
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_return_geom_{window}obs_pct",
@@ -368,6 +391,8 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
             for window in RETURN_WINDOWS
         )
     for series in SIGNED_LEVEL_SERIES:
+        if series not in raw_series:
+            continue
         specs.extend(
             MacroFeatureSpec(
                 f"{series}_momentum_autocorr_{lag}_{window}obs",
@@ -383,40 +408,64 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
 FEATURE_CATALOG: tuple[MacroFeatureSpec, ...] = _source_specs()
 FEATURE_COLUMNS: tuple[str, ...] = ("timestamp_m1", *(spec.name for spec in FEATURE_CATALOG))
 FEATURE_POSTGRES_TYPES: dict[str, str] = {spec.name: spec.postgres_type for spec in FEATURE_CATALOG}
+EXTENDED_FEATURE_CATALOG: tuple[MacroFeatureSpec, ...] = _source_specs(
+    raw_series=EXTENDED_RAW_SERIES,
+    price_feature_series=EXTENDED_PRICE_FEATURE_SERIES,
+    include_ohlc=False,
+    include_cross_series=False,
+)
+EXTENDED_FEATURE_COLUMNS: tuple[str, ...] = (
+    "timestamp_m1",
+    *(spec.name for spec in EXTENDED_FEATURE_CATALOG),
+)
+EXTENDED_FEATURE_POSTGRES_TYPES: dict[str, str] = {
+    spec.name: spec.postgres_type for spec in EXTENDED_FEATURE_CATALOG
+}
+EXTENDED_MACRO_FEATURE_VIEW_VERSION = 1
 
 
-def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG) -> None:
+def validate_feature_catalog(
+    catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,
+    *,
+    price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
+    raw_series: tuple[str, ...] = RAW_SERIES,
+    include_ohlc: bool = True,
+) -> None:
     """Validate the closed-world catalog before it is used by a migration."""
     names = [spec.name for spec in catalog]
     if len(names) != len(set(names)):
         raise ValueError("macro feature catalog contains duplicate columns")
     if any(not spec.name or not spec.family or not spec.formula for spec in catalog):
         raise ValueError("macro feature catalog contains incomplete metadata")
-    if tuple(spec.name for spec in catalog if spec.family == "raw_log") != RAW_COLUMNS:
+    expected_raw_columns = tuple(f"{series}_log_level" for series in price_feature_series)
+    if tuple(spec.name for spec in catalog if spec.family == "raw_log") != expected_raw_columns:
         raise ValueError("macro feature catalog raw-log order/coverage mismatch")
-    expected_ohlc = tuple(f"{series}_{field}" for series in OHLC_SERIES for field in OHLC_FIELDS)
+    ohlc_series = (
+        tuple(series for series in OHLC_SERIES if series in raw_series) if include_ohlc else ()
+    )
+    expected_ohlc = tuple(f"{series}_{field}" for series in ohlc_series for field in OHLC_FIELDS)
     if tuple(spec.name for spec in catalog if spec.family == "raw_ohlc") != expected_ohlc:
         raise ValueError("macro feature catalog raw-OHLC order/coverage mismatch")
     for family in OHLC_BAR_FEATURE_FAMILIES:
         family_specs = tuple(spec for spec in catalog if spec.family == family)
         expected = tuple(
             f"{series}_{family}_{window}obs"
-            for series in OHLC_SERIES
+            for series in ohlc_series
             for window in OHLC_BAR_WINDOWS
         )
         if tuple(spec.name for spec in family_specs) != expected:
             raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
-        if {spec.series for spec in family_specs} != set(OHLC_SERIES):
+        if {spec.series for spec in family_specs} != set(ohlc_series):
             raise ValueError(f"macro feature catalog {family} series mismatch")
     for family, suffixes in (
         ("stochastic", OHLC_STOCHASTIC_SUFFIXES),
         ("donchian", OHLC_DONCHIAN_SUFFIXES),
     ):
         family_specs = tuple(spec for spec in catalog if spec.family == family)
-        expected = tuple(f"{series}_{suffix}" for series in OHLC_SERIES for suffix in suffixes)
+        expected = tuple(f"{series}_{suffix}" for series in ohlc_series for suffix in suffixes)
         if tuple(spec.name for spec in family_specs) != expected:
             raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
-        if {spec.series for spec in family_specs} != set(OHLC_SERIES):
+        if {spec.series for spec in family_specs} != set(ohlc_series):
             raise ValueError(f"macro feature catalog {family} series mismatch")
         expected_type = "boolean" if family == "donchian" else "double precision"
         if any(spec.postgres_type != expected_type for spec in family_specs):
@@ -425,10 +474,10 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
         raise ValueError("macro feature catalog contains an unsupported PostgreSQL type")
     for family in PRICE_FEATURE_FAMILIES:
         family_series = {spec.series for spec in catalog if spec.family == family}
-        if family_series != set(PRICE_FEATURE_SERIES):
+        if family_series != set(price_feature_series):
             raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
     momentum_series = {spec.series for spec in catalog if spec.family == "momentum_autocorrelation"}
-    if momentum_series != set(RAW_SERIES):
+    if momentum_series != set(raw_series):
         raise ValueError("macro feature catalog momentum domain/coverage mismatch")
     if "foo_log_level" in names:
         raise ValueError("unapproved wildcard feature in macro feature catalog")
@@ -440,8 +489,17 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
 
 def feature_catalog_payload(
     catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,
+    *,
+    price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
+    raw_series: tuple[str, ...] = RAW_SERIES,
+    include_ohlc: bool = True,
 ) -> tuple[dict[str, str | None], ...]:
-    validate_feature_catalog(catalog)
+    validate_feature_catalog(
+        catalog,
+        price_feature_series=price_feature_series,
+        raw_series=raw_series,
+        include_ohlc=include_ohlc,
+    )
     return tuple(
         {
             "name": spec.name,
@@ -456,11 +514,21 @@ def feature_catalog_payload(
 
 def feature_catalog_fingerprint(
     catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,
+    *,
+    view_version: int = MACRO_FEATURE_VIEW_VERSION,
+    price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
+    raw_series: tuple[str, ...] = RAW_SERIES,
+    include_ohlc: bool = True,
 ) -> str:
     """Return a deterministic fingerprint of ordered names and formulas."""
     payload = {
-        "version": MACRO_FEATURE_VIEW_VERSION,
-        "columns": feature_catalog_payload(catalog),
+        "version": view_version,
+        "columns": feature_catalog_payload(
+            catalog,
+            price_feature_series=price_feature_series,
+            raw_series=raw_series,
+            include_ohlc=include_ohlc,
+        ),
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -468,3 +536,16 @@ def feature_catalog_fingerprint(
 
 validate_feature_catalog()
 MACRO_FEATURE_VIEW_FINGERPRINT = feature_catalog_fingerprint()
+validate_feature_catalog(
+    EXTENDED_FEATURE_CATALOG,
+    price_feature_series=EXTENDED_PRICE_FEATURE_SERIES,
+    raw_series=EXTENDED_RAW_SERIES,
+    include_ohlc=False,
+)
+EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT = feature_catalog_fingerprint(
+    EXTENDED_FEATURE_CATALOG,
+    view_version=EXTENDED_MACRO_FEATURE_VIEW_VERSION,
+    price_feature_series=EXTENDED_PRICE_FEATURE_SERIES,
+    raw_series=EXTENDED_RAW_SERIES,
+    include_ohlc=False,
+)
