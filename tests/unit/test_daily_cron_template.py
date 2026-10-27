@@ -7,14 +7,15 @@ from zoneinfo import ZoneInfo
 
 CRON_TEMPLATE = Path("ops/macro-loader.cron")
 CRON_RUNNER = Path("ops/run-macro-loader-daily.sh")
+GOLD_COPY_RUNNER = Path("ops/copy-macro-loader-gold.sh")
 
 
-def _job_line() -> str:
-    return next(
+def _job_lines() -> list[str]:
+    return [
         line
         for line in CRON_TEMPLATE.read_text(encoding="utf-8").splitlines()
         if line and not line.startswith("#") and not line.startswith("CRON_TZ=")
-    )
+    ]
 
 
 def test_daily_gold_sync_cron_template_has_explicit_vienna_timezone_and_dst() -> None:
@@ -24,10 +25,12 @@ def test_daily_gold_sync_cron_template_has_explicit_vienna_timezone_and_dst() ->
     assert "CRON_TZ=Europe/Vienna" in text
     assert datetime(2026, 1, 4, 9, tzinfo=vienna).utcoffset() == timedelta(hours=1)
     assert datetime(2026, 7, 5, 9, tzinfo=vienna).utcoffset() == timedelta(hours=2)
+    assert datetime(2026, 1, 4, 22, tzinfo=vienna).utcoffset() == timedelta(hours=1)
+    assert datetime(2026, 7, 5, 22, tzinfo=vienna).utcoffset() == timedelta(hours=2)
 
 
 def test_daily_gold_sync_cron_template_is_operational() -> None:
-    job = _job_line()
+    job = next(job for job in _job_lines() if "run-macro-loader-daily.sh" in job)
     runner = CRON_RUNNER.read_text(encoding="utf-8")
 
     assert job.startswith("0 9 * * * ")
@@ -48,18 +51,105 @@ def test_daily_gold_sync_cron_template_is_operational() -> None:
     assert "reconcile" not in job + runner
 
 
-def test_cron_template_has_exactly_one_job_and_no_database_secret_literal() -> None:
+def test_cron_template_has_daily_and_sunday_copy_jobs_without_secrets() -> None:
     text = CRON_TEMPLATE.read_text(encoding="utf-8")
-    jobs = [
-        line
-        for line in text.splitlines()
-        if line and not line.startswith("#") and not line.startswith("CRON_TZ=")
-    ]
+    jobs = _job_lines()
 
-    assert jobs == [_job_line()]
+    assert jobs == [
+        "0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh",
+        "0 22 * * 0 /home/dev_macro/macro-loader/ops/copy-macro-loader-gold.sh",
+    ]
     assert "PGPASSWORD=" not in text
     assert "postgresql://" not in text
     assert "repo-secret" not in text
+
+
+def test_sunday_gold_copy_runner_copies_source_contents_without_deleting_target() -> None:
+    runner = GOLD_COPY_RUNNER.read_text(encoding="utf-8")
+
+    assert 'SOURCE_DIR=${1:-"$PROJECT_ROOT/lake/gold"}' in runner
+    assert "DESTINATION_DIR=${2:-/volume1/Temp/Quotes/macro}" in runner
+    assert "VOLUME_MOUNT=${3:-/volume1}" in runner
+    assert 'mountpoint -q "$VOLUME_MOUNT"' in runner
+    assert 'rsync --archive --human-readable --stats "$SOURCE_DIR/" "$DESTINATION_DIR/"' in runner
+    assert "--delete" not in runner
+    assert 'LOCK_PATH="$LOCK_DIR/macro-loader-gold-copy.lock"' in runner
+    assert 'exec >>"$LOG_PATH" 2>&1' in runner
+
+
+def test_sunday_gold_copy_runner_copies_files_and_preserves_destination_extras(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source-gold"
+    destination = tmp_path / "nas" / "macro"
+    source.mkdir()
+    (source / "manifest.json").write_text("gold manifest", encoding="utf-8")
+    destination.mkdir(parents=True)
+    (destination / "keep.txt").write_text("existing", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(
+        bin_dir / "mountpoint",
+        '#!/usr/bin/env bash\n[[ "${MOUNTPOINT_OK:-false}" == true ]]\n',
+    )
+    _write_executable(
+        bin_dir / "rsync",
+        "#!/usr/bin/env bash\n"
+        'printf \'%s\\n\' "$*" > "$RSYNC_RECORD"\n'
+        'arguments=("$@")\n'
+        'source_path="${arguments[-2]}"\n'
+        'destination_path="${arguments[-1]}"\n'
+        'mkdir -p "$destination_path"\n'
+        'cp -a "${source_path%/}/." "$destination_path"\n',
+    )
+    record_path = tmp_path / "rsync-arguments"
+    completed = subprocess.run(
+        [str(GOLD_COPY_RUNNER), str(source), str(destination), str(tmp_path / "volume")],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "MOUNTPOINT_OK": "true",
+            "RSYNC_RECORD": str(record_path),
+        },
+    )
+
+    assert completed.returncode == 0
+    assert (destination / "manifest.json").read_text(encoding="utf-8") == "gold manifest"
+    assert (destination / "keep.txt").read_text(encoding="utf-8") == "existing"
+    rsync_args = record_path.read_text(encoding="utf-8").strip()
+    assert "--archive" in rsync_args
+    assert "--delete" not in rsync_args
+
+
+def test_sunday_gold_copy_runner_fails_closed_if_nas_is_not_mounted(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source-gold"
+    source.mkdir()
+    destination = tmp_path / "nas" / "macro"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(bin_dir / "mountpoint", "#!/usr/bin/env bash\nexit 1\n")
+    record_path = tmp_path / "rsync-arguments"
+    completed = subprocess.run(
+        [str(GOLD_COPY_RUNNER), str(source), str(destination), str(tmp_path / "volume")],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "RSYNC_RECORD": str(record_path),
+        },
+    )
+
+    assert completed.returncode == 4
+    assert not destination.exists()
+    assert not record_path.exists()
 
 
 def test_ingestion_is_not_scheduled_in_github_actions() -> None:
