@@ -12,11 +12,11 @@ Last reviewed: 2026-10-27
 ### PR-194: Reconcile Gold Across Consecutive Schema-Only Versions
 
 PR name: `allow-schema-version-sync-jumps`
-Status: In Progress — local implementation
+Status: Open — production sync pending
 Updated: 2026-10-27
-PR: not created
+PR: [#194](https://github.com/SergejSchweizer/macro-loader/pull/194)
 Git branch: `pr-194/allow-schema-version-sync-jumps`
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: reconcile the current canonical Gold build into the newly cut-over serving tables
 Depends on: PR-193 (merged to `origin/main`)
 Commit: `2c0d353 fix(pr-194): coalesce schema-only sync upgrades`
