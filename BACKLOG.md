@@ -19,7 +19,7 @@ Git branch: `pr-193/archive-orphaned-retired-fed-table`
 Git status: in-progress
 Agent lane: repair the production migration ledger/object drift without discarding retired data
 Depends on: PR-192 (merged to `origin/main`)
-Commit: pending
+Commit: `c59c7e5 fix(pr-193): archive orphaned retired fed table`
 Design patterns: Versioned Migration, Idempotent Archive.
 
 Description:
