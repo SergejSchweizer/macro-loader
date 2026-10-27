@@ -9,14 +9,45 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-201: Copy Gold To NAS Every Sunday
+
+PR name: `sunday-gold-copy-cron`
+Status: PR #201 open — local quality gate passed; host schedule installed and live copy verified
+Updated: 2026-10-27
+Git branch: `pr-201/sunday-gold-copy-cron`
+PR: [#201](https://github.com/SergejSchweizer/macro-loader/pull/201) (open)
+Git status: pushed-local-checks-passed
+Commit: `feat(pr-201): add weekly gold copy cron`
+Design patterns: Architectural baseline only.
+Depends on: PR-200 (merged to `origin/main`)
+
+Description:
+- R1: Add a second `Europe/Vienna` cron entry for every Sunday at 22:00, leaving the
+  daily 09:00 ingestion and PostgreSQL sync entry unchanged.
+- R2: Copy the contents of `/home/dev_macro/macro-loader/lake/gold/` to
+  `/volume1/Temp/Quotes/macro/` with archive-preserving `rsync`; never delete destination
+  files absent from the source.
+- R3: Fail closed if the source is absent or `/volume1` is not mounted; serialize runs
+  with a separate lock and write a separate log.
+- R4: Document schedule and behavior and install/verify the second job on the host.
+
+Acceptance:
+- A1 the cron template contains exactly the unchanged daily job and the Sunday 22:00
+  copy job under `CRON_TZ=Europe/Vienna`.
+- A2 local tests verify copying, preservation of destination-only files, and failure
+  before writes when the volume is not mounted.
+- A3 `make quality-gate` passes locally; no GitHub Actions.
+- A4 passed 2026-10-27: the installed host crontab contains both entries; the live copy
+  produced 90 destination files and a checksum dry-run found no differences.
+
 ### PR-200: Retire Wide Feature Views And Publish Long View As `macro_features`
 
 PR name: `rename-long-feature-materialized-view`
-Status: PR #200 open — local quality gate and disposable PostgreSQL acceptance passed; production deployment pending
+Status: Merged — migration 36 deployed and production verification completed
 Updated: 2026-10-27
 Git branch: `pr-200/rename-long-feature-materialized-view`
-PR: [#200](https://github.com/SergejSchweizer/macro-loader/pull/200) (open)
-Git status: pushed-local-checks-passed
+PR: [#200](https://github.com/SergejSchweizer/macro-loader/pull/200) (merged)
+Git status: merged
 Agent lane: make the raw-derived long transformation materialized view the sole public feature view
 Depends on: PR-199 (merged to `origin/main`)
 Commit: `f66df93 feat(pr-200): rename long feature view and retire legacy views`; `2baa229 test(pr-200): validate renamed view calculations`; `8a2e7d2 docs(pr-200): record pull request and local acceptance`
@@ -57,7 +88,11 @@ OID and rows through migration 36, all simulated legacy views were removed, refr
 preserved the values, and an upgrade from simulated schema 23 completed. A separate
 hand-calculated return/mean/volatility parity test passed against the long view.
 `make quality-gate` passed (518 unit tests, 37 offline integration tests, 89.56% coverage);
-no GitHub Actions were used. Production migration and replay remain pending.
+no GitHub Actions were used. Production migration 36 completed. Verification confirmed
+11,794,988 rows across 1,720 features, schema/role/session/temporal checks, and canonical
+Gold/digest agreement; the zero-change replay was 0/0/0. The direct raw-source population
+scan took 29.5 minutes, exceeding the CLI verifier's 15-minute timeout, so it was completed
+read-only and combined with the remaining verifier checks.
 
 ### PR-199: Publish Long Transformations As A Raw-Derived Materialized View
 

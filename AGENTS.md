@@ -2,16 +2,14 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PRs #192–#199 are merged to `origin/main`.
-Production migration 35 created and populated the raw-derived long transformation
-materialized view; read-only checks confirmed 11,794,988 unique values across 1,720
-features, and sampled results matched the existing feature views. PR-200,
-`pr-200/rename-long-feature-materialized-view`, is the active branch to retire the
-superseded wide/private view chain and publish the long-form view as the sole
-`macro_loader.macro_features` relation. PR #200 is pushed with the local quality gate and
-disposable PostgreSQL acceptance passed; production migration 36, independent conformance,
-and zero-change replay are pending. The installed 09:00
-Europe/Vienna schedule and 60-calendar-day delta window are verified. Per
+Current delivery status (2026-10-27): PRs #192–#200 are merged to `origin/main`.
+Production migration 36, canonical Gold sync, and independent verification have completed;
+25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
+populated through 2026-10-27 (schema 11 / feature 6). PR-201,
+`pr-201/sunday-gold-copy-cron`, adds the installed Sunday 22:00 Europe/Vienna copy from
+`lake/gold/` to `/volume1/Temp/Quotes/macro/`; a live copy and checksum comparison passed.
+The installed daily 09:00 Europe/Vienna schedule and 60-calendar-day delta window remain
+unchanged. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

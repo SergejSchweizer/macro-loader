@@ -11,17 +11,13 @@ The project is intentionally a **data product**, not a trading system. It does n
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
 The repository includes native OHLC inputs and OHLC-derived transformations in PostgreSQL.
-Production migration 35 populated the raw-derived long transformation materialized view on
-2026-10-27. PR-200 adds migration 36 to rename it to `macro_loader.macro_features` and
-retire the superseded wide/extended feature views; production deployment of that migration
-is pending. All 25 `macro_raw_<feature>` tables contain source rows; the wide `macro_raw`
-and orphaned retired Fed table are absent. Before migration 36, production has the two
-legacy feature views plus the populated `macro_feature_values` materialized view.
-PostgreSQL sync state is schema 11 / feature 6, with 16,805 consumer rows and matching
-row digests. The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full
-acceptance on 2026-10-27: both wrapper runs succeeded, the explicit PostgreSQL replay
-made zero row changes, independent verification passed, and each raw table had at least
-37 observations in the latest 60-calendar-day window.
+Production migration 36 renamed the raw-derived long transformation materialized view to
+`macro_loader.macro_features` and retired the superseded views on 2026-10-27. All 25
+`macro_raw_<feature>` tables contain source rows; the wide `macro_raw` and orphaned retired
+Fed table are absent. The long view has 11,794,988 rows across 1,720 features. PostgreSQL
+sync state is schema 11 / feature 6, with 16,805 consumer rows and matching row digests.
+The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full acceptance on
+2026-10-27, including a zero-change PostgreSQL replay and independent verification.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.
@@ -726,14 +722,21 @@ The optional Gold mirror still runs only as part of local publication; a Postgre
 
 ### Scheduling
 
-The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs **daily at 09:00 Europe/Vienna time**. It loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
+The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs ingestion **daily at 09:00 Europe/Vienna** and copies Gold to the NAS **Sundays at 22:00 Europe/Vienna**. The daily job loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
 
 ```cron
 CRON_TZ=Europe/Vienna
 0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh
+0 22 * * 0 /home/dev_macro/macro-loader/ops/copy-macro-loader-gold.sh
 ```
 
 The daily job runs at 09:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from UTC+1 in winter to UTC+2 in summer. The runner resolves its project root, exports protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. It uses `--overlap-days 60`, a bounded calendar window spanning at least 30 normal weekday EOD observations for daily series, then synchronizes the complete canonical Gold snapshot to PostgreSQL. PostgreSQL sync runs only after `run-daily` succeeds.
+
+A second cron entry runs Sundays at 22:00 `Europe/Vienna` and copies the contents of
+`/home/dev_macro/macro-loader/lake/gold/` to `/volume1/Temp/Quotes/macro/` using `rsync -a`.
+It requires `/volume1` to be mounted, uses a separate lock and log, and does not delete
+files already present at the destination. Its log is
+`${PROJECT_ROOT}/.logs/macro-loader-gold-copy.log`.
 
 The daily runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
 that variable in the service environment to use a different positive concurrency limit.
@@ -751,7 +754,7 @@ Operational semantics are explicit:
 - after a database-only failure, retry only `uv run macro-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
 - the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed daily runs;
 - source maximum-history reconciliation remains a separate explicit command and is never part of the daily main chain;
-- both main commands append stdout/stderr to the same `${PROJECT_ROOT}/.logs/macro-loader.log` through `LOG_PATH`.
+- `run-daily` and `gold-sync-postgres` append stdout/stderr to `${PROJECT_ROOT}/.logs/macro-loader.log`; the Sunday copy uses its separate `macro-loader-gold-copy.log`.
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
 

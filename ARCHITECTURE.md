@@ -8,19 +8,15 @@ This document is the durable engineering contract for `macro-loader`.
 
 The repository includes causal feature transformations and native OHLC values in
 PostgreSQL. Retired Fed-policy runtime and serving code does not establish production
-database or installed host-crontab state. Production migration 35 populated the raw-derived
-long transformation materialized view on 2026-10-27; migration 36 in PR-200 renames it to
-`macro_loader.macro_features` and retires the superseded views, and production application
-is pending. The production database currently contains the long view as
-`macro_feature_values` alongside the legacy wide/extended views. All 25
-`macro_raw_<feature>` tables are populated; the old wide `macro_raw` and orphaned Fed
-serving table are absent. The two legacy public views reach `timestamp_m1=2026-10-27`, with
-availability through 2026-10-28. The sync checkpoint is
-schema 11 / feature 6 with 16,805 consumer and digest rows. The daily cron contract is
-09:00 `Europe/Vienna` with a 60-calendar-day bounded source overlap. The installed daily
-wrapper and its independent PostgreSQL replay/conformance acceptance passed on
-2026-10-27; all 25 raw tables had 37–41 observations in the latest 60-calendar-day
-window, and the explicit replay made zero row changes.
+database or installed host-crontab state. Production migration 36 renamed the populated
+raw-derived long transformation materialized view to `macro_loader.macro_features` and
+retired the superseded views on 2026-10-27. All 25 `macro_raw_<feature>` tables are
+populated; the old wide `macro_raw` and orphaned Fed serving table are absent. The long
+view has 11,794,988 rows across 1,720 features. The sync checkpoint is schema 11 / feature
+6 with 16,805 consumer and digest rows. The daily cron contract is 09:00 `Europe/Vienna`
+with a 60-calendar-day bounded source overlap. The host crontab also copies Gold to the NAS
+each Sunday at 22:00 `Europe/Vienna`; the installed schedule and live copy were verified
+on 2026-10-27.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
