@@ -6,6 +6,7 @@ from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
 from ingestion.postgres_conformance_verifier import PostgresLiveDatabaseConformanceInspector
 from ingestion.postgres_gold_repository import (
+    _FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
     _FEATURES_VIEW_COLUMNS_EXPECTED,
     _FEATURES_VIEW_DEFINITION,
     _POSTGRES_OWNER_ROLE,
@@ -89,7 +90,7 @@ class FakeCursor:
                 (
                     ordinal,
                     name,
-                    "timestamp(6) with time zone" if ordinal in {1, 2} else "double precision",
+                    _FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
                     False,
                 )
                 for ordinal, name in enumerate(_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)

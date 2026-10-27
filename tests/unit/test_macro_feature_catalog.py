@@ -3,9 +3,12 @@ import pytest
 from application.macro_feature_catalog import (
     FEATURE_CATALOG,
     FEATURE_COLUMNS,
+    FEATURE_POSTGRES_TYPES,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     OHLC_BAR_FEATURE_FAMILIES,
+    OHLC_DONCHIAN_SUFFIXES,
+    OHLC_STOCHASTIC_SUFFIXES,
     PRICE_FEATURE_SERIES,
     SIGNED_LEVEL_SERIES,
     feature_catalog_fingerprint,
@@ -31,6 +34,7 @@ from application.trend_features import (
     SMA_RATIO_WINDOWS,
 )
 from ingestion.postgres_gold_repository import (
+    _FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
     _FEATURES_VIEW_COLUMNS_EXPECTED,
     _FEATURES_VIEW_DDL,
     _MIGRATIONS,
@@ -154,8 +158,33 @@ def test_ohlc_bar_catalog_is_registry_scoped_ordered_and_nullable() -> None:
     assert not set(expected).intersection(POSTGRES_RAW_COLUMNS)
 
 
+def test_stochastic_and_donchian_catalog_is_registry_scoped_and_typed() -> None:
+    expected_stochastic = tuple(
+        f"{series}_{suffix}" for series in OHLC_SERIES for suffix in OHLC_STOCHASTIC_SUFFIXES
+    )
+    expected_donchian = tuple(
+        f"{series}_{suffix}" for series in OHLC_SERIES for suffix in OHLC_DONCHIAN_SUFFIXES
+    )
+    assert tuple(spec.name for spec in FEATURE_CATALOG if spec.family == "stochastic") == (
+        expected_stochastic
+    )
+    assert tuple(spec.name for spec in FEATURE_CATALOG if spec.family == "donchian") == (
+        expected_donchian
+    )
+    assert len(expected_stochastic) == 36
+    assert len(expected_donchian) == 12
+    assert all(FEATURE_POSTGRES_TYPES[name] == "double precision" for name in expected_stochastic)
+    assert all(FEATURE_POSTGRES_TYPES[name] == "boolean" for name in expected_donchian)
+    from application.gold_frame import GOLD_COLUMNS
+    from application.postgres_sync import POSTGRES_RAW_COLUMNS
+
+    outputs = set(expected_stochastic) | set(expected_donchian)
+    assert not outputs.intersection(GOLD_COLUMNS)
+    assert not outputs.intersection(POSTGRES_RAW_COLUMNS)
+
+
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 15
+    assert MACRO_FEATURE_VIEW_VERSION == 16
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -192,7 +221,12 @@ def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert len(bar_specs) == 36
     for spec in bar_specs:
         assert spec.name in _FEATURES_VIEW_DDL
-    assert not any("stoch" in spec.name or "donchian" in spec.name for spec in FEATURE_CATALOG)
+    for series in OHLC_SERIES:
+        for suffix in (*OHLC_STOCHASTIC_SUFFIXES, *OHLC_DONCHIAN_SUFFIXES):
+            assert f"{series}_{suffix}" in FEATURE_COLUMNS
+            assert f"{series}_{suffix}" in _FEATURES_VIEW_DDL
+    assert "ROWS BETWEEN 20 PRECEDING AND 1 PRECEDING" in _FEATURES_VIEW_DDL
+    assert 'AS "vix_donchian_breakout_up"' in _FEATURES_VIEW_DDL
     assert '"vix_log_level"' in _FEATURES_VIEW_DDL
     assert 'THEN ln(raw."vix_level") END AS "vix_log_level"' in _FEATURES_VIEW_DDL
     assert '"vix9d_vix_ratio"' in _FEATURES_VIEW_DDL
@@ -203,6 +237,8 @@ def test_postgres_view_migration_is_populated_and_versioned() -> None:
     assert '"fed_macro_features"' in migration_sql
     assert 'DROP COLUMN IF EXISTS "fed_next_expected_move_bp"' in migration_sql
     assert 'raw."available_at_utc" AS "available_at_utc"' in _FEATURES_VIEW_DDL
+    assert _FEATURES_VIEW_COLUMN_TYPES_EXPECTED["vix_donchian_breakout_up"] == "boolean"
+    assert _FEATURES_VIEW_COLUMN_TYPES_EXPECTED["vix_stoch_k_5"] == "double precision"
 
 
 def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
@@ -224,7 +260,7 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert len([spec for spec in FEATURE_CATALOG if spec.family == "ema_trend"]) == (
         len(PRICE_FEATURE_SERIES) * len(EMA_OUTPUT_SUFFIXES)
     )
-    assert len(_MIGRATIONS) == 26
+    assert len(_MIGRATIONS) == 27
     previous_migration_sql = " ".join(_MIGRATIONS[24])
     assert 'ALTER TABLE "macro_loader"."macro_raw"' in previous_migration_sql
     assert 'ADD COLUMN IF NOT EXISTS "vix_open" DOUBLE PRECISION NULL' in previous_migration_sql
@@ -265,8 +301,8 @@ def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> Non
     assert "lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3" in _FEATURES_VIEW_DDL
     signed_seed = "CASE WHEN input.levels[1] IS NOT NULL THEN 1 ELSE 0 END AS seed_count"
     assert signed_seed in _FEATURES_VIEW_DDL
-    assert len(_MIGRATIONS) == 26
+    assert len(_MIGRATIONS) == 27
     migration_sql = " ".join(_MIGRATIONS[-1])
     assert "DROP MATERIALIZED VIEW" in migration_sql
-    assert "version=15" in migration_sql
+    assert "version=16" in migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql

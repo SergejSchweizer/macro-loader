@@ -138,7 +138,7 @@ class FakeCursor:
                 (
                     ordinal,
                     name,
-                    "timestamp(6) with time zone" if ordinal in (1, 2) else "double precision",
+                    module._FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
                     False,
                 )
                 for ordinal, name in enumerate(module._FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
@@ -437,7 +437,7 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     final_migration = "\n".join(module._MIGRATIONS[final_migration_index])
     assert availability_migration_index < final_migration_index
     assert module._FEATURES_VIEW_DDL in final_migration
-    assert "version=15" in final_migration
+    assert "version=16" in final_migration
     assert module.MACRO_FEATURE_VIEW_FINGERPRINT in final_migration
 
 
@@ -470,7 +470,7 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert module._FEATURES_VIEW_DDL in module._MIGRATIONS[24]
     final_migration = "\n".join(module._MIGRATIONS[25])
     assert "ADD COLUMN IF NOT EXISTS" not in final_migration
-    assert "version=15" in final_migration
+    assert "version=16" in final_migration
 
 
 @pytest.mark.parametrize(

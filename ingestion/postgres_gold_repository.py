@@ -14,6 +14,7 @@ import psycopg
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
+    FEATURE_POSTGRES_TYPES,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     OHLC_BAR_WINDOWS,
@@ -926,6 +927,112 @@ def _macro_features_view_query() -> str:
                     f"overnight_rolling.mean_5 AS {_quote(f'{series}_overnight_gap_5obs')}",
                 ]
             )
+
+            # Stochastic and Donchian windows count complete native OHLC bars,
+            # not calendar dates or the wider union of serving timestamps.
+            ohlc_rows = _quote(f"{series}_ohlc_observations")
+            ohlc_windows = _quote(f"{series}_ohlc_windows")
+            stochastic_raw = _quote(f"{series}_stochastic_raw")
+            stochastic_history = _quote(f"{series}_stochastic_history")
+            stochastic_features = _quote(f"{series}_stochastic_features")
+            finite_ohlc = " AND ".join(
+                f"{_quote(f'{series}_{field}')} IS NOT NULL AND "
+                f"{_quote(f'{series}_{field}')} > '-Infinity'::double precision AND "
+                f"{_quote(f'{series}_{field}')} < 'Infinity'::double precision"
+                for field in OHLC_FIELDS
+            )
+            source_ctes.append(
+                f"{ohlc_rows} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"{open_column} AS open, {high_column} AS high, {low_column} AS low, "
+                f"{close_column} AS close, row_number() OVER (ORDER BY timestamp_m1) "
+                f"AS observation_number FROM {_CONSUMER} WHERE {finite_ohlc})"
+            )
+            source_ctes.append(
+                f"{ohlc_windows} AS MATERIALIZED (SELECT *, "
+                "count(*) OVER w5 AS count_5, min(low) OVER w5 AS min_low_5, "
+                "max(high) OVER w5 AS max_high_5, "
+                "count(*) OVER w14 AS count_14, min(low) OVER w14 AS min_low_14, "
+                "max(high) OVER w14 AS max_high_14, "
+                "count(*) OVER prior20 AS prior_count_20, "
+                "max(high) OVER prior20 AS prior_max_high_20, "
+                "min(low) OVER prior20 AS prior_min_low_20 "
+                f"FROM {ohlc_rows} WINDOW "
+                "w5 AS (ORDER BY observation_number ROWS BETWEEN 4 PRECEDING AND CURRENT ROW), "
+                "w14 AS (ORDER BY observation_number ROWS BETWEEN 13 PRECEDING AND CURRENT ROW), "
+                "prior20 AS (ORDER BY observation_number ROWS BETWEEN "
+                "20 PRECEDING AND 1 PRECEDING))"
+            )
+            source_ctes.append(
+                f"{stochastic_raw} AS MATERIALIZED (SELECT *, "
+                "CASE WHEN count_5 = 5 AND max_high_5 > min_low_5 THEN "
+                "CASE WHEN 100.0 * (close - min_low_5) / (max_high_5 - min_low_5) "
+                "> '-Infinity'::double precision AND "
+                "100.0 * (close - min_low_5) / (max_high_5 - min_low_5) "
+                "< 'Infinity'::double precision THEN "
+                "100.0 * (close - min_low_5) / (max_high_5 - min_low_5) END END "
+                "AS stoch_k_5, "
+                "CASE WHEN count_14 = 14 AND max_high_14 > min_low_14 THEN "
+                "CASE WHEN 100.0 * (close - min_low_14) / (max_high_14 - min_low_14) "
+                "> '-Infinity'::double precision AND "
+                "100.0 * (close - min_low_14) / (max_high_14 - min_low_14) "
+                "< 'Infinity'::double precision THEN "
+                "100.0 * (close - min_low_14) / (max_high_14 - min_low_14) END END "
+                f"AS stoch_k_14 FROM {ohlc_windows})"
+            )
+            source_ctes.append(
+                f"{stochastic_history} AS MATERIALIZED (SELECT *, "
+                "count(stoch_k_5) OVER w3 AS valid_k5_count, "
+                "avg(stoch_k_5) OVER w3 AS stoch_d_5_3, "
+                "count(stoch_k_14) OVER w3 AS valid_k14_count, "
+                "avg(stoch_k_14) OVER w3 AS stoch_d_14_3, "
+                "lag(stoch_k_5, 3) OVER ordered AS stoch_k_5_lag_3 "
+                f"FROM {stochastic_raw} WINDOW "
+                "ordered AS (ORDER BY observation_number), "
+                "w3 AS (ORDER BY observation_number ROWS BETWEEN 2 PRECEDING AND CURRENT ROW))"
+            )
+            source_ctes.append(
+                f"{stochastic_features} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"stoch_k_5 AS {_quote(f'{series}_stoch_k_5')}, "
+                "CASE WHEN valid_k5_count = 3 AND stoch_d_5_3 > '-Infinity'::double precision "
+                "AND stoch_d_5_3 < 'Infinity'::double precision THEN stoch_d_5_3 END "
+                f"AS {_quote(f'{series}_stoch_d_5_3')}, "
+                f"stoch_k_14 AS {_quote(f'{series}_stoch_k_14')}, "
+                "CASE WHEN valid_k14_count = 3 AND stoch_d_14_3 > '-Infinity'::double precision "
+                "AND stoch_d_14_3 < 'Infinity'::double precision THEN stoch_d_14_3 END "
+                f"AS {_quote(f'{series}_stoch_d_14_3')}, "
+                "CASE WHEN valid_k5_count = 3 AND stoch_k_5 - stoch_d_5_3 "
+                "> '-Infinity'::double precision AND stoch_k_5 - stoch_d_5_3 "
+                "< 'Infinity'::double precision THEN stoch_k_5 - stoch_d_5_3 END "
+                f"AS {_quote(f'{series}_stoch_kd_spread_5')}, "
+                f"CASE WHEN stoch_k_5 IS NOT NULL AND stoch_k_5_lag_3 IS NOT NULL "
+                "THEN CASE WHEN (stoch_k_5 - stoch_k_5_lag_3) / 3.0 "
+                "> '-Infinity'::double precision AND "
+                "(stoch_k_5 - stoch_k_5_lag_3) / 3.0 < 'Infinity'::double precision "
+                "THEN (stoch_k_5 - stoch_k_5_lag_3) / 3.0 END END "
+                f"AS {_quote(f'{series}_stoch_k_slope_3')}, "
+                f"CASE WHEN prior_count_20 = 20 THEN high > prior_max_high_20 END "
+                f"AS {_quote(f'{series}_donchian_breakout_up')}, "
+                f"CASE WHEN prior_count_20 = 20 THEN low < prior_min_low_20 END "
+                f"AS {_quote(f'{series}_donchian_breakout_down')} FROM {stochastic_history})"
+            )
+            helper_joins.append(
+                f"LEFT JOIN {stochastic_features} AS stochastic_features "
+                "ON stochastic_features.timestamp_m1 = base.timestamp_m1"
+            )
+            helper_selects.extend(
+                f"stochastic_features.{_quote(f'{series}_{suffix}')} "
+                f"AS {_quote(f'{series}_{suffix}')}"
+                for suffix in (
+                    "stoch_k_5",
+                    "stoch_d_5_3",
+                    "stoch_k_14",
+                    "stoch_d_14_3",
+                    "stoch_kd_spread_5",
+                    "stoch_k_slope_3",
+                    "donchian_breakout_up",
+                    "donchian_breakout_down",
+                )
+            )
         if series in PRICE_FEATURE_SERIES:
             rsi5_valid = _quote(f"{series}_rsi5_observations")
             rsi5_history = _quote(f"{series}_rsi5_history")
@@ -1183,6 +1290,8 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_high_low_range_")
                 or column.startswith(f"{series}_intraday_return_")
                 or column.startswith(f"{series}_overnight_gap_")
+                or column.startswith(f"{series}_stoch_")
+                or column.startswith(f"{series}_donchian_")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
@@ -1459,6 +1568,11 @@ _FEATURES_VIEW_COLUMNS_EXPECTED = (
     "available_at_utc",
     *_FEATURES_VIEW_COLUMNS,
 )
+_FEATURES_VIEW_COLUMN_TYPES_EXPECTED = {
+    "timestamp_m1": "timestamp(6) with time zone",
+    "available_at_utc": "timestamp(6) with time zone",
+    **FEATURE_POSTGRES_TYPES,
+}
 _FEATURES_VIEW_DEFINITION_MARKERS = (
     "with vix_source as",
     "raw.timestamp_m1",
@@ -1577,6 +1691,8 @@ _MIGRATIONS = (
     # Preserve native OHLC fields without dropping or rewriting existing raw rows.
     _OHLC_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish PR-175's OHLC bar range, intraday return, and overnight gap features.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Publish OHLC stochastic oscillators and nullable Donchian breakout flags.
     _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
@@ -2251,9 +2367,7 @@ class PostgresGoldSyncRepository:
         for ordinal, column in enumerate(columns, start=1):
             if len(column) != 4 or column[0] != ordinal:
                 raise ValueError("PostgreSQL macro feature view column order differs")
-            expected_type = (
-                "timestamp(6) with time zone" if ordinal in {1, 2} else "double precision"
-            )
+            expected_type = _FEATURES_VIEW_COLUMN_TYPES_EXPECTED[str(actual_names[ordinal - 1])]
             if column[2] != expected_type:
                 raise ValueError("PostgreSQL macro feature view column type differs")
             if column[3] is not False:
