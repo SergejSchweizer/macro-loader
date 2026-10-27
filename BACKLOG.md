@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-189: Bootstrap Empty Series In The Full-Live Acceptance Runner
 
 PR name: `bootstrap-empty-series-in-live-acceptance`
-Status: In Progress
+Status: In Progress — PR open
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#189](https://github.com/SergejSchweizer/macro-loader/pull/189) (open)
 Git branch: `pr-189/bootstrap-empty-series-in-live-acceptance`
-Git status: active-dirty: acceptance runner planning fix
+Git status: pushed-local-checks-passed
 Agent lane: choose lifecycle-correct history operation per series
 Depends on: PR-188 (merged to `origin/main`)
-Commit: pending
+Commit: `91e62b1 fix(pr-189): bootstrap empty series in acceptance runs`
 Design patterns: Repository, Command Planning Policy.
 
 Description:
