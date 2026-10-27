@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-176: Add OHLC Stochastic And Donchian Features
 
 PR name: `add-stochastic-donchian-features`
-Status: In Progress
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#176](https://github.com/SergejSchweizer/macro-loader/pull/176) (open)
 Git branch: `pr-176/add-stochastic-donchian-features`
 Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL OHLC feature projection and independent mathematical/schema QA
 Depends on: PR-175 (merged to `origin/main`)
-Commit: `b51a282 feat(pr-176): add stochastic and donchian view features`
+Commit: `cbe5026 docs(pr-176): record pushed local gate status`
 Design patterns: Registry-driven Projection, Pure Transformation, Materialized View.
 
 Description:
