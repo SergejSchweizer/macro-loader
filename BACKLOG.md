@@ -55,14 +55,14 @@ Acceptance:
 ### PR-177: Add VSTOXX 1M/2M/3M Source Series
 
 PR name: `add-vstoxx-term-structure-series`
-Status: In Progress
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#177](https://github.com/SergejSchweizer/macro-loader/pull/177) (open)
 Git branch: `pr-177/add-vstoxx-term-structure-series`
-Git status: local-worktree
+Git status: pushed-local-checks-passed
 Agent lane: STOXX source adapter and provider-level QA
 Depends on: PR-176
-Commit: pending
+Commit: `aadf953 feat(pr-177): add vstoxx term structure sources`
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
@@ -237,7 +237,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 is merged and PR-177 is in progress; PR-178 through PR-181 are planned. No production migration or
+PR-176 is merged and PR-177 is open; PR-178 through PR-181 are planned. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
