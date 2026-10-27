@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
@@ -74,6 +75,14 @@ def test_only_one_gold_dataset_and_exact_postgres_identities() -> None:
     )
     assert "bronze" not in POSTGRES_DATASET_ID
     assert "silver" not in POSTGRES_DATASET_ID
+
+
+def test_ema_macd_postgres_parity_qa_does_not_use_retired_wide_raw_table() -> None:
+    integration_dir = Path(__file__).parents[1] / "integration"
+    for file_name in ("test_ema_feature_parity.py", "test_macd_feature_parity.py"):
+        source = (integration_dir / file_name).read_text(encoding="utf-8")
+        source = source.replace("to_regclass('macro_loader.macro_raw')", "")
+        assert re.search(r"macro_loader\.macro_raw(?![_a-zA-Z0-9])", source) is None
 
 
 def test_timestamp_contract_is_timestamptz_microseconds_utc() -> None:

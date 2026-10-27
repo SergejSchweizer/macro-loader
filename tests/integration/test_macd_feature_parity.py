@@ -17,6 +17,7 @@ from application.macro_feature_catalog import (
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
 )
+from application.postgres_sync import POSTGRES_RAW_TABLES
 from ingestion.postgres_gold_repository import PostgresAdminConfig, PostgresGoldSchemaMigrator
 
 _QA_PRICE_SERIES = (
@@ -115,9 +116,8 @@ def _view_schema(connection: psycopg.Connection[object]) -> tuple[tuple[str, str
 
 def _apply_pre_macd_migrations(dsn: str) -> tuple[str, ...]:
     migrations = postgres_module._MIGRATIONS
-    assert len(migrations) == _PRE_MACD_MIGRATION_COUNT + 1, (
-        "PR-173 must append migration 24 after the existing migration 23"
-    )
+    assert len(migrations) > _PRE_MACD_MIGRATION_COUNT
+    assert "macd_line_relative" in " ".join(migrations[_PRE_MACD_MIGRATION_COUNT])
     with psycopg.connect(dsn) as connection:
         connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
         for version, statements in enumerate(migrations[:_PRE_MACD_MIGRATION_COUNT], start=1):
@@ -131,19 +131,25 @@ def _apply_pre_macd_migrations(dsn: str) -> tuple[str, ...]:
         return tuple(row[0] for row in _view_schema(connection))
 
 
-def _expected_upgrade_columns(before: Sequence[str]) -> tuple[str, ...]:
-    """Freeze exact catalog order: each new per-series family follows its EMA family."""
-    additions_after = {
-        f"{series}_ema5_ema9_cross": tuple(f"{series}_{suffix}" for suffix in _QA_OUTPUT_SUFFIXES)
-        for series in _QA_PRICE_SERIES
+def _feature_raw_column_names(connection: psycopg.Connection[object]) -> set[str]:
+    raw_tables = {
+        row[0]
+        for row in connection.execute(
+            """SELECT table_name FROM information_schema.tables
+               WHERE table_schema = 'macro_loader' AND table_name = ANY(%s)""",
+            (list(POSTGRES_RAW_TABLES),),
+        ).fetchall()
     }
-    result: list[str] = []
-    for column in before:
-        result.append(column)
-        result.extend(additions_after.get(column, ()))
-    assert set(additions_after).issubset(before)
-    assert len(result) == len(set(result))
-    return tuple(result)
+    assert raw_tables == set(POSTGRES_RAW_TABLES)
+    assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (None,)
+    return {
+        row[0]
+        for row in connection.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = 'macro_loader' AND table_name = ANY(%s)",
+            (list(POSTGRES_RAW_TABLES),),
+        ).fetchall()
+    }
 
 
 def _ema_reference(
@@ -215,9 +221,10 @@ def _fixture_levels() -> list[float | None]:
 
 
 @pytest.mark.integration
-def test_postgres_macd_migration_23_to_24_has_exact_public_schema(
+def test_postgres_macd_migration_23_upgrade_has_exact_current_public_schema(
     postgres_context: tuple[str, PostgresGoldSchemaMigrator],
 ) -> None:
+    assert len(POSTGRES_RAW_TABLES) == 25
     dsn, migrator = postgres_context
     before = _apply_pre_macd_migrations(dsn)
 
@@ -227,7 +234,8 @@ def test_postgres_macd_migration_23_to_24_has_exact_public_schema(
         ).fetchone()[0]
     assert old_comment.startswith("macro feature view version=12; fingerprint=")
 
-    # Exercise the ordinary admin migration runner for migration 24.
+    # Exercise the ordinary admin migration runner from the pre-MACD baseline
+    # through the current schema, including all later feature-table migrations.
     migrator.migrate()
 
     with psycopg.connect(dsn) as connection:
@@ -238,18 +246,11 @@ def test_postgres_macd_migration_23_to_24_has_exact_public_schema(
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()[0]
-        raw_columns = tuple(
-            row[0]
-            for row in connection.execute(
-                "SELECT attname FROM pg_attribute "
-                "WHERE attrelid = 'macro_loader.macro_raw'::regclass "
-                "AND attnum > 0 AND NOT attisdropped ORDER BY attnum"
-            ).fetchall()
-        )
+        raw_columns = _feature_raw_column_names(connection)
 
     names = tuple(column for column, _type, _not_null in schema)
-    expected_names = _expected_upgrade_columns(before)
-    assert names == expected_names
+    assert not set(_QA_OUTPUT_COLUMNS) & set(before)
+    assert tuple(name for name in names if name in set(_QA_OUTPUT_COLUMNS)) == _QA_OUTPUT_COLUMNS
     assert len(_QA_OUTPUT_COLUMNS) == 36 and len(set(_QA_OUTPUT_COLUMNS)) == 36
     assert all(names.count(column) == 1 for column in _QA_OUTPUT_COLUMNS)
     schema_by_name = {name: (postgres_type, not_null) for name, postgres_type, not_null in schema}
@@ -263,10 +264,10 @@ def test_postgres_macd_migration_23_to_24_has_exact_public_schema(
         name.endswith(("_ema12", "_ema26", "_ema9_signal", "_macd_line", "_macd_signal"))
         for name in names
     )
-    assert ledger == [(version,) for version in range(1, 25)]
-    assert MACRO_FEATURE_VIEW_VERSION == 13
+    assert ledger == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
     assert comment == (
-        f"macro feature view version=13; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}"
+        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}"
     )
 
 
@@ -278,30 +279,27 @@ def test_clean_postgres_macd_view_matches_independent_reference_for_all_series(
     migrator.migrate()
     levels = _fixture_levels()
     expected = _macd_reference(levels)
-    raw_level_columns = tuple(f"{series}_level" for series in _QA_PRICE_SERIES)
-    insert_columns = ("timestamp_m1", *raw_level_columns)
-    quoted_columns = ", ".join(f'"{column}"' for column in insert_columns)
-    placeholders = ", ".join("%s" for _ in insert_columns)
-    insert_sql = f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})"
+    ohlc_series = {"vix", "vix9d", "vix3m", "vix6m", "vix1y", "move"}
+    timestamps = [
+        datetime(2020, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(len(levels))
+    ]
 
     with psycopg.connect(dsn) as connection:
-        for index, level in enumerate(levels):
-            timestamp = datetime(2020, 1, 1, tzinfo=UTC) + timedelta(days=index)
-            connection.execute(insert_sql, (timestamp, *(level for _ in _QA_PRICE_SERIES)))
+        with connection.cursor() as cursor:
+            for series in _QA_PRICE_SERIES:
+                value_column = "close" if series in ohlc_series else "indexvalue"
+                relation = f'macro_loader."macro_raw_{series}"'
+                cursor.executemany(
+                    f'INSERT INTO {relation} ("timestamp_m1", "{value_column}") VALUES (%s, %s)',
+                    zip(timestamps, levels, strict=True),
+                )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         selected_columns = ", ".join(f'"{column}"' for column in _QA_OUTPUT_COLUMNS)
         rows = connection.execute(
             f"SELECT {selected_columns} FROM macro_loader.macro_features ORDER BY timestamp_m1"
         ).fetchall()
         view_names = tuple(column for column, _type, _not_null in _view_schema(connection))
-        raw_names = tuple(
-            row[0]
-            for row in connection.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw' "
-                "ORDER BY ordinal_position"
-            ).fetchall()
-        )
+        raw_names = _feature_raw_column_names(connection)
 
     assert len(rows) == len(levels)
     assert tuple(name for name in view_names if name in _QA_OUTPUT_COLUMNS) == _QA_OUTPUT_COLUMNS

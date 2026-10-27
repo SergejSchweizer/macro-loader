@@ -9,17 +9,51 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-183: Update PostgreSQL EMA/MACD Parity QA For Feature Tables
+
+PR name: `update-feature-table-parity-qa`
+Status: In Progress
+Updated: 2026-10-27
+PR: [#183](https://github.com/SergejSchweizer/macro-loader/pull/183) (open)
+Git branch: `pr-183/update-feature-table-parity-qa`
+Git status: pushed-local-checks-passed
+Agent lane: PostgreSQL serving transformation parity QA after raw-table cutover
+Depends on: PR-182 (merged to `origin/main`)
+Commit: `0fc34e7 test(pr-183): update ema macd parity for feature tables`
+Design patterns: Independent Reference, Migration/Schema Contract Testing.
+
+Description:
+- R1: Update the EMA PostgreSQL migration and parity tests to operate on the current
+  feature-specific raw tables, cover all current eligible price series, and validate the
+  latest view contract after the historical migration-22 upgrade and clean-create paths.
+- R2: Update the MACD PostgreSQL migration and parity tests to operate on the current
+  feature-specific raw tables, cover all current eligible price series, and validate the
+  latest view contract after the historical migration-23 upgrade and clean-create paths.
+- R3: Remove current-schema QA reads/writes against retired wide `macro_raw` while
+  retaining wide-table fixtures only where a test intentionally constructs a pre-cutover
+  migration baseline.
+
+Acceptance:
+- A1 verifies R1: independent EMA reference outputs, reset/crossover/causality cases,
+  current table layout, current view version/fingerprint, and migration upgrade/replay pass
+  against a disposable PostgreSQL database.
+- A2 verifies R2: independent MACD reference outputs across all eligible series, no helper
+  leakage, current table layout, and migration upgrade/replay pass against disposable
+  PostgreSQL.
+- A3 verifies R3 by source-level assertions/review and local `make quality-gate`; no
+  production database, cron job, or GitHub Actions workflow is used.
+
 ### PR-182: Provision PostgreSQL Access For Feature-Specific Raw Tables
 
 PR name: `provision-feature-specific-postgres-grants`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#182](https://github.com/SergejSchweizer/macro-loader/pull/182) (merged)
 Git branch: `pr-182/provision-feature-specific-postgres-grants`
-Git status: active-dirty: PostgreSQL role provisioning, tests, and operator documentation
+Git status: merged
 Agent lane: PostgreSQL least-privilege role provisioning after raw-table cutover
 Depends on: PR-181 (merged to `origin/main`)
-Commit: pending
+Commit: `4a428cb fix(pr-182): grant roles on feature raw tables` (GitHub squash merge)
 Design patterns: Registry-driven Configuration, Least-Privilege Policy.
 
 Description:
@@ -283,7 +317,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-181 are merged; PR-182 is in progress. No production migration or
+PR-176 through PR-182 are merged; PR-183 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
