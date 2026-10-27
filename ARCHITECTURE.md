@@ -9,7 +9,12 @@ This document is the durable engineering contract for `macro-loader`.
 The repository includes causal feature transformations and native OHLC values in the
 PostgreSQL serving-view contract. Retired Fed-policy runtime and serving code does not
 establish production database or installed host-crontab state.
-No production migration or host-crontab change has been performed as part of this work.
+Production PostgreSQL migration 33 was applied on 2026-10-27: all 25
+`macro_raw_<feature>` tables and both materialized views now exist, and the old wide
+`macro_raw` and orphaned Fed serving table are gone. The migration backfilled 16,794
+legacy view rows through 2026-10-12; canonical Gold is newer, and its sync is pending
+because PostgreSQL's stored semantic state is schema 7 / feature 6 while Gold is schema
+11 / feature 6. The host crontab has not been changed or accepted.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
@@ -45,6 +50,10 @@ Migration 33 also repairs historical ledger/object drift for retired Fed storage
 replays the idempotent archive-and-drop prefix after feature-table publication, preserving
 any orphaned `fed_policy_features_daily` rows in `macro_loader_retired` before removing
 the stale active table and enforcing the owned-table contract.
+PostgreSQL Gold synchronization may coalesce consecutive Gold schema versions 7 through
+11 only while feature version 6 remains unchanged. It treats the jump as a schema upgrade
+and reconciles canonical rows and digests in one transaction; feature-version changes,
+backwards transitions, and versions outside that range remain fail-closed.
 
 Gold keeps `timestamp_m1`, all registered `<series>_level` fields in registry order,
 then registry-derived native OHLC fields in series-major order with `open`, `high`,
