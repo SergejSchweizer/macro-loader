@@ -35,7 +35,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 14
+MACRO_FEATURE_VIEW_VERSION = 15
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -59,6 +59,12 @@ PRICE_FEATURE_FAMILIES: tuple[str, ...] = (
     "price_zscore",
     "return_autocorrelation",
 )
+OHLC_BAR_FEATURE_FAMILIES: tuple[str, ...] = (
+    "high_low_range",
+    "intraday_return",
+    "overnight_gap",
+)
+OHLC_BAR_WINDOWS: tuple[int, ...] = (1, 5)
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in PRICE_FEATURE_SERIES)
 
 
@@ -94,6 +100,25 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 f"source {field} passthrough from native OHLC observation",
             )
             for field in OHLC_FIELDS
+        )
+    for series in OHLC_SERIES:
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_{family}_{window}obs",
+                family,
+                series,
+                formula,
+            )
+            for family, formula in (
+                ("high_low_range", "mean((high-low)/close) over valid OHLC metrics"),
+                ("intraday_return", "mean((close-open)/open) over valid OHLC metrics"),
+                (
+                    "overnight_gap",
+                    "mean((open[t]-most recent prior finite close)/"
+                    "most recent prior finite close) over valid open-close pairs",
+                ),
+            )
+            for window in OHLC_BAR_WINDOWS
         )
     for series in VOLATILITY_SERIES:
         specs.extend(
@@ -330,6 +355,17 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
     expected_ohlc = tuple(f"{series}_{field}" for series in OHLC_SERIES for field in OHLC_FIELDS)
     if tuple(spec.name for spec in catalog if spec.family == "raw_ohlc") != expected_ohlc:
         raise ValueError("macro feature catalog raw-OHLC order/coverage mismatch")
+    for family in OHLC_BAR_FEATURE_FAMILIES:
+        family_specs = tuple(spec for spec in catalog if spec.family == family)
+        expected = tuple(
+            f"{series}_{family}_{window}obs"
+            for series in OHLC_SERIES
+            for window in OHLC_BAR_WINDOWS
+        )
+        if tuple(spec.name for spec in family_specs) != expected:
+            raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
+        if {spec.series for spec in family_specs} != set(OHLC_SERIES):
+            raise ValueError(f"macro feature catalog {family} series mismatch")
     for family in PRICE_FEATURE_FAMILIES:
         family_series = {spec.series for spec in catalog if spec.family == family}
         if family_series != set(PRICE_FEATURE_SERIES):

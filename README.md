@@ -10,12 +10,12 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-PR-173 status (2026-10-26): The relative MACD features are merged as GitHub PR #173,
-following PR-172's EMA-level features and PR-171's level-only composite/statistical
-features. PR-170's scalar-level return/trend windows, PR-169's bounded daily-pipeline core
-budget, and PR-168's Fed-policy retirement are also merged. The active PR-174 branch carries
-the native OHLC inputs through Gold and PostgreSQL; that change is pending merge to main.
-No production database migration or cron run is implied.
+PR-174 status (2026-10-26): Native OHLC inputs are merged to `origin/main` as GitHub PR
+#174, following PR-173's relative MACD features, PR-172's EMA-level features, and PR-171's
+level-only composite/statistical features. PR-170's scalar-level return/trend windows,
+PR-169's bounded daily-pipeline core budget, and PR-168's Fed-policy retirement are also
+merged. PR-175 adds OHLC bar range, intraday return, and overnight-gap features to the
+serving-view contract. No production database migration or cron run is implied.
 This does not assert the production database or
 installed host-crontab state; no production migration or host-crontab change has been
 performed as part of this work. This operator guide does not provide Fed-specific command
@@ -36,7 +36,20 @@ registry order, then native OHLC fields in OHLC-series registry order and field 
 `move_close`). These values pass through to nullable PostgreSQL `DOUBLE PRECISION`
 columns in `macro_raw` and the closed-world `macro_features` view; scalar series have no
 OHLC columns. `available_at_utc` remains generated in `macro_raw` and exposed by the
-view. No OHLC-derived indicators are part of this raw-input change.
+view.
+
+For the six OHLC series only, `macro_features` also provides `*_high_low_range_1obs` and
+`*_high_low_range_5obs` as `(high-low)/close`, `*_intraday_return_1obs` and
+`*_intraday_return_5obs` as `(close-open)/open`, and `*_overnight_gap_1obs` and
+`*_overnight_gap_5obs` as `(open[t]-close[previous valid source observation]) /
+close[previous valid source observation]`. These are decimal fractions (for example,
+`0.05` means 5%), not percent-scaled values. The 1-observation variants are the current
+valid metric; each 5-observation variant is the arithmetic mean of five trailing valid
+metrics and remains NULL until that complete window exists. Each overnight gap pairs a
+finite current open with the most recent preceding finite close in that series' observation
+history; the current bar's close is not an operand. This follows source-observation order
+across sparse calendar dates. Missing/non-finite operands or nonpositive denominators yield
+NULL; no values are carried or fabricated.
 
 Before implementing a backlog PR, coding agents must read `AGENTS.md`, `BACKLOG.md`, and `ARCHITECTURE.md`.
 
