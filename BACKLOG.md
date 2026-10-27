@@ -9,6 +9,37 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-182: Provision PostgreSQL Access For Feature-Specific Raw Tables
+
+PR name: `provision-feature-specific-postgres-grants`
+Status: In Progress
+Updated: 2026-10-27
+PR: not created; implementation active
+Git branch: `pr-182/provision-feature-specific-postgres-grants`
+Git status: active-dirty: PostgreSQL role provisioning, tests, and operator documentation
+Agent lane: PostgreSQL least-privilege role provisioning after raw-table cutover
+Depends on: PR-181 (merged to `origin/main`)
+Commit: pending
+Design patterns: Registry-driven Configuration, Least-Privilege Policy.
+
+Description:
+- R1: Generate table ownership and grants from the authoritative
+  `POSTGRES_RAW_TABLES` registry: `macro-loader` receives SELECT only, while
+  `macro-loader-sync` receives the DML required for transactional Gold sync. Retain
+  the existing sync-support-table grants and the separate `macro_features` view grant.
+- R2: Remove the retired wide `macro_loader.macro_raw` relation from the provisioner's
+  current ownership/grant contract; do not create, grant, or require it.
+- R3: Document the runtime-reader, sync-writer, and owner role boundaries against the
+  25 feature-specific tables.
+
+Acceptance:
+- A1 verifies R1/R2: unit tests prove all 25 registered feature tables are owned and
+  granted correctly, no wide `macro_raw` table is configured, and unrelated privileges
+  remain least-privilege.
+- A2 verifies R1: disposable PostgreSQL QA proves reader SELECT-only and sync DML access
+  for every feature table, plus the existing sync support/view permissions.
+- A3 verifies R3 and local `make quality-gate`; no production role or database is changed.
+
 ### PR-176: Add OHLC Stochastic And Donchian Features
 
 PR name: `add-stochastic-donchian-features`
@@ -200,14 +231,14 @@ Acceptance:
 ### PR-181: Cut Over To Per-Feature PostgreSQL Raw Tables
 
 PR name: `publish-feature-specific-raw-tables`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#181](https://github.com/SergejSchweizer/macro-loader/pull/181) (merged)
 Git branch: `pr-181/publish-feature-specific-raw-tables`
-Git status: in-progress (local branch created from merged `origin/main`)
+Git status: merged
 Agent lane: PostgreSQL raw-table projection, migration, backfill, and schema QA
 Depends on: PR-180
-Commit: pending
+Commit: `7780cb3 feat(pr-181): split postgres raw data by feature` (GitHub squash merge)
 Design patterns: Registry-driven Projection, Repository, Unit of Work, Versioned Migration.
 
 Description:
@@ -252,7 +283,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-180 are merged; PR-181 is in progress. No production migration or
+PR-176 through PR-181 are merged; PR-182 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.

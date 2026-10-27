@@ -8,6 +8,8 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from application.postgres_sync import POSTGRES_RAW_TABLES
+
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
 POSTGRES_ROLE = "macro-loader"
@@ -15,7 +17,7 @@ POSTGRES_SYNC_ROLE = "macro-loader-sync"
 POSTGRES_OWNER_ROLE = "macro-loader-owner"
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
-    ("macro_loader", "macro_raw"),
+    *(("macro_loader", table) for table in POSTGRES_RAW_TABLES),
     ("macro_loader_sync", "gold_sync_state"),
     ("macro_loader_sync", "gold_row_hashes"),
     ("macro_loader_sync", "schema_migrations"),

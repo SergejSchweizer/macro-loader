@@ -179,8 +179,8 @@ Prefer `typing.Protocol`, immutable dataclasses/Pydantic models, and composition
 
 `gold-sync-postgres` is a runtime DML command executed with the dedicated `macro-loader-sync`
 writer role. Before acquiring its locked row-mutation transaction, it performs a read-only
-schema-contract preflight against the administered
-PR-54 tables, columns, and keys. Missing or incompatible schema fails closed; runtime
+schema-contract preflight against the administered feature-specific raw tables, sync
+tables, columns, and keys. Missing or incompatible schema fails closed; runtime
 sync never creates, alters, drops, grants, or migrates PostgreSQL objects.
 
 `postgres-migrate` is the separate explicit admin command that applies idempotent schema

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from application.postgres_sync import POSTGRES_RAW_TABLES
 from scripts.provision_postgres_role import (
     POSTGRES_HOST,
     POSTGRES_OWNER_ROLE,
@@ -49,6 +50,10 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     ):
         assert token in sql
     assert POSTGRES_SCHEMAS == ("macro_loader", "macro_loader_sync")
+    raw_tables = tuple(table for schema, table in POSTGRES_TABLES if schema == "macro_loader")
+    assert raw_tables == POSTGRES_RAW_TABLES
+    assert len(raw_tables) == 25
+    assert "macro_raw" not in raw_tables
     assert all(table != "fed_policy_features_daily" for _, table in POSTGRES_TABLES)
     assert all(schema != "macro_loader_retired" for schema, _ in POSTGRES_TABLES)
     assert (
@@ -65,6 +70,13 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
         assert (
             f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "{schema}"."{table}" '
             f'TO "{POSTGRES_SYNC_ROLE}"' in sql
+        )
+    for table in POSTGRES_RAW_TABLES:
+        assert f"to_regclass('macro_loader.{table}') IS NOT NULL" in sql
+        assert f'GRANT SELECT ON TABLE "macro_loader"."{table}" TO "macro-loader";' in sql
+        assert (
+            f'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "macro_loader"."{table}" '
+            f'TO "{POSTGRES_SYNC_ROLE}";' in sql
         )
     assert 'GRANT SELECT ON TABLE "macro_loader_sync"."schema_migrations" TO "macro-loader"' in sql
     assert "GRANT ALL" not in sql
