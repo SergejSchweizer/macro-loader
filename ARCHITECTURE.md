@@ -9,12 +9,12 @@ This document is the durable engineering contract for `macro-loader`.
 The repository includes causal feature transformations and native OHLC values in the
 PostgreSQL serving-view contract. Retired Fed-policy runtime and serving code does not
 establish production database or installed host-crontab state.
-Production PostgreSQL migration 33 was applied on 2026-10-27: all 25
-`macro_raw_<feature>` tables and both materialized views now exist, and the old wide
-`macro_raw` and orphaned Fed serving table are gone. The migration backfilled 16,794
-legacy view rows through 2026-10-12; canonical Gold is newer, and its sync is pending
-because PostgreSQL's stored semantic state is schema 7 / feature 6 while Gold is schema
-11 / feature 6. The host crontab has not been changed or accepted.
+Production PostgreSQL migration 33 and canonical Gold synchronization completed on
+2026-10-27. All 25 `macro_raw_<feature>` tables and both materialized views are populated;
+the old wide `macro_raw` and orphaned Fed serving table are absent. Both public views reach
+`timestamp_m1=2026-10-27`, with availability through 2026-10-28. The sync checkpoint is
+schema 11 / feature 6 with 16,805 consumer and digest rows. The daily cron contract is
+09:00 `Europe/Vienna` with a 60-calendar-day bounded source overlap.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
@@ -32,7 +32,7 @@ Migration 32 leaves `macro_loader.macro_features` and its public query contract
 untouched. It adds a private materialized raw-key projection and private materialized
 transformations for the 12 additional positive-level series, then adds
 `macro_loader.macro_features_extended`, a separately versioned materialized view for
-their 792 catalogued transformation outputs. This keeps the existing 953-column,
+their 792 catalogued transformation outputs. This keeps the existing 954-column,
 version-16 public contract stable and avoids PostgreSQL's 1,600-column per-relation limit;
 the extended view has 794 columns including `timestamp_m1` and `available_at_utc`. The
 private relations are not granted to consumer roles. Both public views expose the same
@@ -503,7 +503,7 @@ This distinction is deliberate: the project guarantees **logical/persistence del
 
 `run-daily` and normal `update` must **never automatically choose `reconcile`** based on elapsed time, state age, or any hidden policy. If periodic reconciliation is desired, it is scheduled as a separate explicit command.
 
-The sole Sunday `run-daily -> gold-sync-postgres` chain is scheduled at `0 10 * * 0` using the explicit `Europe/Vienna` IANA timezone. It retains 10:00 local wall-clock execution across daylight-saving changes; reconciliation remains a separately scheduled explicit operator command.
+The daily `run-daily -> gold-sync-postgres` chain is scheduled at `0 9 * * *` using the explicit `Europe/Vienna` IANA timezone. It retains 09:00 local wall-clock execution across daylight-saving changes and uses a 60-calendar-day update overlap to cover at least 30 normal weekday EOD observations. Source reconciliation remains a separate explicit operator command.
 
 Reconciliation still obeys the rule that source omission is not deletion. Explicit deletion handling requires a separate source-mutation contract.
 
@@ -970,7 +970,7 @@ Required classes include:
 
 Feature numerics are single-sourced in the versioned PostgreSQL `macro_features`
 materialized view. Python retains only source-series policy metadata and canonical
-column naming. The authorized full-history and Sunday-wrapper acceptance runners
+column naming. The authorized full-history and Daily-wrapper acceptance runners
 execute the documented commands in order and emit sanitized reports under
 `artifacts/acceptance/`; neither runner is part of the normal cron path.
 

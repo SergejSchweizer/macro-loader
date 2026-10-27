@@ -9,17 +9,53 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-195: Run Daily 09:00 PostgreSQL Delta Sync With 30-Observation Coverage
+
+PR name: `daily-09-cron-30obs`
+Status: In progress — local implementation and live acceptance pending
+Updated: 2026-10-27
+Git branch: `pr-195/daily-09-cron-30obs`
+Git status: in-progress
+Agent lane: align installed daily ingestion and PostgreSQL synchronization with GOALS.md
+Depends on: PR-194 (merged to `origin/main`)
+Commit: `chore(pr-195): run daily PostgreSQL sync at 09:00`
+Design patterns: Command, bounded delta policy, acceptance verifier.
+
+Description:
+- R1: Replace the weekly Sunday schedule with one daily 09:00 `Europe/Vienna` job and
+  use a bounded 60-calendar-day source overlap so daily series cover at least 30 recent
+  weekday EOD observations without invoking full-history reconciliation.
+- R2: Rename the runner to reflect daily execution and retain logging, locking,
+  configuration validation, core parallelism, and Gold-before-PostgreSQL ordering.
+- R3: Make cron acceptance distinguish successful wrapper exits from a true no-op sync;
+  require zero inserted/updated/deleted rows on explicit replay and independent
+  `postgres-verify`.
+- R4: Install the daily schedule only after local tests, live window checks, and
+  acceptance pass; update operator and architecture docs with observed deployment state.
+
+Acceptance:
+- A1 verifies exactly one cron entry at `0 9 * * *` under `CRON_TZ=Europe/Vienna` and
+  the daily wrapper invokes `run-daily` with `--overlap-days 60` before Gold sync.
+- A2 verifies wrapper locking, runtime config validation, `--cores` forwarding, failure
+  stop behavior, and that GitHub Actions remain absent/unused.
+- A3 proves the acceptance report only passes after both daily wrapper runs, a parsed
+  zero-change PostgreSQL replay, and independent conformance verification pass.
+- A4 locally passes the targeted tests and `make quality-gate`; production read-only QA
+  confirms 25 populated raw tables each have at least 30 observations in the latest
+  60-calendar-day window, both views are current, and the installed schedule is daily.
+  No GitHub Actions.
+
 ### PR-194: Reconcile Gold Across Consecutive Schema-Only Versions
 
 PR name: `allow-schema-version-sync-jumps`
-Status: Open — production sync pending
+Status: Merged — production Gold sync and independent verification complete
 Updated: 2026-10-27
-PR: [#194](https://github.com/SergejSchweizer/macro-loader/pull/194)
+PR: [#194](https://github.com/SergejSchweizer/macro-loader/pull/194) (merged)
 Git branch: `pr-194/allow-schema-version-sync-jumps`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: reconcile the current canonical Gold build into the newly cut-over serving tables
 Depends on: PR-193 (merged to `origin/main`)
-Commit: `2c0d353 fix(pr-194): coalesce schema-only sync upgrades`
+Commit: `9a4f28c fix(pr-194): coalesce schema-only Gold sync upgrades` (squash merge)
 Design patterns: Explicit Compatibility Policy, Unit of Work.
 
 Description:
@@ -28,7 +64,7 @@ Description:
   and out-of-range versions fail-closed.
 - R2: Treat these supported jumps as a schema upgrade so canonical source rows and
   digests are reconciled transactionally without resetting PostgreSQL sync state.
-- R3: Document the compatibility rule and the observed production cutover/sync status.
+- R3: Document the compatibility rule and production cutover/sync status.
 
 Acceptance:
 - A1 verifies 7/6→11/6 and supported intermediate schema-only jumps are accepted and
@@ -39,14 +75,15 @@ Acceptance:
   failure.
 - A3 passes local `make quality-gate`; PostgreSQL disposable integration tests pass when
   configured. No GitHub Actions.
-- A4 requires production `gold-sync-postgres`, independent `postgres-verify`, zero-change
-  replay, and read-only checks that every registered raw table has canonical data and both
-  views reach the current Gold timestamp before cron acceptance proceeds.
+- A4 passed 2026-10-27: production sync advanced state from schema 7 / feature 6 to
+  schema 11 / feature 6; the consumer and digest index both contain 16,804 rows at the
+  time of this PR. The independent verifier and zero-change replay passed, and all 25
+  raw tables were populated before PR-195 widened the scheduled overlap.
 
 ### PR-193: Archive Orphaned Retired Fed Table Before Schema Conformance
 
 PR name: `archive-orphaned-retired-fed-table`
-Status: Merged — production schema/view cutover complete; Gold sync pending
+Status: Merged — production schema/view cutover and canonical Gold sync complete
 Updated: 2026-10-27
 PR: [#193](https://github.com/SergejSchweizer/macro-loader/pull/193) (merged)
 Git branch: `pr-193/archive-orphaned-retired-fed-table`
@@ -75,9 +112,8 @@ Acceptance:
 - A3 passes `make quality-gate` and the targeted disposable PostgreSQL upgrade locally;
   no GitHub Actions.
 - A4 passed 2026-10-27: production migration 33 is applied; all 25 raw feature tables
-  exist; the wide and orphaned retired tables are absent; both views pass migration-time
-  schema conformance and contain 16,794 rows through 2026-10-12. Gold sync/replay/cron
-  acceptance remains pending under PR-194 and later QA.
+  exist; the wide and orphaned retired tables are absent. PR-194 subsequently synced
+  canonical Gold and independently verified both views.
 
 ### PR-192: Defer Expensive View Rebuilds Until Feature-Table Cutover
 
@@ -272,8 +308,8 @@ Description:
   `vstoxx3m`, `ciss_money`, `ciss_bonds`, `ciss_equity`, `ciss_financials`,
   `euro_hy_yield`, `euro_hy_ytw`, `euro_hy_total_return`, `us_3m`, and `us_5y`. Keep
   signed `estr` excluded from positive-level transforms and retain all 25 raw tables.
-- R2: Preserve the existing 953-column `macro_features` contract. The full catalog would
-  contain 1,745 columns and exceed PostgreSQL's per-relation limit, so publish the new
+- R2: Preserve the existing 954-column `macro_features` contract. The full catalog would
+  contain 1,746 columns and exceed PostgreSQL's per-relation limit, so publish the new
   series' 792 applicable catalog outputs in `macro_features_extended`, keyed by the same
   `timestamp_m1` and carrying the same `available_at_utc`. Do not remove existing feature
   families to evade the limit.

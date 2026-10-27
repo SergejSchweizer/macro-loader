@@ -311,7 +311,7 @@ def test_reconstruction_writes_only_pass_report_to_required_acceptance_path(
                     "publication",
                     "verification",
                     "replay",
-                    "sunday_wrapper",
+                    "daily_wrapper",
                 ),
             )
 

@@ -1,8 +1,8 @@
 # Install with: crontab ops/macro-loader.cron
-# Sunday 10:00 follows Europe/Vienna wall-clock time, including DST changes.
+# Daily 09:00 follows Europe/Vienna wall-clock time, including DST changes.
 # The runner owns configuration export, logging, daily execution, and PostgreSQL sync.
 
 CRON_TZ=Europe/Vienna
 
-# Sunday at 10:00: publish local Gold, then synchronize PostgreSQL on success.
-0 10 * * 0 /home/dev_macro/macro-loader/ops/run-macro-loader-sunday.sh
+# Daily delta refresh at 09:00: publish local Gold, then synchronize PostgreSQL.
+0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh

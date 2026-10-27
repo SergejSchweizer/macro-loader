@@ -61,8 +61,8 @@ class OperationsStub:
         self._call("replay")
         return self.replay
 
-    def verify_sunday_wrapper(self) -> None:
-        self._call("sunday_wrapper")
+    def verify_daily_wrapper(self) -> None:
+        self._call("daily_wrapper")
 
     def enable_scheduling(self) -> None:
         self._call("enable")
@@ -86,13 +86,13 @@ def test_reconstruction_runs_exactly_all_stages_and_reenables_only_after_pass() 
         "publication",
         "verification",
         "replay",
-        "sunday_wrapper",
+        "daily_wrapper",
         "enable",
     ]
     assert report.as_json() == (
         '{"completed_stages": ["maintenance", "locks", "endpoint", "backup", "reconcile", '
         '"silver", "gold", "schema", "publication", "verification", "replay", '
-        '"sunday_wrapper"], "failed_stage": null, "status": "PASS"}'
+        '"daily_wrapper"], "failed_stage": null, "status": "PASS"}'
     )
 
 
@@ -139,7 +139,7 @@ def test_reconstruction_rejects_mutating_replay() -> None:
     report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
 
     assert report.failed_stage == "replay"
-    assert "sunday_wrapper" not in operations.calls
+    assert "daily_wrapper" not in operations.calls
     assert "enable" not in operations.calls
 
 
