@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-188: Skip Empty Official STOXX Values During Full-History Reconciliation
 
 PR name: `skip-empty-stoxx-source-values`
-Status: In Progress
+Status: In Progress — PR open
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#188](https://github.com/SergejSchweizer/macro-loader/pull/188) (open)
 Git branch: `pr-188/skip-empty-stoxx-source-values`
-Git status: active-dirty: source-missing-value fix and live reconciliation retry
+Git status: pushed-local-checks-passed
 Agent lane: ingest documented missing STOXX values without fabricating observations
 Depends on: PR-187 (merged to `origin/main`)
-Commit: pending
+Commit: `c9bbd2a fix(pr-188): omit blank STOXX source values`
 Design patterns: Adapter, Source Contract Test.
 
 Description:
