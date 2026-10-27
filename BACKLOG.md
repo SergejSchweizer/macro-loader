@@ -63,14 +63,14 @@ Acceptance:
 ### PR-185: Bound PostgreSQL Feature-View Refresh Compilation And Restore Migration QA
 
 PR name: `bound-postgres-feature-view-refresh`
-Status: In Progress
+Status: In Progress — PR open
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#185](https://github.com/SergejSchweizer/macro-loader/pull/185) (open)
 Git branch: `pr-185/bound-postgres-feature-view-refresh`
-Git status: active-dirty: PostgreSQL session policy, migration fixture, performance QA, docs
+Git status: pushed-local-checks-passed
 Agent lane: bounded PostgreSQL materialized-view execution and end-to-end migration regression
 Depends on: PR-184 (merged to `origin/main`)
-Commit: pending
+Commit: `47ae3fd fix(pr-185): disable JIT for PostgreSQL feature refreshes`
 Design patterns: Adapter Configuration, Bounded Execution Policy, Independent Reference.
 
 Description:
