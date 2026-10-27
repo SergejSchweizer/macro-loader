@@ -2,9 +2,10 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PR-192 is merged to `origin/main` as GitHub PR #192;
-the production feature-table cutover remains pending. PR-193,
-`pr-193/archive-orphaned-retired-fed-table`, is the active implementation branch. Per
+Current delivery status (2026-10-27): PR-193 is merged to `origin/main` as GitHub PR #193.
+Production migration 33 has created the 25 feature tables and both views; Gold sync is
+pending because the durable state is schema 7 / feature 6 while canonical Gold is schema
+11 / feature 6. PR-194, `pr-194/allow-schema-version-sync-jumps`, is the active branch. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

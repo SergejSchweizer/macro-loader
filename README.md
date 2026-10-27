@@ -11,13 +11,14 @@ The project is intentionally a **data product**, not a trading system. It does n
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
 The repository includes native OHLC inputs and OHLC-derived transformations in the
-PostgreSQL serving-view contract. No production database migration or cron run is implied.
-This does not assert the production database or
-installed host-crontab state; no production migration or host-crontab change has been
-performed as part of this work. This operator guide does not provide Fed-specific command
-or scheduling instructions. Historical Fed acceptance artifacts and backlog entries are
-retained for audit. The independent FRED provider remains active for its registered macro
-series.
+PostgreSQL serving-view contract. Production migration 33 was applied on 2026-10-27:
+the 25 `macro_raw_<feature>` tables and both materialized views exist, the wide `macro_raw`
+and orphaned retired Fed table are absent, and both views currently contain the 16,794
+legacy rows through 2026-10-12. The current Gold build is newer, but its PostgreSQL sync
+is pending schema-state reconciliation. The host crontab has not been changed or accepted.
+This operator guide does not provide Fed-specific command or scheduling instructions.
+Historical Fed acceptance artifacts and backlog entries are retained for audit. The
+independent FRED provider remains active for its registered macro series.
 
 The current Gold semantic contract is schema version **11** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
@@ -544,7 +545,12 @@ value does not alter the canonical Gold payload or row digests.
 
 The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 
-A semantic `schema_version` or `feature_version` mismatch fails closed; it never triggers a hidden full rewrite. PostgreSQL delete semantics affect only the rebuildable serving replica and do not alter Bronze, Silver, immutable Gold, or source-history retention rules.
+A `feature_version` mismatch, backwards schema transition, or schema transition outside
+the supported contract fails closed. Consecutive Gold schema versions 7 through 11 may be
+coalesced only while feature version 6 remains unchanged; the accumulated delta then
+reconciles canonical rows and digests atomically without resetting PostgreSQL sync state.
+PostgreSQL delete semantics affect only the rebuildable serving replica and do not alter
+Bronze, Silver, immutable Gold, or source-history retention rules.
 
 ## Operational CLI
 

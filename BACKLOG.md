@@ -9,17 +9,51 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-194: Reconcile Gold Across Consecutive Schema-Only Versions
+
+PR name: `allow-schema-version-sync-jumps`
+Status: Open — production sync pending
+Updated: 2026-10-27
+PR: [#194](https://github.com/SergejSchweizer/macro-loader/pull/194)
+Git branch: `pr-194/allow-schema-version-sync-jumps`
+Git status: pushed-local-checks-passed
+Agent lane: reconcile the current canonical Gold build into the newly cut-over serving tables
+Depends on: PR-193 (merged to `origin/main`)
+Commit: `2c0d353 fix(pr-194): coalesce schema-only sync upgrades`
+Design patterns: Explicit Compatibility Policy, Unit of Work.
+
+Description:
+- R1: Allow an accumulated sync to advance across skipped schema-only versions 7 through
+  11 when feature version 6 is unchanged; keep feature-version changes, backwards moves,
+  and out-of-range versions fail-closed.
+- R2: Treat these supported jumps as a schema upgrade so canonical source rows and
+  digests are reconciled transactionally without resetting PostgreSQL sync state.
+- R3: Document the compatibility rule and the observed production cutover/sync status.
+
+Acceptance:
+- A1 verifies 7/6→11/6 and supported intermediate schema-only jumps are accepted and
+  planned as schema upgrades; feature-version changes, backwards versions, and versions
+  outside the schema-7-to-11 interval are rejected before any repository mutation.
+- A2 verifies an existing target with stale row digests reconciles all current Gold rows,
+  advances its checkpoint only after successful atomic apply, and remains retryable after
+  failure.
+- A3 passes local `make quality-gate`; PostgreSQL disposable integration tests pass when
+  configured. No GitHub Actions.
+- A4 requires production `gold-sync-postgres`, independent `postgres-verify`, zero-change
+  replay, and read-only checks that every registered raw table has canonical data and both
+  views reach the current Gold timestamp before cron acceptance proceeds.
+
 ### PR-193: Archive Orphaned Retired Fed Table Before Schema Conformance
 
 PR name: `archive-orphaned-retired-fed-table`
-Status: Open — production cutover pending
+Status: Merged — production schema/view cutover complete; Gold sync pending
 Updated: 2026-10-27
-PR: [#193](https://github.com/SergejSchweizer/macro-loader/pull/193)
+PR: [#193](https://github.com/SergejSchweizer/macro-loader/pull/193) (merged)
 Git branch: `pr-193/archive-orphaned-retired-fed-table`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: repair the production migration ledger/object drift without discarding retired data
 Depends on: PR-192 (merged to `origin/main`)
-Commit: `c59c7e5 fix(pr-193): archive orphaned retired fed table`
+Commit: `521c843 fix(pr-193): archive orphaned retired fed table` (squash merge)
 Design patterns: Versioned Migration, Idempotent Archive.
 
 Description:
@@ -40,9 +74,10 @@ Acceptance:
   rebuild in the cleanup migration.
 - A3 passes `make quality-gate` and the targeted disposable PostgreSQL upgrade locally;
   no GitHub Actions.
-- A4 requires the authorized production migration and read-only confirmation of 25 raw
-  feature tables, no wide or retired active table, and both conforming views. Production
-  data sync/replay/cron acceptance remains pending until this migration succeeds.
+- A4 passed 2026-10-27: production migration 33 is applied; all 25 raw feature tables
+  exist; the wide and orphaned retired tables are absent; both views pass migration-time
+  schema conformance and contain 16,794 rows through 2026-10-12. Gold sync/replay/cron
+  acceptance remains pending under PR-194 and later QA.
 
 ### PR-192: Defer Expensive View Rebuilds Until Feature-Table Cutover
 

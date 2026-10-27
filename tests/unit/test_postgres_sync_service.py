@@ -140,6 +140,71 @@ def test_gold_schema_10_to_11_sync_state_is_an_allowed_full_row_upgrade() -> Non
     assert GoldPostgresDeltaSync._is_schema_upgrade(prior, desired)
 
 
+def test_gold_schema_7_to_11_sync_state_is_an_allowed_accumulated_upgrade() -> None:
+    frame = _frame((0, 1))
+    prior = _state(frame, schema_version=7, feature_version=6)
+    desired = _state(frame, schema_version=11, feature_version=6)
+
+    GoldPostgresDeltaSync._require_state_compatible(prior, desired)
+
+    assert GoldPostgresDeltaSync._is_schema_upgrade(prior, desired)
+
+
+@pytest.mark.parametrize(
+    ("prior_schema", "prior_feature", "desired_schema", "desired_feature"),
+    [
+        (11, 6, 7, 6),  # backward transition
+        (7, 5, 11, 6),  # feature-version change
+        (7, 6, 12, 6),  # unsupported future schema
+        (6, 6, 11, 6),  # outside the schema-only upgrade interval
+    ],
+)
+def test_gold_schema_jump_rejects_unsupported_semantic_paths(
+    prior_schema: int,
+    prior_feature: int,
+    desired_schema: int,
+    desired_feature: int,
+) -> None:
+    frame = _frame((0, 1))
+    prior = _state(frame, schema_version=prior_schema, feature_version=prior_feature)
+    desired = _state(frame, schema_version=desired_schema, feature_version=desired_feature)
+
+    with pytest.raises(GoldSyncCompatibilityError, match="semantic versions"):
+        GoldPostgresDeltaSync._require_state_compatible(prior, desired)
+    assert not GoldPostgresDeltaSync._is_schema_upgrade(prior, desired)
+
+
+def test_schema_only_version_jump_reconciles_stale_rows_and_retries_atomically() -> None:
+    frame = _frame((0, 1))
+    _, current_digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
+    stale_digests = tuple(
+        GoldRowDigest(digest.timestamp_m1, "c" * 64) for digest in current_digests
+    )
+    prior_state = _state(frame, schema_version=7, feature_version=6, data_sha256="a" * 64)
+    repository = FakeRepository(
+        state=prior_state,
+        digests=stale_digests,
+        consumer_digests=stale_digests,
+        fail_apply=True,
+    )
+    service, _ = _service(frame, repository, sha256="b" * 64)
+
+    with pytest.raises(RuntimeError, match="verification failed"):
+        service.sync()
+    assert repository.state == prior_state
+    assert repository.digests == stale_digests
+
+    repository.fail_apply = False
+    result = service.sync()
+
+    assert (result.inserted, result.updated, result.deleted, result.unchanged) == (0, 2, 0, 0)
+    plan, committed_state = repository.applied[0]
+    assert len(plan.updates) == 2
+    assert committed_state.schema_version == 11
+    assert committed_state.feature_version == 6
+    assert repository.digests == current_digests
+
+
 class FakeCatalog:
     def __init__(self, record: GoldCatalogRecord) -> None:
         self.record = record

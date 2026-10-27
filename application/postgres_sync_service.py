@@ -10,7 +10,7 @@ from typing import Protocol
 import polars as pl
 
 from application.gold_catalog import GoldCatalogRecord
-from application.gold_frame import GOLD_COLUMNS
+from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.postgres_delta import plan_gold_delta
 from application.postgres_sync import (
     POSTGRES_DATASET_ID,
@@ -212,33 +212,7 @@ class GoldPostgresDeltaSync:
             and desired.feature_version == 6
         ):
             return
-        if (
-            prior.schema_version == 7
-            and desired.schema_version == 8
-            and prior.feature_version == 6
-            and desired.feature_version == 6
-        ):
-            return
-        if (
-            prior.schema_version == 8
-            and desired.schema_version == 9
-            and prior.feature_version == 6
-            and desired.feature_version == 6
-        ):
-            return
-        if (
-            prior.schema_version == 9
-            and desired.schema_version == 10
-            and prior.feature_version == 6
-            and desired.feature_version == 6
-        ):
-            return
-        if (
-            prior.schema_version == 10
-            and desired.schema_version == 11
-            and prior.feature_version == 6
-            and desired.feature_version == 6
-        ):
+        if GoldPostgresDeltaSync._is_schema_only_upgrade(prior, desired):
             return
         if (
             prior.schema_version != desired.schema_version
@@ -292,30 +266,15 @@ class GoldPostgresDeltaSync:
                 and desired.schema_version == 7
                 and desired.feature_version == 6
             )
-            or (
-                prior.schema_version == 7
-                and prior.feature_version == 6
-                and desired.schema_version == 8
-                and desired.feature_version == 6
-            )
-            or (
-                prior.schema_version == 8
-                and prior.feature_version == 6
-                and desired.schema_version == 9
-                and desired.feature_version == 6
-            )
-            or (
-                prior.schema_version == 9
-                and prior.feature_version == 6
-                and desired.schema_version == 10
-                and desired.feature_version == 6
-            )
-            or (
-                prior.schema_version == 10
-                and prior.feature_version == 6
-                and desired.schema_version == 11
-                and desired.feature_version == 6
-            )
+            or GoldPostgresDeltaSync._is_schema_only_upgrade(prior, desired)
+        )
+
+    @staticmethod
+    def _is_schema_only_upgrade(prior: GoldSyncState, desired: GoldSyncState) -> bool:
+        """Allow accumulated upgrades only across schema versions with unchanged features."""
+        return (
+            prior.feature_version == desired.feature_version == GOLD_FEATURE_VERSION
+            and 7 <= prior.schema_version < desired.schema_version <= GOLD_SCHEMA_VERSION
         )
 
     @staticmethod
