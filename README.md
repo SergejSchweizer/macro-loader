@@ -19,7 +19,7 @@ or scheduling instructions. Historical Fed acceptance artifacts and backlog entr
 retained for audit. The independent FRED provider remains active for its registered macro
 series.
 
-The current Gold semantic contract is schema version **8** and feature version **6**;
+The current Gold semantic contract is schema version **9** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
 `application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL synchronization populates
 `macro_raw`, and the `macro_features` materialized view is refreshed from it,
@@ -119,6 +119,10 @@ Prefer `typing.Protocol`, immutable contracts, pure transformations, and constru
 | `vstoxx3m` | STOXX (`V6I3`) | 3-month Euro-area equity implied volatility |
 | `move` | Yahoo Finance | US Treasury implied volatility |
 | `ciss` | ECB | euro-area systemic stress |
+| `ciss_money` | ECB (`SS_MMN.CON`) | New-CISS money-market component contribution |
+| `ciss_bonds` | ECB (`SS_BMN.CON`) | New-CISS bond-market component contribution |
+| `ciss_equity` | ECB (`SS_EMN.CON`) | New-CISS equity-market component contribution |
+| `ciss_financials` | ECB (`SS_FIN.CON`) | New-CISS financial-intermediaries component contribution |
 | `estr` | ECB | euro short-term rate |
 | `euro_hy_oas` | FRED | euro high-yield credit spread |
 | `us_2y` | FRED | US 2-year Treasury yield |
@@ -141,6 +145,19 @@ The files exposed history from 1999-01-04 through 2026-10-26 when checked on 202
 the newest exposed date changes as STOXX publishes data. These are full-file sources:
 bootstrap keeps all exposed observations, while an update persists only its requested
 logical date range.
+
+### ECB New-CISS component contributions
+
+`ciss_money`, `ciss_bonds`, `ciss_equity`, and `ciss_financials` are daily Euro-area
+contributions from the ECB New-CISS money, bond, equity, and financial-intermediary
+subindices. Their exact ECB source keys are `CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON`,
+`CISS.D.U2.Z0Z.4F.EC.SS_BMN.CON`, `CISS.D.U2.Z0Z.4F.EC.SS_EMN.CON`, and
+`CISS.D.U2.Z0Z.4F.EC.SS_FIN.CON`. The provider's `TIME_PERIOD` and `OBS_VALUE` fields
+become canonical `observation_date` and Float64 `value`; the value unit is a pure-number
+dimensionless contribution, not an independent component index. The ECB catalog exposes
+history from 1999-01-01 through its latest published observation. Sparse dates and source
+missing-value markers remain absent from the stored observations; nothing is carried or
+synthesized. Normal updates send exact `startPeriod`/`endPeriod` bounds to the ECB API.
 
 ## Source Update Policy
 
@@ -245,7 +262,7 @@ Feature semantics are fixed and causal:
 - `delta_Nobs(t) = x(t) - x(previous Nth valid observation)`;
 - every source level includes a causal `delta_1obs`; existing 5- and 20-observation deltas remain available according to the feature family;
 - 60-observation z-scores use the last 60 valid observations including `t` and population standard deviation (`ddof=0`);
-- each of the 16 source series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
+- each of the 13 eligible volatility and macro series includes positive momentum autocorrelation at `(lag, window)` pairs `(1, 60)`, `(5, 60)`, and `(20, 120)`;
 - momentum autocorrelation is computed on one-observation source-unit changes, clips negative correlations to zero, and remains null until its full causal window is available;
 - each eligible source level includes XETRA-compatible log returns over 1, 2, 3, 4, 5, 8, 10, and 20 observations; cumulative geometric returns over 4, 5, 8, 10, 16, and 20 observations; average one-observation log returns over 5, 10, and 20 observations; and sample log-return volatility over 5, 8, 10, 20, 32, 40, and 96 observations. Geometric-return columns retain the `_pct` suffix but store decimal fractions (`0.05` means 5%);
 - eligible source levels also include SMA ratios `(5,15)`, `(5,20)`, `(10,20)`, `(10,40)`; Wilder RSI over 3, 5, 7, and 14 observations; ROC over 1, 2, 3, 4, 5, 8, 10, and 20 observations; and rolling drawdown over 20, 32, 60, and 96 observations. These are complete-window, observation-based calculations; RSI uses Wilder recurrence, with fully flat gain/loss windows as `NULL` and all-gain/all-loss windows as 100/0;

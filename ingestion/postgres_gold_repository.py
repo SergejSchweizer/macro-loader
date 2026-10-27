@@ -392,18 +392,36 @@ _AVAILABLE_AT_COLUMN_DDL = (
     f"{_quote('available_at_utc')} TIMESTAMPTZ(6) "
     f"GENERATED ALWAYS AS ({_AVAILABLE_AT_EXPRESSION}) STORED NOT NULL"
 )
+_ADDED_LEVEL_COLUMNS = tuple(
+    f"{series}_level"
+    for series in (
+        "vstoxx1m",
+        "vstoxx2m",
+        "vstoxx3m",
+        "ciss_money",
+        "ciss_bonds",
+        "ciss_equity",
+        "ciss_financials",
+    )
+)
 _LEVEL_COLUMN_DEFS = ",\n    ".join(
-    f"{_quote(column)} DOUBLE PRECISION NULL" for column in POSTGRES_LEVEL_COLUMNS
+    f"{_quote(column)} DOUBLE PRECISION NULL"
+    for column in POSTGRES_LEVEL_COLUMNS
+    if column not in _ADDED_LEVEL_COLUMNS
 )
 _OHLC_COLUMN_DEFS = ",\n    ".join(
     f"{_quote(column)} DOUBLE PRECISION NULL" for column in POSTGRES_OHLC_COLUMNS
+)
+_ADDED_LEVEL_COLUMN_DEFS = ",\n    ".join(
+    f"{_quote(column)} DOUBLE PRECISION NULL" for column in _ADDED_LEVEL_COLUMNS
 )
 
 _CONSUMER_DDL = f"""CREATE TABLE IF NOT EXISTS {_CONSUMER} (
     {_quote("timestamp_m1")} TIMESTAMPTZ(6) NOT NULL PRIMARY KEY,
     {_LEVEL_COLUMN_DEFS},
     {_AVAILABLE_AT_COLUMN_DDL},
-    {_OHLC_COLUMN_DEFS}
+    {_OHLC_COLUMN_DEFS},
+    {_ADDED_LEVEL_COLUMN_DEFS}
 )"""
 _SYNC_STATE_DDL = f"""CREATE TABLE IF NOT EXISTS {_SYNC_STATE} (
     dataset_id TEXT PRIMARY KEY,
@@ -436,6 +454,13 @@ _OHLC_COLUMN_MIGRATION = (
     + ", ".join(
         f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
         for column in POSTGRES_OHLC_COLUMNS
+    ),
+)
+_ADDED_LEVEL_COLUMN_MIGRATION = (
+    f"ALTER TABLE {_CONSUMER} "
+    + ", ".join(
+        f"ADD COLUMN IF NOT EXISTS {_quote(column)} DOUBLE PRECISION NULL"
+        for column in _ADDED_LEVEL_COLUMNS
     ),
 )
 _OWNERSHIP_MIGRATIONS = tuple(
@@ -1608,11 +1633,16 @@ _SCHEMA_SPECIFICATION = (
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
             for column in POSTGRES_LEVEL_COLUMNS
+            if column not in _ADDED_LEVEL_COLUMNS
         )
         + (PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),)
         + tuple(
             PostgresColumnSpecification(column, "double precision", None, True)
             for column in POSTGRES_OHLC_COLUMNS
+        )
+        + tuple(
+            PostgresColumnSpecification(column, "double precision", None, True)
+            for column in _ADDED_LEVEL_COLUMNS
         ),
         ("timestamp_m1",),
     ),
@@ -1694,6 +1724,8 @@ _MIGRATIONS = (
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Publish OHLC stochastic oscillators and nullable Donchian breakout flags.
     _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Add newly registered STOXX term-structure and CISS contribution source columns.
+    _ADDED_LEVEL_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

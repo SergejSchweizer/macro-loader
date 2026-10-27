@@ -147,11 +147,17 @@ def _expected_gold_columns() -> tuple[str, ...]:
 
 
 def _expected_raw_table_columns() -> tuple[str, ...]:
+    added_level_columns = postgres_module._ADDED_LEVEL_COLUMNS
     return (
         "timestamp_m1",
-        *(f"{series_id}_level" for series_id in SERIES_REGISTRY),
+        *(
+            f"{series_id}_level"
+            for series_id in SERIES_REGISTRY
+            if f"{series_id}_level" not in added_level_columns
+        ),
         "available_at_utc",
         *_OHLC_COLUMNS,
+        *added_level_columns,
     )
 
 
@@ -332,7 +338,7 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     assert not set(all_new).intersection(_expected_gold_columns())
 
 
-@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_27"))
+@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_28"))
 def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
@@ -341,14 +347,14 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     migration_mode: str,
 ) -> None:
     expected_migrations = len(postgres_module._MIGRATIONS)
-    assert GOLD_SCHEMA_VERSION == 8
+    assert GOLD_SCHEMA_VERSION == 9
     assert MACRO_FEATURE_VIEW_VERSION == 16
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
     assert _expected_gold_columns() == POSTGRES_RAW_COLUMNS
     assert _OHLC_SERIES == ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
     assert len(_OHLC_COLUMNS) == 24
 
-    if migration_mode == "upgrade_25_to_27":
+    if migration_mode == "upgrade_25_to_28":
         with psycopg.connect(postgres_dsn) as connection:
             legacy_timestamp, legacy_fingerprint, legacy_feature_columns = _seed_v25_baseline(
                 connection, monkeypatch
@@ -371,9 +377,14 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             )
             assert raw_names_before == (
                 "timestamp_m1",
-                *(f"{series_id}_level" for series_id in SERIES_REGISTRY),
+                *(
+                    f"{series_id}_level"
+                    for series_id in SERIES_REGISTRY
+                    if f"{series_id}_level" not in postgres_module._ADDED_LEVEL_COLUMNS
+                ),
                 "available_at_utc",
                 *_OHLC_COLUMNS,
+                *postgres_module._ADDED_LEVEL_COLUMNS,
             )
             assert view_names_before == (
                 "timestamp_m1",
@@ -393,17 +404,12 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
         assert ledger == [(version,) for version in range(1, expected_migrations + 1)]
         assert raw_names == _expected_raw_table_columns()
         assert raw_rows[0][1:] == ("timestamp(6) with time zone", True)
-        assert all(
-            row[1] == "double precision" and row[2] is False
-            for row in raw_rows[1 : len(SERIES_REGISTRY) + 1]
-        )
-        availability = raw_rows[len(SERIES_REGISTRY) + 1]
-        assert availability == (
-            "available_at_utc",
-            "timestamp(6) with time zone",
-            True,
-        )
-        assert all(row[1] == "double precision" and row[2] is False for row in raw_rows[-24:])
+        raw_schema = {str(row[0]): row[1:] for row in raw_rows}
+        for series_id in SERIES_REGISTRY:
+            assert raw_schema[f"{series_id}_level"] == ("double precision", False)
+        assert raw_schema["available_at_utc"] == ("timestamp(6) with time zone", True)
+        for column in _OHLC_COLUMNS:
+            assert raw_schema[column] == ("double precision", False)
         _assert_view_contract(connection)
         view_comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
@@ -412,7 +418,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             f"macro feature view version=16; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
         )
 
-        if migration_mode == "upgrade_25_to_27":
+        if migration_mode == "upgrade_25_to_28":
             legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
             expected_available = datetime(2026, 1, 5, tzinfo=UTC)
             preserved_raw = connection.execute(
@@ -454,7 +460,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             dataset_id=POSTGRES_DATASET_ID,
             source_build_id="ohlc-reference-build",
             data_sha256="a" * 64,
-            schema_version=8,
+            schema_version=9,
             feature_version=6,
             row_count=1,
             min_timestamp=timestamp,
@@ -513,7 +519,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
                 dataset_id=POSTGRES_DATASET_ID,
                 source_build_id="ohlc-reference-revision",
                 data_sha256="b" * 64,
-                schema_version=8,
+                schema_version=9,
                 feature_version=6,
                 row_count=1,
                 min_timestamp=timestamp,

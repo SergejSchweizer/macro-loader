@@ -110,6 +110,16 @@ def test_gold_schema_7_to_8_sync_state_is_an_allowed_full_row_upgrade() -> None:
     assert GoldPostgresDeltaSync._is_schema_upgrade(prior, desired)
 
 
+def test_gold_schema_8_to_9_sync_state_is_an_allowed_full_row_upgrade() -> None:
+    frame = _frame((0, 1))
+    prior = _state(frame, schema_version=8, feature_version=6)
+    desired = _state(frame, schema_version=9, feature_version=6)
+
+    GoldPostgresDeltaSync._require_state_compatible(prior, desired)
+
+    assert GoldPostgresDeltaSync._is_schema_upgrade(prior, desired)
+
+
 class FakeCatalog:
     def __init__(self, record: GoldCatalogRecord) -> None:
         self.record = record
@@ -368,7 +378,7 @@ def test_missed_runs_and_historical_revision_are_caught_up() -> None:
 def test_incompatible_or_inconsistent_target_fails_closed_before_write() -> None:
     frame = _frame((0, 1))
     _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
-    incompatible = FakeRepository(state=_state(frame, schema_version=9), digests=digests)
+    incompatible = FakeRepository(state=_state(frame, schema_version=10), digests=digests)
     service, source = _service(frame, incompatible)
     with pytest.raises(GoldSyncCompatibilityError, match="semantic versions"):
         service.sync()

@@ -46,6 +46,50 @@ def test_both_registered_series_map_exact_delta_bounds_and_scalar_schema() -> No
         assert frame.columns[-1] == "value"
 
 
+@pytest.mark.parametrize(
+    ("series_id", "source_key"),
+    (
+        ("ciss_money", "D.U2.Z0Z.4F.EC.SS_MMN.CON"),
+        ("ciss_bonds", "D.U2.Z0Z.4F.EC.SS_BMN.CON"),
+        ("ciss_equity", "D.U2.Z0Z.4F.EC.SS_EMN.CON"),
+        ("ciss_financials", "D.U2.Z0Z.4F.EC.SS_FIN.CON"),
+    ),
+)
+def test_ciss_component_routing_preserves_contribution_observations(
+    series_id: str, source_key: str
+) -> None:
+    content = b"TIME_PERIOD,OBS_VALUE\n2026-08-11,0.0123\n2026-08-13,.\n2026-08-19,0.0456\n"
+    transport = FakeTransport(HttpResponse(200, content, {}))
+    provider = EcbProvider(transport, clock=lambda: NOW)
+
+    frame = provider.fetch(series_contract(series_id), update_request())
+
+    sent, context = transport.calls[0]
+    assert sent.url.endswith(f"/CISS/{source_key}")
+    assert sent.params["startPeriod"] == START.isoformat()
+    assert sent.params["endPeriod"] == END.isoformat()
+    assert context.provider.value == "ecb"
+    assert context.series_id == series_id
+    assert context.source_id == f"CISS.{source_key}"
+    assert frame.get_column("series_id").unique().item() == series_id
+    assert frame.get_column("source_id").unique().item() == f"CISS.{source_key}"
+    assert frame.get_column("observation_date").to_list() == [START, END]
+    assert frame.get_column("value").to_list() == [0.0123, 0.0456]
+    assert frame.get_column("fetched_at_utc").unique().item() == NOW
+    assert frame.get_column("source_url").unique().item() == sent.url
+
+
+def test_ciss_component_bootstrap_retains_full_exposed_history_and_missing_dates() -> None:
+    content = b"TIME_PERIOD,OBS_VALUE\n1999-01-01,0.01\n1999-01-02,.\n1999-01-04,0.02\n"
+    provider = EcbProvider(FakeTransport(HttpResponse(200, content, {})), clock=lambda: NOW)
+    request = ProviderRequest("bootstrap", None, END, True)
+
+    frame = provider.fetch(series_contract("ciss_money"), request)
+
+    assert frame.get_column("observation_date").to_list() == [date(1999, 1, 1), date(1999, 1, 4)]
+    assert frame.get_column("value").to_list() == [0.01, 0.02]
+
+
 def test_bootstrap_and_reconcile_omit_start_and_keep_end_bound() -> None:
     for request in (
         ProviderRequest("bootstrap", None, END, True),

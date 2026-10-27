@@ -452,7 +452,7 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     expected_raw_ohlc = POSTGRES_RAW_COLUMNS[-24:]
 
     assert names.index("available_at_utc") < names.index("vix_open")
-    assert names[-24:] == expected_raw_ohlc
+    assert tuple(name for name in names if name in expected_raw_ohlc) == expected_raw_ohlc
     assert all(
         f'"{column}" DOUBLE PRECISION NULL' in module._CONSUMER_DDL for column in expected_raw_ohlc
     )
@@ -468,8 +468,11 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    final_migration = "\n".join(module._MIGRATIONS[25])
-    assert "ADD COLUMN IF NOT EXISTS" not in final_migration
+    final_migration = "\n".join(module._MIGRATIONS[-1])
+    assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in final_migration
+    assert (
+        'ADD COLUMN IF NOT EXISTS "ciss_financials_level" DOUBLE PRECISION NULL' in final_migration
+    )
     assert "version=16" in final_migration
 
 
