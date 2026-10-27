@@ -63,14 +63,14 @@ Acceptance:
 ### PR-185: Bound PostgreSQL Feature-View Refresh Compilation And Restore Migration QA
 
 PR name: `bound-postgres-feature-view-refresh`
-Status: In Progress — PR open
+Status: Merged
 Updated: 2026-10-27
-PR: [#185](https://github.com/SergejSchweizer/macro-loader/pull/185) (open)
+PR: [#185](https://github.com/SergejSchweizer/macro-loader/pull/185) (merged)
 Git branch: `pr-185/bound-postgres-feature-view-refresh`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: bounded PostgreSQL materialized-view execution and end-to-end migration regression
 Depends on: PR-184 (merged to `origin/main`)
-Commit: `47ae3fd fix(pr-185): disable JIT for PostgreSQL feature refreshes`
+Commit: `36f2e6d fix(pr-185): bound PostgreSQL feature-view refresh` (GitHub squash merge)
 Design patterns: Adapter Configuration, Bounded Execution Policy, Independent Reference.
 
 Description:
@@ -95,6 +95,35 @@ Acceptance:
 - A3 verifies R3: core-view relation identity and both ordered catalogs/fingerprints stay
   unchanged; README/ARCHITECTURE document the bounded execution setting; local
   `make quality-gate` passes. No production DB, cron, GitHub Actions, or remote gate.
+
+### PR-186: Use The Managed Refresh Path In Availability Integration QA
+
+PR name: `use-explicit-postgres-refresh-in-availability-qa`
+Status: In Progress — PR open
+Updated: 2026-10-27
+PR: [#186](https://github.com/SergejSchweizer/macro-loader/pull/186) (open)
+Git branch: `pr-186/use-explicit-postgres-refresh-in-availability-qa`
+Git status: pushed-local-checks-passed
+Agent lane: validate generated availability through the published PostgreSQL refresh boundary
+Depends on: PR-185 (merged to `origin/main`)
+Commit: `7dc9fa1 test(pr-186): use managed refresh in availability QA`
+Design patterns: Command Boundary, Integration Contract Test.
+
+Description:
+- R1: Update the generated `available_at_utc` PostgreSQL integration test to invoke
+  `macro_loader.refresh_macro_features_explicit()` instead of directly refreshing only
+  the core materialized view. This exercises the supported dependency-ordered refresh,
+  including the companion view and its JIT execution setting.
+- R2: Preserve assertions for weekday/weekend observation timestamps, raw-table generated
+  availability, and the matching `macro_features` availability values. No production
+  data, cron, or GitHub Actions.
+
+Acceptance:
+- A1 verifies R1/R2: the disposable PostgreSQL availability test passes using the
+  explicit refresh function and checks all five weekday/weekend cases in raw and public
+  view values.
+- A2 verifies the local `make quality-gate`; no production database, cron, GitHub Actions,
+  or remote quality gate is used.
 
 ### PR-183: Update PostgreSQL EMA/MACD Parity QA For Feature Tables
 
@@ -404,7 +433,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-184 are merged; PR-185 is in progress. No production migration or
+PR-176 through PR-185 are merged; PR-186 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
