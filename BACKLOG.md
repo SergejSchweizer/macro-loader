@@ -89,14 +89,14 @@ Acceptance:
 ### PR-178: Add Daily ECB CISS Component Series
 
 PR name: `add-ecb-ciss-components`
-Status: In Progress
+Status: Ready
 Updated: 2026-10-27
-PR: not created
+PR: [#178](https://github.com/SergejSchweizer/macro-loader/pull/178) (open)
 Git branch: `pr-178/add-ecb-ciss-components`
-Git status: local-worktree
+Git status: pushed-local-checks-passed
 Agent lane: ECB series registration and independent provider QA
 Depends on: PR-177
-Commit: pending
+Commit: `836a51d feat(pr-178): add daily ecb ciss component series`
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
