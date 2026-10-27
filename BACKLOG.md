@@ -1,6 +1,7 @@
 # Backlog
 
-This backlog is the implementation source of truth for `macro-loader`.
+This backlog records the active GOALS.md implementation sequence, durable repository
+contracts, and compact historical context for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
@@ -8,419 +9,237 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
-### PR-175: Add OHLC Bar Range, Intraday Return, And Overnight Gap Features
+### PR-176: Add OHLC Stochastic And Donchian Features
 
-PR name: `add-ohlc-bar-features`
-Status: In Progress
+PR name: `add-stochastic-donchian-features`
+Status: Ready
 Updated: 2026-10-27
-PR: #175
-Git branch: `pr-175/add-ohlc-bar-features`
+PR: [#176](https://github.com/SergejSchweizer/macro-loader/pull/176) (open)
+Git branch: `pr-176/add-stochastic-donchian-features`
 Git status: pushed-local-checks-passed
-Agent lane: OHLC SQL/catalog implementation and independent mathematical/PostgreSQL QA; two agents
-Depends on: PR-174
-Commit: `9bfa5b6` (feature implementation and QA), `b3138b2` (commit metadata)
+Agent lane: PostgreSQL OHLC feature projection and independent mathematical/schema QA
+Depends on: PR-175 (merged to `origin/main`)
+Commit: `b51a282 feat(pr-176): add stochastic and donchian view features`
 Design patterns: Registry-driven Projection, Pure Transformation, Materialized View.
 
 Description:
-- R1: Add six outputs for every registry-derived native OHLC series: `high_low_range_1obs`,
-  `high_low_range_5obs`, `intraday_return_1obs`, `intraday_return_5obs`,
-  `overnight_gap_1obs`, and `overnight_gap_5obs`. Prefix each output with its canonical
-  series ID. The current eligible set is `vix`, `vix9d`, `vix3m`, `vix6m`, `vix1y`, and
-  `move`; scalar series receive none.
-- R2: Define range as `(high-low)/close` when close is positive; intraday return as
-  `(close-open)/open` when open is positive; and overnight gap as
-  `(open[t]-close[previous valid source observation])/close[previous valid source
-  observation]` when the previous close is positive. Values are decimal fractions, not
-  percent-scaled numbers. A valid input metric requires its OHLC operands to be present
-  and finite. A missing/invalid operand or nonpositive denominator yields NULL.
-- R3: For the 1-observation feature, expose the current valid metric. For each 5-observation
-  feature, compute the arithmetic mean over the trailing five valid metric observations;
-  for overnight gap, pair each finite current open with the most recent preceding finite
-  close in that series' observation history (the current bar's close is not an operand).
-  Require a complete five-value window and a valid current metric; otherwise return NULL.
-  Never fill or fabricate observations, and preserve timestamp causality.
-- R4: Add the fields only to the closed-world PostgreSQL `macro_features` view. Update the
-  ordered feature catalog, SQL projection, fingerprint, and view version to 15; append
-  migration 26. Do not alter `macro_raw`, canonical Gold, ingestion, or existing features.
-- R5: Correct the stale PR-174 status in this backlog and README/ARCHITECTURE: PR-174 is
-  merged to `origin/main`; document this PR's OHLC-derived formulas, decimal units,
-  complete-window/null rules, and exact eligible series without implying a production
-  migration or cron run.
+- R1: Add the six stochastic columns and two Donchian columns for each registered
+  native-OHLC source (`vix`, `vix9d`, `vix3m`, `vix6m`, `vix1y`, `move`) to the
+  ordered, closed-world `macro_features` projection. Do not add helper/intermediate
+  fields or put derived values in `macro_raw` or canonical Gold.
+- R2: Compute stochastic `%K` over complete finite source bars at windows 5 and 14;
+  compute `%D` as a three-observation mean; expose the `%K5 - %D5` spread and the
+  three-observation `%K5` slope. Null incomplete/invalid/zero-range results. Donchian
+  compares the current high/low strictly against the prior 20 valid source bars,
+  excluding the current bar, and is NULL until that complete prior window exists.
+- R3: Preserve observation-based causality across sparse dates, nullable BOOLEAN types
+  for Donchian, deterministic feature order, and the PostgreSQL migration/version/hash
+  contract.
+- R4: Add independent hand-calculable QA and PostgreSQL clean-create/upgrade parity
+  tests; do not write to production PostgreSQL, run cron, or invoke GitHub Actions.
+- R5: Document formulas, source-observation windows, null/warm-up behavior, and the
+  serving-only scope in README and ARCHITECTURE.
 
 Acceptance:
-- A1 (verifies R1/R4): Exactly 36 new nullable `DOUBLE PRECISION` columns exist once in
-  deterministic catalog order: six named suffixes for each of the six `OHLC_SERIES`.
-  No OHLC-derived columns appear for scalar series, `macro_raw`, or canonical Gold.
-- A2 (verifies R2/R3): Independent hand-computable reference fixtures prove all three
-  formulas, decimal rather than percent scale, positive denominator rules, missing and
-  non-finite input handling, valid-source-observation alignment, complete 5-value warm-up,
-  averaging over the latest five valid metrics, overnight gap pairing across sparse
-  calendar dates and a current bar with a missing close, and truncation/causality invariance.
-- A3 (verifies R4): Unit/catalog and disposable PostgreSQL parity tests cover every OHLC
-  series and verify exact ordered columns/types, clean-create, migration 25-to-26, view
-  version 15/fingerprint, formula outputs, and unchanged raw/Gold schemas.
-- A4 (verifies R5): Backlog, README, and ARCHITECTURE state PR-174's merged status and
-  accurately describe the new contract; local `make quality-gate` passes. No production
-  DB writes, cron execution, GitHub Actions, or remote quality gates.
+- A1 verifies R1: exactly eight columns per OHLC series, in catalog order, with no
+  outputs for scalar series and no helper fields in any public relation.
+- A2 verifies R2: reference fixtures cover each formula, zero-range and invalid bars,
+  complete-window warm-up, comparison strictness, and NULL propagation.
+- A3 verifies R3: sparse-date and truncation/causality tests pass; PostgreSQL schema
+  checks verify ordered names/types, view contract version/fingerprint, and migration
+  replay on a disposable database.
+- A4 verifies R4/R5: PostgreSQL integration QA is run when `POSTGRES_TEST_DSN` is
+  available; local `make quality-gate` passes; docs match implementation. No production
+  database writes, cron execution, GitHub Actions, or remote quality gates.
 
-### PR-173: Add Relative MACD Trend Features
+### PR-177: Add VSTOXX 1M/2M/3M Source Series
 
-PR name: `add-relative-macd-features`
-Status: Merged
-Updated: 2026-10-26
-PR: #173
-Git branch: `pr-173/add-relative-macd-features`
-Git status: merged
-Agent lane: PostgreSQL MACD implementation and independent mathematical/schema QA; two agents
-Depends on: PR-172
-Commit: `17cbae3` (PR #173 squash merge; head `9f00814`)
-Design patterns: Pure Transformation, Materialized View.
+PR name: `add-vstoxx-term-structure-series`
+Status: Planned
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-177/add-vstoxx-term-structure-series`
+Git status: not-started (branch absent)
+Agent lane: STOXX source adapter and provider-level QA
+Depends on: PR-176
+Commit: pending
+Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
-- R1: Add the three GOALS MACD outputs for each positive-level `PRICE_FEATURE_SERIES`:
-  `macd_line_relative`, `macd_hist_relative`, and `macd_hist_delta_3`, prefixed by
-  source-series ID. `estr` remains ineligible.
-- R2: Compute private EMA-12 and EMA-26 from positive source levels with alpha
-  `2/(period+1)`, arithmetic-mean seeds, and resets on missing/nonpositive source rows.
-  Define MACD line as `EMA12-EMA26`. Compute the private EMA-9 signal from consecutive
-  non-null MACD-line values with the same alpha/seed recurrence, accepting signed and
-  zero values; a NULL line resets the signal seed. Do not expose any intermediate.
-- R3: Define `macd_line_relative = (EMA12-EMA26)/level`,
-  `macd_hist_relative = (MACD line - EMA9 signal)/level`, and
-  `macd_hist_delta_3 = hist[t]-hist[t-3 source rows]`. Require a positive current level
-  and defined operands; the lag counts source rows and NULL endpoints propagate.
-- R4: Extend the closed-world PostgreSQL view catalog and generated SQL, update the view
-  version/fingerprint, and append migration 24. Do not change `macro_raw`, canonical Gold,
-  ingestion, or existing feature semantics.
-- R5: Document the XETRA-aligned EMA seeds, signal treatment for signed MACD values,
-  formulas, warm-up/reset rules, eligible series, and remaining OHLC/volume work.
+- R1: Register `vstoxx1m`, `vstoxx2m`, and `vstoxx3m` as daily STOXX scalar series
+  using symbols `V6I1`, `V6I2`, and `V6I3`, respectively. Parse `Date;Symbol;Indexvalue`
+  source rows through the existing STOXX adapter boundary, preserving provider identity,
+  source URL, observation date, and fetched time.
+- R2: Support maximum exposed history on bootstrap and exact bounded logical filtering
+  on normal updates. The official history files were checked at `h_v6i1.txt`,
+  `h_v6i2.txt`, and `h_v6i3.txt`; each returned daily observations beginning 1999-01-04
+  and latest through 2026-10-26 at verification time. Do not claim earlier history.
+- R3: Add deterministic offline parser/request tests and source metadata for all three
+  contracts; do not introduce credentials, fallback sources, or fabricated dates.
 
 Acceptance:
-- A1 (verifies R1/R4): Exactly 36 new nullable `DOUBLE PRECISION` view columns appear
-  once in catalog order across all twelve eligible series; no outputs or internal
-  intermediates appear for `estr`, `macro_raw`, or canonical Gold.
-- A2 (verifies R2/R3): Independent hand-calculated reference tests prove EMA-12/26
-  seeds/recurrences, EMA-9 signed signal seed, negative/zero MACD-line values, NULL and
-  nonpositive-level resets, warm-up (MACD line from the 26th continuous level, signal and
-  histogram from the 34th), positive-level normalization, three-source-row delta, NULL
-  propagation, and truncation causality.
-- A3 (verifies R4): Clean-create and migration-23-to-24 disposable-PostgreSQL tests prove
-  exact ordered view schema, types, version 13/fingerprint, formula parity, and unchanged
-  raw/Gold schemas.
-- A4 (verifies R5): Docs match the executable contract; full local `make quality-gate`
-  passes without production DB writes, cron runs, or GitHub Actions.
+- A1 verifies R1: registry contracts and parsed canonical frames identify the exact
+  symbols/series and contain finite scalar `value` observations with the correct source
+  metadata.
+- A2 verifies R2: bootstrap preserves the exposed full file, bounded updates return only
+  the exact requested interval, and rows outside that interval cannot alter persistence.
+- A3 verifies R3: provider tests are network-free, source catalog tests assert daily
+  frequency and start-date evidence, and local quality-gate passes.
 
-### PR-174: Preserve OHLC Inputs Through Gold And PostgreSQL
+### PR-178: Add Daily ECB CISS Component Series
 
-PR name: `preserve-ohlc-fields`
-Status: Merged
-Updated: 2026-10-26
-PR: #174
-Git branch: `pr-174/preserve-ohlc-fields`
-Git status: merged
-Agent lane: canonical OHLC propagation implementation and independent Gold/PostgreSQL schema/data QA; two agents
-Depends on: PR-173
-Commit: `9a10c47` (PR #174 squash merge; implementation commits `a428c67`, `e77edd1`, `dbe6f5b`)
-Design patterns: Registry-driven Projection, Repository, Versioned Migration.
+PR name: `add-ecb-ciss-components`
+Status: Planned
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-178/add-ecb-ciss-components`
+Git status: not-started (branch absent)
+Agent lane: ECB series registration and independent provider QA
+Depends on: PR-177
+Commit: pending
+Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
-- R1: Preserve native `open`, `high`, `low`, and `close` values losslessly for each
-  registry series with native shape `OHLC` from Silver through canonical Gold and
-  PostgreSQL `macro_raw`. The eligible set is registry-derived (currently `vix`,
-  `vix9d`, `vix3m`, `vix6m`, `vix1y`, `move`); scalar series receive no OHLC Gold/raw
-  columns. `close == value == <series>_level` for OHLC sources.
-- R2: Expose those 24 source OHLC fields as nullable `DOUBLE PRECISION` passthrough
-  columns in the closed-world `macro_features` view for subsequent feature PRs. Do not
-  add OHLC-derived indicators, `volume`, breadth, or dispersion in this PR.
-- R3: Include OHLC values in canonical Gold's ordered schema and PostgreSQL sync payload,
-  row digests, and insert/update comparison. Bump Gold schema version to 8, append
-  PostgreSQL migration 25, and bump the feature-view contract to version 14. Preserve
-  existing level and generated `available_at_utc` semantics; do not fabricate observations.
-  On a genuinely empty install, avoid rebuilding the same final materialized view for
-  superseded historical migrations; publish the current view once at migration 25. Keep
-  the PostgreSQL statement timeout finite but long enough for the current large view to
-  be planned during migration and refresh.
-- R4: Update README/ARCHITECTURE with the exact eligible series, field names, ordering,
-  nullability, and Gold/PostgreSQL propagation contract.
+- R1: Register daily Euro-area series `ciss_money`, `ciss_bonds`, `ciss_equity`, and
+  `ciss_financials` from ECB New-CISS component-contribution keys
+  `CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON`, `...SS_BMN.CON`, `...SS_EMN.CON`, and `...SS_FIN.CON`.
+  Keep the documented payload semantics as contributions (not mislabeled standalone
+  subindex levels); the downstream raw scalar column remains `indexvalue`.
+- R2: Preserve daily observations from the source's first available date (verified as
+  1999-01-01 in the ECB catalog) through the latest source date, with no forward-fill or
+  fabricated values; normal updates use the established bounded date-range policy.
+- R3: Update registry/source documentation and add offline parser, request-bound, missing
+  value, duplicate-date, and provider-routing tests.
 
 Acceptance:
-- A1 (verifies R1): Independent fixtures prove all four Silver OHLC values reach the
-  corresponding Gold columns unchanged for all six registry-derived OHLC series;
-  `close == value == <series>_level`; scalar series add no OHLC columns; no extra dates
-  are created.
-- A2 (verifies R2/R3): PostgreSQL raw sync payloads, row hashes, insert/update comparison,
-  and view output include all 24 fields. An OHLC-only revision is detected. Clean-create
-  and migration-24-to-25 disposable-PostgreSQL tests prove exact ordered schemas, types,
-  nullability, ledger, version 14/fingerprint, and preservation of level and
-  `available_at_utc` fields.
-- A3 (verifies R4): Docs match executable contracts; full local `make quality-gate` passes.
-  Use only disposable PostgreSQL fixtures; no production migrations, live DB writes, cron,
-  or GitHub Actions.
+- A1 verifies R1: all four exact ECB series keys map to distinct canonical IDs and scalar
+  values; metadata identifies their contribution semantics and daily frequency.
+- A2 verifies R2: bootstrap retains all source observations and sparse/missing dates stay
+  absent; updates pass exact bounds to the ECB adapter.
+- A3 verifies R3: deterministic offline tests pass and README source metadata is updated
+  with the verified start period and current public-source limits.
 
-### PR-172: Add EMA-Level Trend Features
+### PR-179: Add Euro High-Yield Yield And Total-Return Series
 
-PR name: `add-ema-level-trend-features`
-Status: Merged
-Updated: 2026-10-26
-PR: #172
-Git branch: `pr-172/add-ema-level-trend-features`
-Git status: merged
-Agent lane: PostgreSQL EMA projection and independent mathematical/schema QA; two agents
-Depends on: PR-171
-Commit: `3c8841f` (PR #172 squash merge; head `62ef91c`)
-Design patterns: Pure Transformation, Materialized View.
+PR name: `add-euro-high-yield-series`
+Status: Planned
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-179/add-euro-high-yield-series`
+Git status: not-started (branch absent)
+Agent lane: FRED credit-series registration and source-history QA
+Depends on: PR-178
+Commit: pending
+Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
-- R1: Add the six GOALS EMA-derived outputs for each positive-level `PRICE_FEATURE_SERIES`:
-  `ema5_distance`, `ema9_distance`, `ema21_distance`, `ema5_ema21_spread`,
-  `ema9_slope_3`, and `ema5_ema9_cross`. Prefix each output with its source-series ID.
-- R2: Match the XETRA reference EMA contract: alpha is `2/(period+1)`; initialize with
-  the arithmetic mean of the first `period` consecutive valid positive levels; then use
-  `EMA[t] = alpha*level[t] + (1-alpha)*EMA[t-1]`. A missing or nonpositive level resets
-  the seed/recurrence; EMA remains NULL until a new complete seed exists. Private EMA-5,
-  EMA-9, and EMA-21 intermediates are not exposed.
-- R3: Define output formulas and NULL behavior exactly: distance is `level/EMA-1`;
-  spread is `(EMA5-EMA21)/level`; slope is `(EMA9[t]-EMA9[t-3 source rows])/(3*level)`;
-  cross is `1` for an upward EMA5/EMA9 crossing, `-1` for downward, and `0` otherwise,
-  but NULL until both current and immediately prior EMA pairs exist. Require positive
-  current level and defined denominator/endpoints.
-- R4: Extend the closed-world PostgreSQL view catalog and generated SQL, update the view
-  version/fingerprint, and add migration 23 to rebuild the view. Do not change
-  `macro_raw`, canonical Gold, source ingestion, or the existing feature semantics.
-- R5: Update README/ARCHITECTURE with the exact recurrence, seed/reset/warm-up rules,
-  eligible series, output domains, and the fact that MACD remains a later GOALS item.
+- R1: Add daily FRED scalar series `euro_hy_yield` (`BAMLHE00EHYIEY`),
+  `euro_hy_ytw` (`BAMLHE00EHYISYTW`), and `euro_hy_total_return`
+  (`BAMLHE00EHYITRIV`), preserving their published units and distinct meanings.
+- R1: Reuse the already registered `euro_hy_oas` observations from the existing wide
+  `macro_raw` relation; do not download or independently recalculate OAS a second time.
+- R2: Bootstrap the full history currently exposed by FRED; at verification time all
+  three began 2023-10-27 because ICE BofA series on FRED are limited to a rolling three
+  years. Preserve any older already-durable local observations during bounded updates;
+  never infer deletion from source truncation.
+- R3: Document the FRED identifiers, daily frequency, units, source restrictions, and
+  available date range; add offline parsing and exact delta-bound tests.
 
 Acceptance:
-- A1 (verifies R1/R4): For all twelve `PRICE_FEATURE_SERIES`, the exact six prefixed
-  columns appear once in catalog order as nullable `DOUBLE PRECISION`; `estr` receives
-  none, and no EMA intermediate/helper column appears in the view.
-- A2 (verifies R2/R3): An independent reference and hand-calculable fixtures match all
-  six outputs across seed warm-up, recurrence, missing/nonpositive resets, distance and
-  spread normalization, three-row slope, upward/downward/neutral crossings, NULL
-  endpoints, and truncated-future causality.
-- A3 (verifies R4): PostgreSQL clean-create and migration-22-to-23 upgrade tests prove
-  exact ordered view schema, column types, version 12/fingerprint, executable formula
-  parity, and no EMA columns in `macro_raw` or canonical Gold.
-- A4 (verifies R5): README/ARCHITECTURE accurately describe the implemented contract;
-  the full local `make quality-gate` passes without production DB writes or cron runs.
+- A1 verifies R1: each FRED ID has its own daily scalar contract and values are not
+  mixed across yield, yield-to-worst, and total-return index units; OAS continues to
+  come from its existing `macro_raw` series with no duplicate FRED registration.
+- A2 verifies R2: bootstrap and update tests prove exposed-history and bounded-delta
+  behavior without deleting retained older rows.
+- A3 verifies R3: local provider/catalog tests and README metadata describe the current
+  2023-10-27 source limit without promising full history.
 
-### PR-171: Add Level-Only Composite And Statistical Features
+### PR-180: Add U.S. Three-Month And Five-Year Treasury Series
 
-PR name: `level-only-composite-statistical-features`
-Status: Merged
-Updated: 2026-10-26
-PR: #171
-Git branch: `pr-171/level-only-composite-statistical-features`
-Git status: merged
-Agent lane: level-only SQL/catalog implementation and independent mathematical/schema QA; two agents
-Depends on: PR-170
-Commit: `8a42dcb` (PR #171 squash merge; head `af93732`)
-Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
+PR name: `add-us-treasury-3m-5y-series`
+Status: Planned
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-180/add-us-treasury-3m-5y-series`
+Git status: not-started (branch absent)
+Agent lane: FRED Treasury registration and provider QA
+Depends on: PR-179
+Commit: pending
+Design patterns: Registry/Factory, Pure Parser.
 
 Description:
-- Remove GitHub Actions workflow files and replace remote quality checks with local-only
-  `pyproject.toml`/pre-commit checks at an 85% combined coverage threshold.
-- R1: For every eligible positive-level series, expose RSI-derived `rsi_ratio_5_15`,
-  `rsi5_slope_3`, and `rsi5_delta_1` equivalents using a private Wilder RSI-15
-  intermediate; do not expose RSI-15 itself. Guard undefined/zero denominators and
-  require the specified lagged RSI observations.
-- R2: Expose ROC acceleration as ROC-4 minus ROC-8 using the already defined causal
-  ROC outputs.
-- R3: Expose `volatility_zscore_96` as the z-score of the existing 8-observation
-  sample log-return volatility over 96 valid volatility observations, and
-  `level_zscore_96` using trailing mean and sample standard deviation over 96 valid
-  positive level observations. Require complete windows and return NULL for zero or
-  undefined denominators.
-- R4: Add signed Pearson autocorrelation features on one-observation log returns for
-  lag/window pairs `(1,96)`, `(4,96)`, and `(8,192)`. Count valid paired returns,
-  preserve negative correlation, and return NULL for incomplete or zero-variance
-  windows. These are distinct from source-unit, positive-clipped momentum autocorrelation.
-- R5: Extend the closed-world catalog, generated PostgreSQL materialized-view SQL,
-  migration fingerprint/version, exact schema contract, and independent real-PostgreSQL
-  QA together. Derived columns remain in `macro_features`, never `macro_raw` or Gold.
-- R6: Update README and ARCHITECTURE with the exact formulas, names, domains, and
-  warm-up/NULL semantics. EMA/MACD, OHLC, volume, breadth, and dispersion are not part
-  of this PR; their remaining GOALS work must stay explicitly tracked in follow-up PRs.
-- R7: Keep unit, integration, coverage (85%), lint, and type checks local; expose the test
-  configuration in `pyproject.toml`, run the local suite from pre-commit, and remove all
-  GitHub Actions workflow files and their workflow-only review runner.
+- R1: Add daily scalar FRED series `us_3m` (`DGS3MO`) and `us_5y` (`DGS5`) in percent
+  units, keeping the existing `us_2y` only once and retaining `us_10y` unchanged.
+- R2: Bootstrap maximum exposed history: `DGS3MO` from 1981-09-01 and `DGS5` from
+  1962-01-02 as checked on 2026-10-27. Existing FRED bounded-update and durable-history
+  retention rules continue to apply.
+- R3: Update source metadata and offline registry/request-bound tests.
 
 Acceptance:
-- A1 (verifies R1): Independent hand-calculable Wilder RSI-5/15 fixtures prove the
-  ratio, three-observation slope, one-observation delta, NULL warm-up, denominator
-  handling, and that no RSI-15 output column is exposed.
-- A2 (verifies R2): Independent calculation proves ROC-4 minus ROC-8 with exact
-  NULL propagation and no future dependence.
-- A3 (verifies R3): Independent reference checks 96 valid observations, sample
-  standard deviation, warm-up, sparse invalid rows, constant windows, and finite-or-NULL
-  output for both z-scores.
-- A4 (verifies R4): Independent Pearson fixtures cover each lag/window, positive,
-  negative, constant, incomplete, and sparse return-pair windows; truncating future rows
-  leaves all earlier outputs unchanged.
-- A5 (verifies R5): Clean-create and upgrade PostgreSQL QA proves exact ordered view
-  columns/types/version/fingerprint, all new expressions match the independent reference,
-  and no feature leaks into `macro_raw` or canonical Gold.
-- A6 (verifies R6): README/ARCHITECTURE accurately document this PR's formulas and
-  remaining GOALS scope; `lint`, `type`, `unit`, `integration`, and `coverage` pass
-  without production database writes or installed-cron execution.
-- A7 (verifies R7): no GitHub Actions workflow or workflow-only helper remains; pre-commit
-  runs `make quality-gate`; unit and integration tests pass locally and the combined
-  coverage report enforces the 85% threshold configured in `pyproject.toml`.
+- A1 verifies R1: exact IDs, daily frequency, percent units, and no duplicate `us_2y`
+  registration.
+- A2 verifies R2: documented and tested earliest available dates; no source omission
+  deletes durable history.
+- A3 verifies R3: local quality-gate passes with no network tests in required checks.
 
-### PR-170: Complete Scalar-Level Transformation Windows
+### PR-181: Cut Over To Per-Feature PostgreSQL Raw Tables
 
-PR name: `complete-scalar-level-feature-windows`
-Status: Merged
-Updated: 2026-10-26
-PR: #170
-Git branch: `pr-170/complete-scalar-level-feature-windows`
-Git status: merged
-Agent lane: level-only feature contract/SQL and independent math/schema QA; two agents
-Depends on: PR-169
-Commit: `fc08903` (PR head), `1d62257` (squash merge)
-Design patterns: Closed-World Catalog, Pure Transformation, Independent Differential QA.
+PR name: `publish-feature-specific-raw-tables`
+Status: Planned
+Updated: 2026-10-27
+PR: not created
+Git branch: `pr-181/publish-feature-specific-raw-tables`
+Git status: not-started (branch absent)
+Agent lane: PostgreSQL raw-table projection, migration, backfill, and schema QA
+Depends on: PR-180
+Commit: pending
+Design patterns: Registry-driven Projection, Repository, Unit of Work, Versioned Migration.
 
 Description:
-- R1: Extend every applicable positive source-level series in `macro_loader.macro_features`
-  with the still-missing GOALS windows: log returns `2/4/8`; geometric returns `4/8/16`;
-  sample volatility `8/32/96`; SMA ratio `5/15`; Wilder RSI `3/5`; ROC `1/2/4/8`; and
-  drawdown `32/96` observations. Preserve existing windows and naming conventions; `estr`
-  remains excluded from price-domain transformations.
-- R2: Keep all formulas causal and observation-based. Geometric-return values remain decimal
-  fractions despite the `_pct` suffix; rolling windows require complete valid observations;
-  Wilder RSI retains the established recurrence and warm-up. A fully flat gain/loss window
-  is NULL as required by `GOALS.md`; all-gain and all-loss windows remain 100 and 0.
-- R3: Update the closed-world feature catalog, PostgreSQL materialized-view SQL, migration
-  fingerprint/version, and consumer schema contract together. Do not add these derived
-  columns to `macro_raw` or canonical Gold.
-- R4: Add an independent calculator/schema QA lane with hand-calculable returns and trend
-  cases, warm-up/invalid-input/causality checks, flat/all-gain/all-loss RSI checks, and exact
-  PostgreSQL view-column assertions.
-- R5: Update consumer and architecture documentation to state the implemented extension and
-  its source/domain limits. OHLC, volume, market breadth, and dispersion are explicitly not
-  implemented by this level-only PR; breadth/dispersion remain out of scope without an
-  instrument cross-section.
-- R6: Keep the required full daily integration gate deterministic by fixing its test-only
-  run-ID factory: derive the unique per-series ID from stable series identity, not the
-  provider request count, whose value depends on parallel scheduling. No runtime behavior
-  changes in the daily pipeline are part of this requirement.
+- R1: Create and populate `macro_loader.macro_raw_<feature>` tables for each unique
+  requested raw feature after source registration. The requested universe is
+  `vix`, `vix9d`, `vix3m`, `vix6m`, `vix1y`, `vstoxx`, `vstoxx1m`, `vstoxx2m`,
+  `vstoxx3m`, `move`, `ciss`, `ciss_money`, `ciss_bonds`, `ciss_equity`, `ciss_financials`, `estr`,
+  `euro_hy_oas`, `euro_hy_yield`, `euro_hy_ytw`, `euro_hy_total_return`, `us_3m`,
+  `us_2y`, `us_5y`, `us_10y`, and `usd_broad`; the repeated `us_2y` is intentionally
+  deduplicated per the user's clarification. Retain the already registered `vstoxx`
+  series in its own table as well; do not discard its current raw history as an implicit
+  side effect of adding the three term-structure series.
+- R2: Backfill each feature table from the existing wide `macro_raw` relation exactly
+  once, including every existing Euro-HY observation (`euro_hy_oas` today). Thereafter,
+  write source/Gold syncs directly to the feature-specific tables; do not continue
+  storing new values in the wide relation.
+- R3: Each table has the same primary temporal type and `available_at_utc` calculation:
+  `timestamp_m1 TIMESTAMPTZ(6)` plus generated `available_at_utc TIMESTAMPTZ(6)`; the
+  six OHLC features have nullable `open/high/low/close DOUBLE PRECISION`, and every
+  scalar feature has nullable `indexvalue DOUBLE PRECISION`. Maintain the tables
+  transactionally on every source/Gold sync, revision, deletion, and migration replay;
+  `macro_features` must be sourced from these feature tables.
+- R4: In the same cutover migration, remove the wide `macro_raw` relation after
+  backfill, switch all readers/writers to the feature tables, and ensure no runtime path
+  recreates or writes to it.
+- R5: README lists every feature's source/provider identifier, columns, frequency,
+  earliest available date, current history limitation, and a concise data description.
 
 Acceptance:
-- A1 (verifies R1): For every `PRICE_FEATURE_SERIES`, the view catalog contains all existing
-  windows plus exactly the newly requested windows above; `estr` has none of these
-  price-domain outputs, and no old supported column is removed or renamed.
-- A2 (verifies R2): An independent reference (not importing production window constants,
-  catalog builders, or SQL-expression helpers) matches PostgreSQL results for log/geometric
-  returns, sample volatility, SMA ratio, Wilder RSI, ROC, and drawdown on deterministic
-  ordinary, flat, all-gain, all-loss, invalid, short-history, and future-truncation fixtures;
-  a fully flat RSI window is NULL.
-- A3 (verifies R3): Migration clean-create/upgrade metadata and the materialized-view
-  definition expose each expected derived column exactly once, in catalog order, with the
-  new version/fingerprint; no OHLC/volume/breadth/dispersion columns are implied.
-- A4 (verifies R4): Independent SQL/view QA proves exact schema parity and formula parity;
-  changing a formula, omitting a window, introducing an extra column, or leaking a future
-  observation fails the test suite.
-- A5 (verifies R5): README and ARCHITECTURE describe the current formulas/domains accurately;
-  `lint`, `type`, `unit`, `integration`, and `coverage` all pass without production database
-  writes or installed-cron execution.
-- A6 (verifies R6): The core-count invariance test passes repeatedly for one and multiple
-  workers while still asserting deterministic result order, equal per-series outcomes, unique
-  run IDs within each execution, equal requests, and identical canonical Gold data.
-
-### PR-169: Run The Daily Pipeline With A Bounded Core Budget
-
-PR name: `parallel-daily-core-budget`
-Status: Merged
-Updated: 2026-10-26
-PR: #169
-Git branch: `pr-169/parallel-daily-core-budget`
-Git status: merged
-Agent lane: bounded Bronze execution and CLI/scheduled-runner core-budget wiring; two agents
-Depends on: PR-168
-Commit: `e3ec97b` (PR head), `2c99f67` (squash merge)
-Design patterns: Strategy, Dependency Injection, Unit of Work.
-
-Description:
-- R1: Add a positive `--cores` execution option with default `6` and inject the same
-  bounded policy through all parallelizable phases of `run-daily` and applicable source,
-  Silver, and Gold-build commands.
-- R2: Execute independent series work concurrently up to the configured limit while
-  preserving input-ordered results, per-series failure isolation, and lossless serialized
-  updates to shared ingestion manifests/state at each Bronze Unit-of-Work commit boundary.
-- R3: Preserve normal max-date-derived delta windows, selected-series behavior, canonical
-  full-Gold assembly, and deterministic logical output for every core count.
-- R4: Make the Sunday runner pass a configurable core count whose default is `6`; keep
-  runner verification dry and do not execute production ingestion or installed cron.
-- R5: Update the operator/architecture contracts and verify the implementation with the
-  required quality gates and deterministic offline end-to-end tests.
-
-Acceptance:
-- A1 (verifies R1): CLI tests prove `--cores` defaults to 6, accepts a positive explicit
-  value, and rejects zero/negative values before runtime side effects.
-- A2 (verifies R2): concurrency tests prove the configured maximum is never exceeded,
-  returned results and failures follow input order, shared run/state writes are not lost,
-  and a failed series does not roll back an independently committed series.
-- A3 (verifies R3): end-to-end runs at one and multiple cores produce identical canonical
-  Gold data and exact source requests; the max-date delta regression remains green.
-- A4 (verifies R4): Sunday-runner acceptance proves the default and environment override
-  are passed as `--cores`, without running source ingestion or changing installed cron.
-- A5 (verifies R5): `lint`, `type`, `unit`, `integration`, and `coverage` pass, with no
-  production database or scheduled-job execution.
-
-### PR-168: Retire Fed Policy Features And Acquisition
-
-PR name: `retire-fed-policy-feature-pipeline`
-Status: Merged
-Updated: 2026-10-26
-PR: #168
-Git branch: `pr-168/retire-fed-policy-feature-pipeline`
-Git status: merged
-Agent lane: Fed runtime/download retirement and PostgreSQL serving retirement; two agents
-Depends on: PR-167
-Commit: `91e068c` (PR head), `2a7d06e` (squash merge)
-Design patterns: Adapter, Repository, Materialized View, Versioned Migration, Fail-Closed Verification.
-
-Description:
-- R1: Remove the FedWatch/Fed-policy acquisition, download, calculation, persistence,
-  orchestration, CLI, and scheduled-runtime paths from active application code; preserve
-  the independent FRED provider and its ordinary macro series.
-- R2: Remove the four Fed-policy origins and their 28 derived columns from the active
-  PostgreSQL `macro_raw` and `macro_features` contracts, catalogs, sync/conformance paths,
-  and apply an idempotent migration for existing deployments. Preserve
-  `available_at_utc` and all non-Fed source columns/features.
-- R3: Remove Fed-policy-only commands, scripts, cron templates, dependencies, and active
-  operator documentation. Preserve prior Fed acceptance artifacts and historical backlog
-  entries as historical records; do not uninstall host crontabs or mutate production.
-- R4: Make the surviving runtime and serving schema fail closed on retired Fed objects,
-  while proving FRED ingestion, normal `macro_raw` synchronization,
-  `available_at_utc`, and the non-Fed `macro_features` view remain supported.
-- R5: Pass the required automated quality gates without executing production migrations,
-  data repopulation, or installed-cron actions absent separate authorization.
-
-Acceptance:
-- A1 (verifies R1): import/CLI/runtime composition checks find no Fed-policy acquisition
-  or download path; FRED provider registry entries and FRED tests remain intact.
-- A2 (verifies R2): clean-create and upgrade PostgreSQL tests expose no Fed origin or
-  Fed-derived columns in `macro_raw`/`macro_features`, do not require the private
-  `fed_policy_features_daily` relation, retain `available_at_utc`, and prove repeated
-  migration is idempotent.
-- A3 (verifies R3): no Fed-only command or checked-in cron path remains active; historical
-  acceptance evidence is preserved; current README/ARCHITECTURE/operator docs describe
-  the retired runtime without claiming a production migration or host-cron uninstall.
-- A4 (verifies R4): exact remaining schema/catalog/conformance contracts and real-Postgres
-  regressions prove the FRED/non-Fed sync/view path is unchanged and retired Fed columns
-  or tables fail the active schema contract.
-- A5 (verifies R5): `lint`, `type`, `unit`, `integration`, and `coverage` all pass; no
-  production migration or installed-cron action is run without separate authorization.
+- A1 verifies R1: exactly one relation per requested unique feature and retained
+  registered series exists in `macro_loader` (25 tables for the catalog in this wave),
+  and no duplicate table is created for `us_2y`.
+- A2 verifies R2: historical rows, including existing Euro-HY observations, are
+  backfilled exactly and only once; row counts and values match the pre-migration source.
+- A3 verifies R3: disposable PostgreSQL clean-create/upgrade, insert, revise, delete,
+  replay, timestamp-type, availability, column/type/order, and feature-table parity tests
+  pass; transaction failures leave all feature tables consistent.
+- A4 verifies R4: after migration `macro_raw` is absent, feature-table writes and view
+  refresh work, and static/runtime checks find no path that writes or recreates it.
+- A5 verifies R5: README metadata matches the registered/provider contracts and
+  observed source-date limits; local `make quality-gate` passes.
 
 ## Current repository and production status
 
-As of 2026-10-26, PR-170 is merged to `origin/main` as GitHub PR #170, following PR-169.
-PR-168's runtime and serving-contract changes do not establish deployed database or
-host-crontab state. No production migration or installed-crontab change has been performed
-as part of this work.
-Earlier Fed-policy backlog entries and acceptance artifacts remain historical audit
-records. The independent FRED provider remains active for its registered ordinary macro
+PR-176 is active and PR-177 through PR-181 are planned. No production migration or
+installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
+remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
 
 The active serving lineage is:
@@ -428,478 +247,18 @@ The active serving lineage is:
 ```text
 canonical market and macro source levels
         -> canonical Gold/source serving contract
-        -> macro_loader.macro_raw
+        -> macro_loader.macro_raw_<feature> tables
         -> macro_loader.macro_features
 ```
 
-The PostgreSQL serving relations expose the complete available `macro_raw` history
-through the latest completed EOD source date. Values may remain NULL only where
+The PostgreSQL serving relations expose the complete available feature-table history
+through the latest completed EOD source date. The retired wide `macro_raw` relation is
+used only as a one-time migration source and is absent after PR-181. Values may remain NULL only where
 point-in-time source support is genuinely unavailable or a transformation has not
 completed its causal warm-up; every such gap must be measured and explained by QA rather
 than filled, interpolated, carried, or synthesized.
 
-## Serving Availability-Time Contract
-
-### PR-167: Add Next-Business-Day Availability To PostgreSQL Serving
-
-PR name: `next-business-day-availability`
-Status: Merged
-Updated: 2026-10-26
-PR: #167
-Git branch: `pr-167/next-business-day-availability`
-Git status: merged
-Agent lane: PostgreSQL serving schema and temporal availability contract; two agents
-Depends on: PR-166
-Commit: `1d92194`
-Design patterns: Repository, Materialized View, Fail-Closed Verification.
-
-Description:
-- R1: Add a UTC `available_at_utc` column to `macro_loader.macro_raw` that identifies
-  the next Monday-Friday business date after each UTC observation date.
-- R2: Expose the same non-null availability timestamp as a column in
-  `macro_loader.macro_features`.
-- R3: Existing rows are backfilled deterministically by the schema migration; new rows
-  derive availability from their `timestamp_m1` without changing the canonical Gold
-  source payload or its row digests.
-
-Acceptance criteria:
-- [ ] A UTC observation on Monday-Thursday maps to the following UTC date; Friday,
-  Saturday, and Sunday map to the following Monday, at 00:00:00 UTC.
-- [ ] Both `macro_raw` and `macro_features` expose a non-null `available_at_utc`
-  `TIMESTAMPTZ(6)` column, with the view contract checking its position and type.
-- [ ] An idempotent PostgreSQL migration adds/backfills the raw column and rebuilds the
-  materialized view for already-provisioned databases.
-- [ ] Insert/update paths cannot supply a conflicting availability value; the value is
-  derived from the observation key and does not alter canonical Gold digests.
-- [ ] Tests cover every weekday/weekend boundary, migration and view metadata contracts,
-  full repository behavior, and migration replay/idempotence.
-- [ ] README and ARCHITECTURE describe the availability convention and its generic
-  weekday-only calendar limitation.
-- [ ] Required lint, type, unit, offline integration, and coverage gates pass.
-- [ ] Guarded production migration/repopulation/cron acceptance is not run without
-  explicit deployment authorization.
-
-## Audit Remediation Wave — Mathematical And Contract Correctness
-
-### PR-165: Reconcile Fed Gaps And Publish Full Raw History
-
-PR name: `fill-fed-gaps-full-history`
-Status: Merged
-Updated: 2026-10-26
-PR: #166
-Git branch: `pr-165/fill-fed-gaps-full-history`
-Git status: merged
-Agent lane: Fed history reconciliation and full-view exposure; one agent only
-Depends on: PR-164
-Commit: `3909951`, `c69acf8`
-Design patterns: Repository, Reconciliation Strategy, Materialized View, Fail-Closed Verification.
-
-Acceptance criteria:
-- [ ] Replace complete refreshed Fed snapshot observation groups so revised CME distributions cannot be double-counted.
-- [ ] Run Fed-policy PostgreSQL writes through the provisioned synchronization role, not the read-only runtime role.
-- [ ] Attempt the authorized historical Fed reconcile and document every source gap that remains.
-- [ ] Remove the PostgreSQL view's `2010-01-01` lower bound and expose the complete `macro_raw` history, including pre-2010 rows with causal NULLs where Fed data is unavailable.
-- [ ] Repopulate production `macro_features`, produce exact missing-value statistics, run the complete cronjob, and pass `postgres-verify`.
-- [ ] Pass lint, type, unit, offline integration, and coverage gates.
-
-### PR-160: Follow Source Redirects In Cron HTTP Transport
-
-PR name: `follow-source-redirects`
-Status: Merged
-Updated: 2026-09-27
-PR: #160
-Git branch: `pr-160/follow-source-redirects`
-Git status: merged
-Agent lane: HTTP transport redirect contract; one agent only
-Depends on: PR-159
-Commit: `1db4bda`
-Design patterns: Adapter, Fail-Closed Verification.
-
-Description:
-- R1: The production HTTP adapter follows standards-compliant source redirects,
-  including the CBOE canonical CSV redirect.
-- R2: Redirect behavior remains bounded by the existing timeout and retry policies.
-
-Acceptance:
-- A1: CBOE source URLs return parseable data during `run-daily`.
-- A2: Redirect responses no longer become false source-unavailable failures.
-- A3: Required lint, type, unit, integration, and coverage gates pass.
-- A4: The production cron wrapper completes successfully and Gold sync remains green.
-
-### PR-159: Make PostgreSQL Verification Match Market Gold Artifacts
-
-PR name: `verifier-market-artifact-contract`
-Status: Merged
-Updated: 2026-09-27
-PR: #159
-Git branch: `pr-159/verifier-market-artifact-contract`
-Git status: merged
-Agent lane: PostgreSQL verification contract; one agent only
-Depends on: PR-158
-Commit: `fb3df0d`
-Design patterns: Adapter, Repository, Fail-Closed Verification.
-
-Description:
-- R1: Independent PostgreSQL verification accepts the market-only Gold artifact and
-  applies the same null Fed-column normalization as the sync service.
-- R2: Verification continues to compare the resulting full digest contract against
-  the production consumer, digest index, and authoritative state.
-
-Acceptance:
-- A1: A market-only Gold artifact verifies against a full PostgreSQL sync contract.
-- A2: Missing market-owned columns still fail closed.
-- A3: Required lint, type, unit, integration, and coverage gates pass.
-- A4: Production `postgres-verify` passes after Gold/Fed sync and the cron run.
-
-### PR-158: Scope Gold Summaries To Market-Owned Rows
-
-PR name: `market-owned-summary-contract`
-Status: Merged
-Updated: 2026-09-27
-PR: #158
-Git branch: `pr-158/market-owned-summary-contract`
-Git status: `merged`
-Agent lane: PostgreSQL market summary contract; one agent only
-Depends on: PR-157
-Commit: `375f6d1`
-Design patterns: Repository, Single Source of Truth, Fail-Closed Verification.
-
-Description:
-- R1: Gold post-write summaries count only rows containing at least one market-owned
-  level, matching the market digest and consumer-read contracts.
-- R2: Fed-only rows remain available to the Fed-policy synchronizer and do not make the
-  market Gold transaction fail its own checkpoint.
-
-Acceptance:
-- A1: Production Gold sync accepts the existing five Fed-only dates without rollback.
-- A2: Market count and timestamp bounds still fail closed when market-owned rows drift.
-- A3: Required lint, type, unit, integration, and coverage gates pass.
-- A4: Production table/view verification and the cron acceptance complete successfully.
-
-### PR-157: Bound The Production Feature Refresh Timeout
-
-PR name: `allow-production-feature-refresh-timeout`
-Status: Merged
-Updated: 2026-09-27
-PR: #157
-Git branch: `pr-157/allow-production-feature-refresh-timeout`
-Git status: `merged`
-Agent lane: PostgreSQL operational timeout; one agent only
-Depends on: PR-156
-Commit: `c4e0df2`
-Design patterns: Unit of Work, Dependency Injection, Fail-Closed Verification.
-
-Description:
-- R1: Bound the PostgreSQL statement timeout high enough for the current 445-column
-  materialized-view refresh over the production row count.
-- R2: Keep the timeout finite and covered by the existing injected timeout policy.
-
-Acceptance:
-- A1: The production Gold transaction can complete its atomic view refresh within the
-  configured timeout.
-- A2: Timeout policy validation and SQL session setup remain deterministic.
-- A3: Required lint, type, unit, integration, and coverage gates pass.
-- A4: The production Gold sync and cron acceptance complete successfully.
-
-### PR-156: Ignore Fed-Only Rows During Market Gold Reconciliation
-
-PR name: `ignore-fed-only-market-sync-rows`
-Status: Merged
-Updated: 2026-09-27
-PR: #156
-Git branch: `pr-156/ignore-fed-only-market-sync-rows`
-Git status: `merged`
-Agent lane: PostgreSQL reconciliation edge cases; one agent only
-Depends on: PR-155
-Commit: `ab29a2e`
-Design patterns: Repository, Strategy, Unit of Work, Fail-Closed Verification.
-
-Description:
-- R1: Market Gold digest reads ignore rows that contain no market-level value and are
-  owned exclusively by the Fed-policy synchronizer.
-- R2: Market inserts use a conflict-safe market-column upsert and never alter Fed columns.
-
-Acceptance:
-- A1: Fed-only timestamps do not cause market Gold preflight or post-write digest mismatch.
-- A2: A same-timestamp market arrival updates only market columns and preserves Fed values.
-- A3: Required lint, type, unit, integration, and coverage gates pass.
-- A4: The production table/view and cron acceptance pass after this reconciliation fix.
-
-### PR-155: Decouple Market Gold And Fed Policy PostgreSQL Ownership
-
-PR name: `decouple-market-fed-postgres-sync`
-Status: Merged
-Updated: 2026-09-27
-PR: #155
-Git branch: `pr-155/decouple-market-fed-postgres-sync`
-Git status: `merged`
-Agent lane: PostgreSQL serving ownership and production repair; one agent only
-Depends on: PR-152
-Commit: `6025489`
-Design patterns: Repository, Single Source of Truth, Unit of Work, Fail-Closed Verification.
-
-Description:
-- R1: Gold synchronization owns market-level columns and their digests only.
-- R2: Fed-policy synchronization owns the four Fed columns and may preserve or update them
-  without causing market Gold drift.
-- R3: A production table containing Fed-only dates can be reconciled without losing Fed
-  values or failing the complete-state market sync.
-
-Acceptance:
-- A1: Gold row digests are unchanged when only Fed-owned values change.
-- A2: Gold insert/update SQL never overwrites the four Fed-owned columns.
-- A3: A regression with Fed-only rows proves market sync deletes/reconciles only its own
-  state and the subsequent Fed sync restores the canonical Fed rows.
-- A4: Production `macro_raw` and `macro_features` pass the current schema/view contract
-  and contain current synchronized values after the repair.
-- A5: The production cron wrapper completes successfully once and leaves no lock/process
-  residue.
-
-This wave was added after a repository-wide review of the current Fed-policy and
-PostgreSQL feature paths. The review found issues that are not cosmetic: one command-path
-contract mismatch can reject the canonical Fed frame, the production browser FedWatch path
-changes the economic baseline when EFFR is absent, several feature formulas do not fully
-honor the documented NULL/domain semantics, and documentation versions have drifted from
-the executable contracts. These findings must be repaired before treating the current
-acceptance artifacts as proof of end-to-end mathematical correctness.
-
-### PR-146: Record Audit Findings And Remediation Plan
-
-PR name: `audit-remediation-plan`
-Status: Merged
-Updated: 2026-09-27
-PR: #146
-Git branch: `pr-146/audit-remediation-plan`
-Git status: `merged`
-Agent lane: Mathematical/contract audit governance; one agent only
-Depends on: PR-145
-Commit: `docs(pr-146): add audit remediation backlog`; `docs(pr-146): record opened audit PR`
-Design patterns: Single Source of Truth, Closed-World Register, Fail-Closed Verification.
-
-Description:
-- R1: Record the Fed feature-order mismatch between the canonical local feature frame and
-  the PostgreSQL contract and require an end-to-end contract test that crosses that boundary.
-- R2: Record the production browser FedWatch baseline defect and the divergence between the
-  current futures reconstruction shortcut and CME's documented month/anchor methodology.
-- R3: Record XETRA-family domain ambiguity for signed source levels, especially eSTR, and
-  require one explicit eligibility/domain policy instead of mixed per-formula behavior.
-- R4: Record RSI NULL-propagation/numerical-stability risks and PostgreSQL
-  `GREATEST(corr(...), 0)` NULL semantics for undefined momentum correlation.
-- R5: Record documentation/version drift: executable Gold semantic versions are 7/6 while
-  README/ARCHITECTURE still state 6/5; AGENTS delivery status and the Fed provider module
-  description are also stale.
-- R6: Split repairs into independently testable PR-147 through PR-152 rather than combining
-  unrelated production, formula, and documentation changes.
-
-Acceptance:
-- A1: every finding above maps to a concrete follow-up PR with an observable regression test.
-- A2: no finding is marked fixed by this planning PR; implementation status remains explicit.
-- A3: the remediation sequence includes independent mathematical parity tests and one final
-  source-to-PostgreSQL acceptance path.
-
-### PR-147: Unify Fed Feature Column Contract End To End
-
-PR name: `fed-feature-column-contract`
-Status: Merged
-Updated: 2026-09-27
-PR: #147
-Git branch: `pr-147/fed-feature-column-contract`
-Git status: `merged`
-Agent lane: Fed schema/serving contract; one agent only
-Depends on: PR-146
-Commit: `fix(pr-147): unify fed feature column contract`; `fix(pr-147): export canonical fed contract`
-Design patterns: Single Source of Truth, Contract Test, Repository.
-
-Description:
-- R1: Define the four Fed feature names/order exactly once and consume that contract from
-  feature construction, local Parquet publication, PostgreSQL row conversion, SQL DML, and
-  serving-catalog code.
-- R2: Remove the current order split where the local frame is
-  `next_expected, next_uncertainty, path_slope, repricing` while the PostgreSQL contract is
-  `next_expected, path_slope, next_uncertainty, repricing`.
-- R3: Preserve values by semantic column name during upgrade; never silently swap path slope
-  and uncertainty by positional tuple conversion.
-- R4: Add a full in-process regression:
-  `build_fed_policy_features -> FedPolicyFeatureStore -> fed_policy_rows -> repository.sync`.
-
-Acceptance:
-- A1: one canonical tuple owns the order and repository search finds no competing order.
-- A2: the real frame produced by `build_fed_policy_features` is accepted unchanged by the
-  PostgreSQL sync boundary and values arrive in the correctly named database columns.
-- A3: a deliberately reordered frame fails closed; a semantic value swap is detected.
-- A4: unchanged replay remains a zero-mutation sync.
-
-### PR-148: Correct FedWatch Economic Baseline And CME Reconstruction
-
-PR name: `fedwatch-methodology-correction`
-Status: Merged
-Updated: 2026-09-27
-PR: #148
-Git branch: `pr-148/fedwatch-methodology-correction`
-Git status: `merged`
-Agent lane: Fed Funds futures mathematics; one agent only
-Depends on: PR-147
-Commit: `fix(pr-148): correct fedwatch reconstruction methodology`; `chore(pr-148): format methodology implementation`
-Design patterns: Pure Transformation, Versioned Methodology, Differential Testing.
-
-Description:
-- R1: In browser-only production acquisition, derive rate moves from the point-in-time
-  current policy/EFFR baseline. Do not pass an empty EFFR map and do not substitute the
-  modal FedWatch bucket as the economic baseline.
-- R2: Replace the per-meeting previous-month shortcut with the documented CME FedWatch
-  propagation from full non-FOMC anchor months through meeting months, including consistent
-  EFFR start/average/end relationships and 25bp outcome decomposition.
-- R3: Correct day weighting using the actual pre/post-meeting day counts. A shortcut keyed
-  only on `meeting.day <= 3` must not stand in for whether a neighboring full month is the
-  required anchor.
-- R4: Treat later-meeting distributions consistently with the probability-tree semantics
-  needed by the four canonical features; define whether `move_bp` is incremental per
-  meeting or cumulative-to-meeting and enforce that definition everywhere.
-- R5: Bump the methodology version/fingerprint whenever formula semantics change and bind
-  the fingerprint to the declared methodology payload, not merely an unchanged label.
-
-Acceptance:
-- A1: historical official CME MeetingExport fixtures across early-, middle-, and late-month
-  meetings, hikes and cuts, and multiple consecutive meetings match within a declared
-  tolerance.
-- A2: the production browser path and the reconstruction/reference path produce the same
-  feature semantics from equivalent point-in-time inputs.
-- A3: tests demonstrate that changing the baseline from current policy/EFFR to the modal
-  bucket changes expected move and is rejected.
-- A4: missing anchor inputs fail closed to NULL/unavailable rather than inventing a baseline.
-
-### PR-149: Define Signed-Series Eligibility For XETRA Feature Families
-
-PR name: `xetra-feature-domain-contract`
-Status: Merged
-Updated: 2026-09-27
-PR: #149
-Git branch: `pr-149/xetra-feature-domain-contract`
-Git status: `merged`
-Agent lane: Feature-domain specification; one agent only
-Depends on: PR-146
-Commit: `fix(pr-149): define xetra feature domains`; `chore(pr-149): format domain policy implementation`
-Design patterns: Specification/Policy Object, Closed-World Catalog.
-
-Description:
-- R1: Replace the ambiguous phrase "every eligible positive level series" with an explicit
-  source/family eligibility matrix.
-- R2: Resolve signed-rate inputs such as eSTR consistently. Today log levels, log returns,
-  ROC and RSI guard on positivity while SMA ratios and drawdowns can still emit values for
-  the same negative series.
-- R3: Either exclude signed/non-price series from price-only transformations or define
-  mathematically appropriate signed-safe alternatives with distinct names; do not mix the
-  two semantics under one 26-column contract.
-- R4: Make catalog metadata state domain restrictions and NULL behavior exactly.
-
-Acceptance:
-- A1: zero/negative/sign-changing fixtures have one documented result per feature family.
-- A2: eSTR and every other registered series are explicitly classified; no eligibility is
-  inferred accidentally from SQL `CASE` expressions.
-- A3: catalog, SQL, README and ARCHITECTURE agree on feature count and domain.
-
-### PR-150: Make RSI And Momentum Numerically Stable And NULL-Correct
-
-PR name: `rsi-momentum-numerical-correctness`
-Status: Merged
-Updated: 2026-09-27
-PR: #150
-Git branch: `pr-150/rsi-momentum-numerical-correctness`
-Git status: `merged`
-Agent lane: Indicator mathematics; one agent only
-Depends on: PR-149
-Commit: `fix(pr-150): stabilize rsi and momentum null semantics`
-Design patterns: Pure Transformation, Differential Testing, Fail-Closed Verification.
-
-Description:
-- R1: Replace the closed-form Wilder implementation that contains
-  `power((p-1)/p, -observation_number)` with a numerically stable causal recurrence or
-  equivalent bounded formulation. In IEEE-754 double precision the inverse-power term first
-  exceeds the finite range at observation 4605 for RSI-7 and 9578 for RSI-14.
-- R2: Require a complete valid seed and explicit invalid-input semantics. Do not let
-  `avg()` silently seed from fewer valid gains/losses or `coalesce(gain, 0)` turn an
-  invalid change into a zero change unless that is the declared policy.
-- R3: Preserve undefined momentum correlation as NULL. PostgreSQL ignores NULL arguments in
-  `GREATEST`, so `GREATEST(corr(...), 0.0)` can turn an undefined correlation into 0;
-  guard the correlation result explicitly before clipping negative finite values.
-- R4: Keep causal observation-based windows and existing all-gain/all-loss edge semantics
-  only where mathematically defined.
-
-Acceptance:
-- A1: independent recursive Wilder references match PostgreSQL for RSI-7/14 on ordinary,
-  constant, invalid, sparse, and sign-boundary fixtures.
-- A2: a >5,000-observation regression remains finite/NULL as specified and cannot overflow
-  in RSI-7 intermediate arithmetic.
-- A3: constant-change windows produce NULL correlation while finite negative correlation is
-  clipped to zero and positive correlation is preserved.
-- A4: truncation tests prove no future-row dependency.
-
-### PR-151: Reconcile Executable Versions And Documentation Contracts
-
-PR name: `contract-version-doc-reconciliation`
-Status: Merged
-Updated: 2026-09-27
-PR: #151
-Git branch: `pr-151/contract-version-doc-reconciliation`
-Git status: `merged`
-Agent lane: Documentation/schema governance; one agent only
-Depends on: PR-147, PR-148, PR-149, PR-150
-Commit: `docs(pr-151): reconcile executable and documented contracts`
-Design patterns: Single Source of Truth, Executable Specification.
-
-Description:
-- R1: Reconcile README/ARCHITECTURE Gold semantic versions with executable
-  `GOLD_SCHEMA_VERSION=7` and `GOLD_FEATURE_VERSION=6`, including any further version
-  increments required by PR-147 through PR-150.
-- R2: Refresh AGENTS current-delivery status, which still reports PR-80 through PR-90, and
-  remove stale operational statements.
-- R3: Reconcile the Fed provider module description with the browser-only production
-  composition root and document direct-transport code as non-production/explicit tooling if
-  it remains.
-- R4: Add tests or generated checks that prevent version/order statements from drifting from
-  executable constants again.
-
-Acceptance:
-- A1: repository search finds one authoritative current semantic version pair and no stale
-  6/5 operational claim.
-- A2: README, ARCHITECTURE, AGENTS, provider documentation, and runtime composition describe
-  one production path.
-- A3: a deliberate future version/order drift causes CI failure.
-
-### PR-152: Independent End-To-End Mathematical And Serving Acceptance
-
-PR name: `post-audit-mathematical-acceptance`
-Status: Merged
-Updated: 2026-09-27
-PR: #152
-Git branch: `pr-152/post-audit-mathematical-acceptance`
-Git status: `merged`
-Agent lane: Independent final QA; one agent only
-Depends on: PR-151
-Commit: `test(pr-152): accept populated mathematical serving path`; `fix(pr-152): correct independent history reference`; `fix(pr-152): inspect serving view columns as postgres metadata`
-Design patterns: Differential Testing, Golden Master, End-to-End Acceptance, Fail-Closed Verification.
-
-Description:
-- R1: Build independent calculators that do not import production formula builders for Fed
-  expected move/uncertainty/path/repricing and the corrected RSI/momentum families.
-- R2: Execute the canonical path from point-in-time Fed input and source levels through local
-  feature publication, PostgreSQL origin synchronization, materialized-view refresh, and
-  final named-column queries.
-- R3: Re-run historical/edge fixtures that specifically exposed PR-147 through PR-150 and
-  emit a deterministic sanitized acceptance artifact.
-- R4: Make PASS impossible if feature order, economic baseline, domain eligibility, NULL
-  semantics, numerical stability, version/fingerprint, or final column identity drifts.
-
-Acceptance:
-- A1: official CME differential fixtures and independent feature references match within
-  declared tolerances.
-- A2: named PostgreSQL values equal the canonical local values without positional swaps.
-- A3: signed/invalid/constant/long-history fixtures satisfy the corrected domain and NULL
-  contracts.
-- A4: unchanged replay yields zero semantic mutation and the acceptance artifact is
-  deterministic and sanitized.
-
-## New Delivery Wave — XETRA-Compatible Price Transformations In `macro_features`
+## Transformation scope (summary)
 
 This wave adopts the calculation semantics from the current
 [`xetra-loader` feature catalog](https://github.com/SergejSchweizer/xetra-loader/blob/main/src/xetra_loader/features/catalog.py)
@@ -907,9 +266,10 @@ and its PostgreSQL view implementation. The source-specific `adjusted_close` con
 mapped to each eligible positive `macro_raw` level series; no synthetic adjusted-close
 column is introduced.
 
-The requested market-wide `breadth` and `dispersion` families are explicitly **out of
-scope** because `macro-loader` currently has no instrument cross-section (`isin`, venue,
-instrument, trade-date) on which to calculate them.
+Market-wide `breadth`, cross-instrument `dispersion`, and volume transformations are
+explicitly **out of scope** per the user's scope decision. The repository has no instrument
+cross-section (`isin`, venue, instrument, trade-date) or applicable `volume_level` source.
+Do not synthesize these inputs from heterogeneous macro indicators or index quote fields.
 
 The XETRA-compatible geometric-return columns retain the `_pct` name but store decimal
 fractions (`0.05` means 5%), exactly as the XETRA SQL example computes them. Average
@@ -930,691 +290,31 @@ drawdown:         20, 60 observations
 
 The existing geometric-return implementation is replaced. The `10obs` column name is
 retained with the new XETRA-compatible 10-observation semantics; the obsolete
-`25/60/120/240obs` columns and their old values are removed. No breadth/dispersion column
-is added.
-
-### PR-145: Repair Installed Cron Runtime Path And Fail-Closed Configuration
-
-PR name: `repair-installed-cron-runtime-path`
-Status: Merged
-Updated: 2026-09-27
-PR: #145
-Git branch: `pr-145/repair-installed-cron-runtime-path`
-Git status: `merged`
-Agent lane: Cron runtime repair and acceptance; one agent only
-Depends on: PR-144
-Commit: `d98620c fix(pr-145): reject stale cron project paths`
-Design patterns: Adapter, Command, Fail-Closed Verification
-
-Description:
-- R1: Make the installed Sunday runner export its resolved project root to the
-  configuration adapter and reject a deployment config that still points at a
-  different historical checkout.
-- R2: Repair the local ignored deployment configuration to use the current
-  `/home/dev_macro/macro-loader` checkout and its local lake/log paths.
-- R3: Add deterministic unit coverage for stale-project-root rejection and run
-  the installed wrapper through its real lock/log/CLI path.
-
-Acceptance:
-- A1: `scripts/export_cron_config.py` rejects a configured `runtime.project_root`
-  that differs from `MACRO_LOADER_PROJECT_ROOT` without exposing any secret.
-- A2: `ops/run-macro-loader-sunday.sh` exports the resolved checkout root before
-  configuration export, preserves lock contention and maintenance-marker exits,
-  and uses only the resolved root for the installed executables.
-- A3: Unit tests prove matching configuration remains accepted and a stale
-  legacy project-root configuration is rejected when the installed root is
-  `/home/dev_macro/macro-loader`.
-- A4: The real Sunday wrapper starts with the repaired venv, reaches `run-daily`,
-  leaves no held lock or process after termination, and records a sanitized
-  terminal result in `.logs/macro-loader.log`.
-- A5: The branch is rebased onto `origin/main`, required checks are run, and the
-  branch is pushed without changing or committing protected credentials.
-
-### PR-141: Finalize Merged Backlog Status And Branch Cleanup
-
-PR name: `final-backlog-merged-status`
-Status: Merged
-Updated: 2026-09-27
-PR: #141
-Git branch: `pr-141/final-backlog-merged-status`
-Git status: `merged`
-Agent lane: Backlog governance and repository cleanup; one agent only
-Depends on: PR-140
-Commit: `docs(pr-141): finalize merged backlog status`
-Design patterns: Single Source of Truth, Closed-World Register.
-
-Description:
-- R1: Mark PR-140 merged only after GitHub reports the merge.
-- R2: Record the final merged state for every current XETRA delivery PR and the guarded production-run limitation.
-- R3: Make the repository ready for final local/remote branch cleanup with `main` as the sole retained branch.
-
-Acceptance:
-- A1: PR-132 through PR-140 detailed entries and condensed register rows agree on merged status and GitHub number.
-- A2: the final branch inventory contains only `main` locally and remotely after merge.
-- A3: no acceptance artifact claims an unauthorized production/service-account run.
-
-### PR-140: Consolidate Final XETRA Delivery Backlog Status
-
-PR name: `backlog-final-status`
-Status: Merged
-Updated: 2026-09-27
-PR: #140
-Git branch: `pr-140/backlog-final-status`
-Git status: `merged`
-Agent lane: Backlog governance; one agent only
-Depends on: PR-139
-Commit: `docs(pr-140): finalize xetra delivery backlog statuses`
-Design patterns: Single Source of Truth, Closed-World Register.
-
-Description:
-- R1: Mark PR-132 through PR-139 with their merged GitHub PR numbers and final git status.
-- R2: Condense the current delivery wave into the end-of-data register while retaining exact detailed acceptance contracts at the beginning.
-- R3: Record the guarded production-run limitation for PR-138/PR-139 without claiming an unauthorized deployment execution.
-
-Acceptance:
-- A1: every PR-132–139 detailed entry and condensed register row agrees on status, number, dependency, and branch metadata.
-- A2: no XETRA delivery PR remains `In Progress` or `Planned`; all eight implementation/QA PRs are GitHub-merged.
-- A3: the backlog states that only offline-safe acceptance ran and no production deployment/service-account execution is falsely reported as complete.
-
-### PR-132: Implement XETRA-Compatible Returns And Volatility
-
-PR name: `xetra-compatible-returns-volatility`
-Status: Merged
-Updated: 2026-09-27
-PR: #132
-Git branch: `pr-132/xetra-compatible-returns-volatility`
-Git status: `merged`
-Agent lane: PostgreSQL return/volatility implementation; one agent only
-Depends on: PR-131
-Commit: `feat(pr-132): implement xetra-compatible returns and volatility`
-Design patterns: Materialized View, Specification/Policy Object, Pure Transformation.
-
-Description:
-- R1: Replace the current geometric-return windows `10/25/60/120/240` with exact XETRA-compatible log-return windows `1/3/5/10/20`, geometric-return windows `5/10/20`, average-log-return windows `5/10/20`, and sample-volatility windows `5/10/20/40` for every eligible positive `macro_raw` level series.
-- R2: Preserve the `_pct` column suffix for geometric returns while storing decimal fractions; define and document `exp(sum(log_return_1)) - 1`, without multiplying by 100.
-- R3: Remove every obsolete `*_return_geom_25obs_pct`, `*_return_geom_60obs_pct`, `*_return_geom_120obs_pct`, and `*_return_geom_240obs_pct` column and replace the old `*_return_geom_10obs_pct` calculation with the new XETRA-compatible value in the closed-world catalog, SQL projection, migration, and view fingerprint.
-- R4: Use causal observation windows, positive-value guards, complete-window warm-up, NULL propagation, and no fill/interpolation/carry; do not add breadth or dispersion.
-
-Acceptance:
-- A1 (verifies R1): the catalog and generated PostgreSQL view define exactly the requested return/volatility columns for every eligible level series, with exact names, order, types, and formulas.
-- A2 (verifies R2): hand-calculable fixtures prove `0.05`, not `5.0`, for a 5% geometric return and prove average values are averages of one-observation log returns.
-- A3 (verifies R3): schema/code search and materialized-view introspection prove obsolete 25/60/120/240 windows are absent, the old 10-observation values are replaced, and no stale catalog/fingerprint entry remains.
-- A4 (verifies R4): irregular dates, NULLs, non-positive values, incomplete windows, zero variance, and truncation fixtures prove causal NULL-safe behavior and no market-wide feature is introduced.
-
-### PR-133: Implement XETRA-Compatible Trend And Momentum Features
-
-PR name: `xetra-compatible-trend-momentum`
-Status: Merged
-Updated: 2026-09-27
-PR: #133
-Git branch: `pr-133/xetra-compatible-trend-momentum`
-Git status: `merged`
-Agent lane: PostgreSQL trend/momentum implementation; one agent only
-Depends on: PR-132
-Commit: `feat(pr-133): implement xetra-compatible trend momentum`
-Design patterns: Materialized View, Specification/Policy Object, Pure Transformation.
-
-Description:
-- R1: Add SMA ratios `5/20`, `10/20`, and `10/40` over each eligible level series with full denominator warm-up and zero-denominator NULL behavior.
-- R2: Add Wilder RSI over 7 and 14 observations using the XETRA seed and recursive Wilder smoothing, with exact warm-up and all-gain/all-loss edge semantics.
-- R3: Add ROC over 3, 5, 10, and 20 observations as `level(t)/level(t-n)-1` with positive-value guards.
-- R4: Add rolling drawdown over 20 and 60 observations as `level(t)/rolling_max(level,n)-1`, with full causal windows and NULL-safe zero maxima.
-- R5: Keep breadth, dispersion, and all obsolete geometric-return windows out of the view; preserve the PR-132 return/volatility formulas, including the replaced 10-observation geometric-return value.
-
-Acceptance:
-- A1 (verifies R1): fixed positive fixtures reproduce all three SMA ratios exactly and return NULL before the denominator window is complete or when its denominator is zero.
-- A2 (verifies R2): an independent Wilder reference reproduces RSI-7/RSI-14, including seed row, recursive rows, all-gain=100 behavior, and undefined warm-up rows.
-- A3 (verifies R3): independent fixtures reproduce all four ROC windows, including non-positive source guards and exact observation-based lagging.
-- A4 (verifies R4): independent fixtures reproduce drawdown-20/drawdown-60 from the causal rolling maximum and preserve NULLs for incomplete/invalid windows.
-- A5 (verifies R5): final catalog/view projection contains none of the excluded breadth, dispersion, or obsolete 25/60/120/240 return columns, and the 10-observation column matches PR-132 output parity.
-
-### PR-134: Independent Mathematical QA For Returns And Volatility
-
-PR name: `xetra-compatible-returns-volatility-qa`
-Status: Merged
-Updated: 2026-09-27
-PR: #134
-Git branch: `pr-134/xetra-compatible-returns-volatility-qa`
-Git status: `merged`
-Agent lane: Independent formula QA; one agent only
-Depends on: PR-132
-Commit: `test(pr-134): verify xetra-compatible returns volatility`
-Design patterns: Differential Testing, Golden Master, Pure Reference Calculator, Fail-Closed Verification.
-
-Description:
-- R1: Build a dependency-independent reference calculator for all return and volatility columns without importing the production SQL builder or catalog formulas.
-- R2: Compare PostgreSQL output against the reference on positive, zero, negative, NULL, sparse, truncated, constant, and sign-changing fixtures.
-- R3: Verify decimal `_pct` semantics, average-log-return semantics, sample standard deviation, full warm-up, and exact observation-window behavior.
-
-Acceptance:
-- A1 (verifies R1): the reference calculator computes every PR-132 column independently and detects a deliberately altered production formula.
-- A2 (verifies R2): PostgreSQL and reference values match within one declared floating-point tolerance; invalid or incomplete cases match NULL exactly.
-- A3 (verifies R3): dedicated assertions prove decimal geometric values, average-log-return values, sample volatility, no look-ahead, absence of obsolete windows, and replacement of the old 10-observation values.
-
-### PR-135: Independent Mathematical QA For Trend And Momentum
-
-PR name: `xetra-compatible-trend-momentum-qa`
-Status: Merged
-Updated: 2026-09-27
-PR: #135
-Git branch: `pr-135/xetra-compatible-trend-momentum-qa`
-Git status: `merged`
-Agent lane: Independent trend/momentum QA; one agent only
-Depends on: PR-133
-Commit: `test(pr-135): verify xetra-compatible trend momentum`
-Design patterns: Differential Testing, Golden Master, Pure Reference Calculator, Fail-Closed Verification.
-
-Description:
-- R1: Build independent reference implementations for SMA ratios, Wilder RSI, ROC, and drawdown.
-- R2: Compare the complete PR-133 output against the reference using hand-calculable and sparse-observation fixtures.
-- R3: Verify no future rows, calendar-day shortcuts, implicit carry, invalid-value substitution, or premature warm-up values.
-
-Acceptance:
-- A1 (verifies R1): all 11 trend/momentum columns are independently calculated and every catalog column is covered exactly once.
-- A2 (verifies R2): PostgreSQL values match the independent reference within the declared tolerance, including all edge cases and NULLs.
-- A3 (verifies R3): truncation, irregular-date, invalid-level, and future-row mutation tests prove causal observation semantics and no look-ahead.
-
-### PR-136: Verify Complete View Contract And Legacy Removal
-
-PR name: `xetra-compatible-view-contract-qa`
-Status: Merged
-Updated: 2026-09-27
-PR: #136
-Git branch: `pr-136/xetra-compatible-view-contract-qa`
-Git status: `merged`
-Agent lane: PostgreSQL schema/conformance QA; one agent only
-Depends on: PR-134, PR-135
-Commit: `test(pr-136): verify xetra-compatible view contract`
-Design patterns: Contract Test, Closed-World Catalog, Fail-Closed Verification.
-
-Description:
-- R1: Inspect the clean-created and migrated `macro_features` materialized view independently of the production catalog builder.
-- R2: Verify presence, order, PostgreSQL types, NULLability, comments, ownership, grants, version, and fingerprint for all new columns.
-- R3: Verify absence of every obsolete 25/60/120/240 geometric-return column, replacement of the old 10-observation value, and absence of all breadth/dispersion columns.
-
-Acceptance:
-- A1 (verifies R1): clean-create and in-place-upgrade introspection converge to one exact materialized-view definition.
-- A2 (verifies R2): all 26 new columns per eligible series exist exactly once with expected order/types and the declared decimal `_pct` contract.
-- A3 (verifies R3): obsolete `return_geom_25/60/120/240` columns, the old 10-observation formula/value, every breadth column, and every dispersion column are absent; only the replacement `return_geom_10` contract remains.
-
-### PR-137: Historical Data Quality, Revision, Replay, And Refresh QA
-
-PR name: `xetra-compatible-historical-quality-qa`
-Status: Merged
-Updated: 2026-09-27
-PR: #137
-Git branch: `pr-137/xetra-compatible-historical-quality-qa`
-Git status: `merged`
-Agent lane: Historical PostgreSQL/data-quality QA; one agent only
-Depends on: PR-136
-Commit: `test(pr-137): verify xetra-compatible historical quality`
-Design patterns: End-to-End Test, Reconciliation, Differential Testing, State Machine, Fail-Closed Verification.
-
-Description:
-- R1: Run the full available historical `macro_features` view against the independent references and produce per-column coverage, warm-up, NULL-reason, finite-value, and distribution evidence.
-- R2: Verify one historical source revision changes exactly the mathematically affected windows and never mutates unrelated columns or future rows.
-- R3: Verify unchanged replay produces zero source mutations, zero unnecessary refreshes, stable version/fingerprint, and identical results.
-- R4: Emit a deterministic sanitized acceptance artifact with PASS/FAIL and no credentials or environment-specific secrets.
-
-Acceptance:
-- A1 (verifies R1): every new column exists over the expected historical range, all values are finite-or-NULL, warm-up NULLs are exact, and unexplained gaps fail.
-- A2 (verifies R2): a controlled historical revision produces exactly the expected affected rows for every impacted window and no others.
-- A3 (verifies R3): unchanged replay records zero semantic mutations and zero refreshes while preserving exact schema/fingerprint and output parity.
-- A4 (verifies R4): the artifact is deterministic/sanitized and cannot report PASS unless A1-A3 pass.
-
-### PR-138: Complete Pipeline And PostgreSQL Serving Acceptance
-
-PR name: `xetra-compatible-complete-run-acceptance`
-Status: Merged
-Updated: 2026-09-27
-PR: #138
-Git branch: `pr-138/xetra-compatible-complete-run-acceptance`
-Git status: `merged`
-Agent lane: Full production-like pipeline acceptance; one agent only
-Depends on: PR-137
-Commit: `test(pr-138): accept complete xetra-compatible run`
-Design patterns: End-to-End Acceptance, Unit of Work, Reconciliation, Fail-Closed Verification.
-
-Description:
-- R1: Execute the complete authorized path from source update through Bronze, Silver, Gold, PostgreSQL raw synchronization, materialized-view refresh, and independent verification.
-- R2: Verify the new feature columns are present in the final serving view, all legacy columns are absent, and non-target features are unchanged.
-- R3: Run a bounded normal replay after the complete run and prove no automatic full-history reconcile or fabricated observations occurs.
-- R4: Emit a deterministic sanitized complete-run artifact.
-
-Acceptance:
-- A1 (verifies R1): every stage completes in the documented order against the intended persistent lake and PostgreSQL endpoint, with exact mutation/refresh evidence.
-- A2 (verifies R2): final serving introspection and independent parity checks prove all new columns exist and all excluded/legacy columns do not exist.
-- A3 (verifies R3): immediate replay is delta-bounded, produces zero semantic mutations/refreshes when unchanged, and preserves all source/view invariants.
-- A4 (verifies R4): the artifact is sanitized, deterministic, and PASS is impossible if any stage or assertion fails.
-
-### PR-139: Installed Cron And Failure-Recovery Acceptance
-
-PR name: `xetra-compatible-cron-acceptance`
-Status: Merged
-Updated: 2026-09-27
-PR: #139
-Git branch: `pr-139/xetra-compatible-cron-acceptance`
-Git status: `merged`
-Agent lane: Installed operational cron QA; one agent only
-Depends on: PR-138
-Commit: `test(pr-139): accept xetra-compatible cron run`
-Design patterns: End-to-End Acceptance, Command, Single-Instance Lock, Failure Injection, Fail-Closed Verification.
-
-Description:
-- R1: Execute the exact installed cron wrapper with the configured service account, working directory, timezone, lock, lake, logs, and PostgreSQL roles; no Python-substitution shortcut is allowed.
-- R2: Verify a successful run, unchanged replay, missed-run catch-up, weekend/holiday no-op, lock contention, runtime preflight, and exit-code propagation.
-- R3: Inject source failure before publication and PostgreSQL/refresh failure after local publication; verify safe retry and preservation of the last committed serving state.
-- R4: Emit the final deterministic sanitized cron acceptance artifact.
-
-Acceptance:
-- A1 (verifies R1): evidence identifies the exact installed wrapper/config/service identity/cwd/timezone/lock/log path and proves the scheduler path was used.
-- A2 (verifies R2): successful and replay runs prove exact new-column presence, old-column absence, bounded updates, correct no-op behavior, and no concurrent execution.
-- A3 (verifies R3): both injected failure classes return non-zero, avoid false PASS, preserve committed state, and recover through the documented retry path.
-- A4 (verifies R4): the artifact is sanitized/deterministic and PASS is impossible unless A1-A3 pass.
-
-## New Delivery PRs — Fed Origins In PostgreSQL Serving
-
-## PR-114: Extend Canonical Origin And Macro Raw Schema With Four Fed Features
-
-PR name: `fed-policy-macro-raw-contract`
-Status: Merged
-Updated: 2026-09-23
-PR: #117
-Git branch: `pr-114/fed-policy-macro-raw-contract`
-Git status: `merged`
-Agent lane: Serving schema/migration; one agent only
-Depends on: PR-113
-Commit: `feat(pr-114): add fed policy origins to macro raw contract`
-Design patterns: Versioned Migration, Specification/Policy Object, Single Source of Truth.
-
-Description:
-- R1: Extend the canonical origin-serving schema and `macro_loader.macro_raw` with exactly four nullable DOUBLE PRECISION columns: `fed_next_expected_move_bp`, `fed_path_slope_m3_bp`, `fed_next_uncertainty_bp`, and `fed_repricing_5obs_bp`; preserve the existing timestamp primary key and all pre-existing source columns/order semantics.
-- R2: Make the four Fed columns part of the versioned source-controlled raw/origin contract used by PostgreSQL conformance, row digests, sync planning, and downstream catalog construction; advance the appropriate schema/version/fingerprint exactly once.
-- R3: Preserve the architectural invariant that `macro_raw` is rebuildable from canonical local origin data: the migration must define how canonical Fed daily output is joined by `timestamp_m1` into the origin frame before PostgreSQL synchronization rather than writing ad-hoc SQL-only values.
-- R4: Set the serving exposure lower boundary to `2010-01-01` without fabricating a Fed value on that date; pre-first-eligible and genuinely unavailable point-in-time observations remain NULL and are auditable.
-- R5: Add clean-create and in-place-upgrade tests proving exact ordered schema/types/nullability, owner/grants, digest/version behavior, idempotent migration rerun, and preservation of unrelated tables/schemas.
-
-Acceptance:
-- A1 (verifies R1): independent PostgreSQL/schema inspection shows exactly the four Fed columns once in `macro_raw`, with DOUBLE PRECISION NULL types and no loss/reordering of existing columns.
-- A2 (verifies R2): conformance/digest planners include all four columns; the declared schema/version/fingerprint changes once and stale pre-migration contracts fail closed.
-- A3 (verifies R3): fixed canonical input rebuilds the same `macro_raw` Fed values without direct operator SQL and repository search finds one defined origin assembly path.
-- A4 (verifies R4): rows from 2010-01-01 onward are permitted, but fixtures prove missing/holiday/pre-availability Fed observations remain NULL rather than filled or synthesized.
-- A5 (verifies R5): clean bootstrap and production-shaped upgrade converge to the same exact contract, second migration is a no-op, and unrelated objects remain unchanged.
-
-## PR-115: Backfill And Incrementally Populate Macro Raw Fed Origins
-
-PR name: `fed-policy-macro-raw-population`
-Status: Merged
-Updated: 2026-09-23
-PR: #118
-Git branch: `pr-115/fed-policy-macro-raw-population`
-Git status: merged
-Agent lane: Historical/delta synchronization; one agent only
-Depends on: PR-114
-Commit: `feat(pr-115): populate macro raw fed policy origins`
-Design patterns: Unit of Work, Repository, Reconciliation, Strategy.
-
-Description:
-- R1: Add an explicit one-time reconcile/backfill path that merges the canonical four-feature Fed daily dataset into canonical origin rows and synchronizes `macro_raw` for every serving timestamp from 2010-01-01 through the latest completed EOD source date.
-- R2: For every timestamp where a canonical Fed value exists, persist exact value parity in the corresponding `macro_raw` column; where point-in-time source support is genuinely absent, persist NULL and record/report the gap rather than fill, interpolate, forward-carry, or synthesize.
-- R3: Extend normal EOD/delta synchronization so new/revised canonical Fed rows update only the bounded affected serving rows plus required overlap/revision scope; daily execution must never trigger the full 2010 backfill automatically.
-- R4: Reconcile inserts/updates/deletes, row hashes, sync state, source bounds, and canonical data SHA deterministically; immediate unchanged replay produces zero semantic mutations.
-- R5: Preserve transactional atomicity: failure before commit leaves the previously committed `macro_raw`, row hashes, sync state, and downstream refresh eligibility unchanged.
-- R6: Add hermetic integration fixtures spanning 2010 start, sparse Fed dates, a historical revision, a multi-day missed run, and unchanged replay with exact mutation counts.
-
-Acceptance:
-- A1 (verifies R1): an explicit backfill fixture exposes `macro_raw` rows from 2010-01-01 through the requested completed EOD date and processes the full canonical Fed history only under reconcile/backfill mode.
-- A2 (verifies R2): all non-NULL Fed origin values in `macro_raw` equal canonical local Fed values exactly; every NULL is attributable to an explicit source/availability gap and no fill/carry occurs.
-- A3 (verifies R3): normal EOD after a complete backfill requests/processes only bounded recent delta/revision scope and repository traces prove it never scans 2010-present automatically.
-- A4 (verifies R4): insert/update/delete/no-op cases reconcile consumer rows, hashes/state/source bounds exactly and unchanged replay reports zero semantic mutations.
-- A5 (verifies R5): injected failure at each mutation/verification boundary preserves the prior committed serving state and cannot expose partial Fed columns.
-- A6 (verifies R6): all listed historical/delta scenarios have deterministic expected row/value/mutation counts.
-
-## PR-116: Verify Macro Raw Fed History And Data Quality
-
-PR name: `fed-policy-macro-raw-quality-qa`
-Status: Merged
-Updated: 2026-09-23
-PR: #119
-Git branch: `pr-116/fed-policy-macro-raw-quality-qa`
-Git status: merged
-Agent lane: Real PostgreSQL/history data-quality QA; one agent only
-Depends on: PR-115
-Commit: `test(pr-116): verify macro raw fed policy quality`
-Design patterns: End-to-End Test, Reconciliation, Differential Testing, Fail-Closed Verification.
-
-Description:
-- R1: Run real-PostgreSQL clean/upgrade QA and query `macro_raw` from 2010-01-01 through the latest completed EOD, proving exact four-column schema, timestamp uniqueness/order, finite-or-NULL values, owner/grants, versions, hashes, and source-state conformance.
-- R2: Differentially compare every non-NULL `macro_raw` Fed origin against the canonical local `fed_policy_features_daily` value on the same `timestamp_m1`; no tolerance is allowed beyond representation-equivalent Float64 equality unless a separately documented serialization tolerance is required.
-- R3: Produce exact per-feature coverage statistics: first/last non-NULL date, non-NULL count, NULL count, longest gap, yearly coverage, and gap reasons; verify the requested lower boundary 2010-01-01 and fail on unexplained missing periods.
-- R4: Add semantic/data-quality checks for finite values, non-negative uncertainty, expected 25bp-grid-compatible policy distributions upstream, plausible but non-clipping signed move/slope/repricing values, absence of impossible spikes caused by unit errors, and exact point-in-time availability/no-look-ahead spot checks across 2010, 2015, 2020, 2022, and a recent period.
-- R5: Verify historical revision propagation, immediate no-op replay, and tamper detection for one Fed value, one hash/state row, and one schema/grant property; all drift must fail closed and repair through the documented sync/migrate path.
-- R6: Emit deterministic sanitized `artifacts/acceptance/fed-policy-macro-raw-quality-v1.json` with schema/version, date bounds, per-feature coverage/gaps, canonical parity, quality checks, mutation/replay evidence, and PASS|FAIL.
-
-Acceptance:
-- A1 (verifies R1): independent real-PostgreSQL inspection passes every schema/temporal/finite/grant/version/hash/state assertion from 2010-01-01 through current completed EOD.
-- A2 (verifies R2): 100% of non-NULL `macro_raw` Fed values match canonical local values under the declared equality rule and any mismatch prevents PASS.
-- A3 (verifies R3): the artifact contains complete per-feature coverage/gap metrics and every material gap has a documented causal/source reason; unexplained gaps fail.
-- A4 (verifies R4): all semantic quality and point-in-time spot checks pass without clipping legitimate signed values or accepting unit/look-ahead errors.
-- A5 (verifies R5): revision/no-op/tamper scenarios show exact expected behavior, zero mutations on unchanged replay, and fail-closed drift detection/recovery.
-- A6 (verifies R6): the sanitized artifact is deterministic and cannot report PASS unless A1-A5 all pass.
-
-## PR-117: Build Fed Materialized Features Exclusively From Macro Raw
-
-PR name: `fed-policy-macro-features-from-raw`
-Status: Merged
-Updated: 2026-09-23
-PR: #120
-Git branch: `pr-117/fed-policy-macro-features-from-raw`
-Git status: merged
-Agent lane: Materialized-view transformations; one agent only
-Depends on: PR-116
-Commit: `feat(pr-117): derive fed policy features from macro raw`
-Design patterns: Materialized View, Specification/Policy Object, Pure Transformation.
-
-Description:
-- R1: Remove the direct private Fed-policy relation join from the `macro_features` materialized-view query and source all four canonical Fed origins exclusively from `macro_raw`; the private Fed relation may remain as synchronization/audit staging but is not a feature-view input.
-- R2: Expose the four canonical Fed origins unchanged in `macro_features` for every serving timestamp from 2010-01-01 through latest completed EOD, preserving NULLs exactly from `macro_raw`.
-- R3: For each Fed origin add exactly `delta_1obs`, `delta_5obs`, `delta_20obs`, and `zscore_60obs` using source-valid-observation causal semantics, population stddev, full warm-up, and no fill/interpolation/carry.
-- R4: For each Fed origin add exactly `momentum_autocorr_1_60obs`, `momentum_autocorr_5_60obs`, and `momentum_autocorr_20_120obs` from one-valid-observation changes using the same positive-clipping/undefined-NULL rules as existing momentum origins.
-- R5: Do not add Fed `*_log_level`, shifted-log, ratio-return, or geometric-return columns because the canonical bp origins can be negative or zero; retain exactly 4 origin + 28 derived = 32 Fed columns.
-- R6: Update the closed-world feature catalog, materialized-view version/fingerprint, normalized definition markers, conformance checks, and migration/rebuild path atomically; preserve all non-Fed feature formulas/order and one-refresh-per-semantic-sync behavior.
-
-Acceptance:
-- A1 (verifies R1): normalized SQL/code search contains no feature-view join to the private Fed table and every Fed expression is rooted in `macro_raw`.
-- A2 (verifies R2): every canonical Fed value/NULL in `macro_features` equals the same-timestamp `macro_raw` origin exactly from 2010-01-01 onward.
-- A3 (verifies R3): all 16 delta/z-score columns pass hand-calculable irregular-date/warm-up/zero-variance fixtures with exact valid-observation semantics.
-- A4 (verifies R4): all 12 momentum-autocorrelation columns pass exact 60/120-window, lag, negative-correlation clipping, undefined-window, and sparse-calendar fixtures.
-- A5 (verifies R5): schema/catalog/code search proves exactly 32 Fed columns and zero logarithmic/geometric/shifted-log Fed columns; negative/zero/sign-crossing origin fixtures remain valid.
-- A6 (verifies R6): view version/fingerprint advance exactly once, non-Fed outputs are unchanged on fixed inputs, clean/upgrade definitions converge, one mutation causes one refresh, and no-op causes zero.
-
-## PR-118: Verify Macro Features Fed Transformations And Historical Quality
-
-PR name: `fed-policy-macro-features-quality-qa`
-Status: Merged
-Updated: 2026-09-23
-PR: #121
-Git branch: `pr-118/fed-policy-macro-features-quality-qa`
-Git status: merged
-Agent lane: Independent materialized-view QA; one agent only
-Depends on: PR-117
-Commit: `test(pr-118): verify fed policy materialized feature quality`
-Design patterns: Differential Testing, Golden Master, End-to-End Test, Fail-Closed Verification.
-
-Description:
-- R1: Build an independent reference calculator from the four `macro_raw` Fed origin columns, without importing/calling the production SQL-expression builder, and reproduce all 28 derived Fed columns over the full available history.
-- R2: Compare real PostgreSQL `macro_features` against `macro_raw` and the independent reference from 2010-01-01 through latest completed EOD: exact origin parity, exact schema/order/types, one declared numeric tolerance for derived floating arithmetic, timestamp uniqueness, finite-or-NULL values, version/fingerprint, owner/grants, and normalized definition.
-- R3: Verify valid-observation semantics and data quality for sparse calendars, NULL gaps, 1/5/20 lags, z-score warm-up/zero variance, 60/120 momentum windows, negative correlation, sign changes, and absence of fill/interpolation/carry.
-- R4: Produce per-column coverage statistics for all 32 Fed columns, including first/last non-NULL date, yearly counts, warm-up-derived NULLs versus upstream-origin NULLs, longest unexplained gap, and distribution summaries; unexplained gaps or premature non-NULL warm-up values fail.
-- R5: Verify revision propagation and refresh lifecycle end to end: one historical `macro_raw` origin revision changes exactly the mathematically affected derived windows after one refresh; immediate unchanged replay yields zero source mutations and zero refreshes.
-- R6: Emit deterministic sanitized `artifacts/acceptance/fed-policy-macro-features-quality-v1.json` covering all 32 columns, formulas, coverage/gaps, max numeric errors, version/fingerprint, refresh/replay evidence, and PASS|FAIL.
-
-Acceptance:
-- A1 (verifies R1): all 28 derived columns are independently recomputed from `macro_raw`; missing/extra/renamed columns or an altered production formula fails QA.
-- A2 (verifies R2): the real materialized view matches all four origins exactly and all 28 derived values within the single declared tolerance over the full 2010-current history while schema/version/grants/definition are exact.
-- A3 (verifies R3): every listed lag/window/warm-up/gap/signed-value case has exact assertions and proves no calendar-day, carry, logarithmic, or geometric-return shortcut.
-- A4 (verifies R4): the artifact contains complete coverage/quality metrics for all 32 columns; all NULLs are attributable to upstream absence or causal warm-up and unexplained anomalies prevent PASS.
-- A5 (verifies R5): revision/no-op tests prove exact affected windows, exactly one refresh on semantic mutation, zero refresh on unchanged replay, and stable fingerprint.
-- A6 (verifies R6): the sanitized artifact is deterministic and PASS is impossible unless A1-A5 all pass.
-
-## Historical Fed Policy Serving Program — Superseded By PR-168
-
-The following serving contract, dependency chain, and PR-113–118 specifications are
-retained as delivery and acceptance history. They describe the former Fed-serving
-program, not the current target contract or active operator procedure. PR-168 merged the
-retirement on 2026-10-26; this does not assert production deployment. Historical PR
-details and acceptance records below are intentionally preserved.
-
-The four canonical Fed-policy EOD origins are:
-
-```text
-fed_next_expected_move_bp
-fed_path_slope_m3_bp
-fed_next_uncertainty_bp
-fed_repricing_5obs_bp
-```
-
-Their canonical formulas and point-in-time availability semantics were delivered by
-PR-97–105. The former serving wave changed their serving placement and downstream transformations:
-the four origins must be first-class columns in `macro_raw`, and `macro_features` must
-consume those columns from `macro_raw` rather than directly joining a private Fed table.
-
-Under the former contract, both serving relations exposed the requested history from `2010-01-01` through the latest
-completed EOD source date. `2010-01-01` is the lower serving boundary; the first actual
-eligible Fed observation is source/calendar dependent and must be verified. No QA may turn
-a public-source gap into an invented value.
-
-The signed-safe shared transform set for each Fed origin is exactly:
-
-```text
-delta_1obs
-delta_5obs
-delta_20obs
-zscore_60obs
-momentum_autocorr_1_60obs
-momentum_autocorr_5_60obs
-momentum_autocorr_20_120obs
-```
-
-Thus the former `macro_features` contract exposed 4 canonical Fed origins plus 28 derived Fed columns = 32
-Fed columns. Natural-log levels, shifted-log workarounds, and geometric/percentage returns
-are intentionally excluded because the Fed basis-point origins can be zero or negative.
-
-The historical dependency chain was:
-
-```text
-PR-114 serving contract/schema
-    |
-    v
-PR-115 backfill + delta population of macro_raw
-    |
-    v
-PR-116 macro_raw data-quality QA
-    |
-    v
-PR-117 macro_features consumes macro_raw + 28 transforms
-    |
-    v
-PR-118 macro_features transform/data-quality QA
-    |
-    +--------------------------+
-    |                          |
-    v                          v
-PR-106 CME differential QA   PR-107 real PostgreSQL QA
-                                  |
-                                  v
-                          PR-108 history acceptance
-                                  |
-                                  v
-                          PR-109 cron acceptance
-                                  |
-                                  v
-                          PR-110 cleanup/docs
-```
-
-## PR-113: Reframe Fed Policy Serving Through Macro Raw
-
-PR name: `fed-policy-transform-backlog`
-Status: Merged
-Updated: 2026-09-23
-PR: #115
-Git branch: `pr-113/fed-policy-transform-backlog`
-Git status: `merged`
-Agent lane: Backlog/governance extension; one agent only
-Depends on: none
-Commit: `docs(pr-113): define fed macro raw serving program`
-Design patterns: Specification/Policy Object.
-
-Description:
-- R1: Freeze the serving lineage `canonical Fed EOD -> canonical origin contract -> macro_raw -> macro_features`; the materialized feature view must not bypass `macro_raw` with a direct private-Fed-table join after the migration completes.
-- R2: Define PR-114 through PR-118 as atomic schema/population/QA/transformation/QA scopes, each with complete one-to-one Rn/An acceptance lists and a requested historical boundary of 2010-01-01 through the latest completed EOD source date.
-- R3: Freeze the `macro_features` Fed contract at four canonical origins plus exactly 28 signed-safe derived columns (7 per origin), with no logarithmic/geometric/shifted-log transformations.
-- R4: Gate PR-107, PR-108, PR-109, and PR-110 on the new `macro_raw` and `macro_features` QA evidence so real PostgreSQL, historical, cron, and final-documentation PASS cannot predate the serving migration.
-
-Acceptance:
-- A1 (verifies R1): BACKLOG explicitly names `macro_raw` as the sole PostgreSQL origin source used by `macro_features` for the four Fed columns after migration and forbids the previous direct private-table join.
-- A2 (verifies R2): PR-114 through PR-118 each have complete metadata, atomic scope, exact R/A counts, and explicit 2010-to-current-EOD acceptance.
-- A3 (verifies R3): the contract enumerates the seven allowed transforms per origin and states 4 + 28 = 32 Fed columns with explicit log/geometric exclusions.
-- A4 (verifies R4): downstream PR dependencies/acceptance require PR-116 and PR-118 evidence before any full PostgreSQL/history/cron/final PASS.
-
-## PR-106: Differentially Validate Reconstruction Against Official CME FedWatch
-
-PR name: `fed-policy-cme-differential-qa`
-Status: Merged
-Updated: 2026-09-23
-PR: #106
-Git branch: `pr-106/fed-policy-cme-differential-qa`
-Git status: `merged`
-Agent lane: Formula/differential QA; one agent only
-Depends on: PR-102
-Commit: `test(pr-106): validate fed policy reconstruction against cme`
-Design patterns: Differential Testing, Golden Master, Test Fixture.
-
-Description:
-- R1: Capture a small sanitized set of official public CME FedWatch meeting-export fixtures for overlapping dates/meetings and compare reconstructed target/move probability distributions to the official distributions using one source-controlled numeric tolerance and explicit bucket-alignment rules.
-- R2: From the same official fixtures, independently calculate/compare all four canonical features, including three-meeting path slope and five-valid-observation repricing, and report exact per-feature error statistics.
-- R3: Historical criterion. The browser/MeetingExport adapter was originally intended
-  as a QA-only boundary; the current production contract instead uses the browser-only
-  Chinese CME page and does not use the blocked direct transport endpoint.
-- R4: Add explicit anti-look-ahead differential fixtures proving EFFR publication lag and FOMC schedule/emergency-meeting first-known times change historical eligibility exactly when they should.
-- R5: Emit a deterministic sanitized `artifacts/acceptance/fed-policy-cme-parity-v1.json` listing fixture identities/hashes, methodology version, tolerances, compared meetings/features, max errors, causal checks, and PASS|FAIL.
-
-Acceptance:
-- A1 (verifies R1): every captured official meeting distribution is matched within the declared tolerance, probability buckets/mass align deterministically, and a deliberately altered reconstruction formula fails.
-- A2 (verifies R2): all four feature comparisons are present with finite error metrics and the path-slope/repricing checks use the PR-97 semantics rather than the legacy M3 cumulative sum.
-- A3 (verifies R3): historical repository call-path tests proved the then-planned QA-only boundary;
-  this criterion is superseded by the current browser-only Chinese CME production path.
-- A4 (verifies R4): before-publication/before-announcement fixtures exclude unavailable information and become eligible only after the recorded availability boundary.
-- A5 (verifies R5): the parity artifact is deterministic/sanitized and can report PASS only if A1-A4 all pass.
-
-
-
-## PR-107: Run Real-PostgreSQL Fed Policy Integration QA
-
-PR name: `fed-policy-real-postgres-qa`
-Status: Closed/Superseded
-Updated: 2026-09-23
-PR: #107
-Git branch: `pr-107/fed-policy-real-postgres-qa`
-Git status: `closed`
-Agent lane: Real PostgreSQL QA; one agent only
-Depends on: PR-106, PR-116, PR-118
-Commit: `test(pr-107): validate fed policy postgres integration`
-Design patterns: End-to-End Test, Reconciliation, Fail-Closed Verification.
-
-Description:
-- R1: Add a real-PostgreSQL suite for clean bootstrap and upgrade from the current production-shaped schema through migrations, Fed-policy sync, materialized-view refresh, independent conformance verification, and migration rerun.
-- R2: Verify exact `macro_raw` and public `macro_features` schemas, the four canonical Fed origins plus all 28 PR-117 derived columns (32 Fed columns total), view version/fingerprint, finite-or-NULL values, timestamp uniqueness, ownership/grants, and downstream read-only consumer compatibility.
-- R3: Exercise insert, historical revision/update, explicit source-row removal during reconcile, mixed delta, and immediate no-op replay; after each case source/consumer/hash/state/view reconciliation must be exact.
-- R4: Inject raw private-table tamper, view-definition/schema drift, owner/grant drift, digest/state drift, and refresh failure; every case must fail closed and preserve/recover through the documented migrate/sync path.
-- R5: Emit deterministic PostgreSQL QA evidence with mutation/refresh counts, normalized object definitions, schema/version/fingerprint, conformance result, and PASS|FAIL without credentials.
-
-Acceptance:
-- A1 (verifies R1): clean and upgrade paths converge to the same PostgreSQL contract, migration rerun is a no-op, and independent verification passes only after valid Fed synchronization/refresh.
-- A2 (verifies R2): exact introspection/query assertions cover every required column/type/grant/version property and a regime-engine-shaped read sees all 32 Fed origin/derived features through the supported macro feature plane.
-- A3 (verifies R3): all mutation classes reconcile exactly and the unchanged replay produces zero semantic row mutations and zero materialized-view refreshes.
-- A4 (verifies R4): every deliberate drift/failure prevents false success and the documented repair path restores exact conformance without touching unrelated schemas.
-- A5 (verifies R5): the QA evidence is deterministic/sanitized and PASS is impossible if any schema/data/refresh/reconciliation assertion fails.
-
-## PR-108: Execute Full Fed Policy History Acceptance From 2010
-
-PR name: `fed-policy-2010-full-history-acceptance`
-Status: Merged
-Updated: 2026-09-23
-PR: #108
-Git branch: `pr-108/fed-policy-2010-full-history-acceptance`
-Git status: `merged`
-Agent lane: Production-like historical acceptance; one agent only
-Depends on: PR-107, PR-116, PR-118
-Commit: `test(pr-108): execute fed policy history acceptance`
-Design patterns: End-to-End Acceptance, Reconciliation, Fail-Closed Verification.
-
-Description:
-- R1: In an explicitly authorized environment, execute the real historical Fed-policy reconcile from requested start `2010-01-01` through the current completed source date using the persistent lake and real free/public provider configuration, then synchronize PostgreSQL and run independent conformance verification.
-- R2: Prove source coverage from the first eligible 2010 trading date (expected 2010-01-04, verified rather than assumed) through the present with exact settlement-curve/date counts and an explicit unexplained-gap report; unavailable public history must make this acceptance FAIL rather than create synthetic observations.
-- R3: Verify the four canonical Fed-origin histories and all 28 materialized derived Fed histories are unique, ordered, finite-or-NULL, causal, and populated only after their exact valid-observation warm-up; perform exact/independent spot checks across at least 2010, the 2015 liftoff period, 2020 emergency policy, the 2022 hiking cycle, and a recent period.
-- R4: Query real PostgreSQL as the downstream consumer and verify `macro_raw` exposes the four Fed origins and `macro_features` exposes those four plus all 28 derived columns from 2010-01-01 through current completed EOD, with exact origin parity, independent derived-value parity, version/fingerprint, and no unintended changes to non-Fed columns.
-- R5: Immediately run normal EOD update and PostgreSQL sync unchanged; require bounded recent source requests, zero semantic data mutations, zero view refresh, and identical relevant fingerprints.
-- R6: Commit only a deterministic sanitized `artifacts/acceptance/fed-policy-history-v1.json` with source identities, min/max/count/gaps, methodology/version hashes, spot-check evidence, PostgreSQL parity, replay counts, and PASS|FAIL.
-
-Acceptance:
-- A1 (verifies R1): every declared real stage executes in order against the intended persistent lake/PostgreSQL endpoint and independent verification runs after sync.
-- A2 (verifies R2): the artifact proves the actual first eligible 2010 date and exact continuous/explicit-gap coverage; any unresolved required-history gap prevents PASS and is not filled.
-- A3 (verifies R3): all four canonical feature semantics plus every PR-117 derived family pass independent spot checks over the listed policy regimes with correct warm-up/availability and no NaN/infinity/look-ahead.
-- A4 (verifies R4): `macro_raw` Fed origins match canonical local output exactly and all 28 `macro_features` derived values match the independent reference within declared tolerances; timestamps/version/fingerprint are exact and non-Fed columns remain unchanged.
-- A5 (verifies R5): immediate normal replay is demonstrably delta-bounded and records exactly zero semantic mutations/refreshes with stable fingerprints.
-- A6 (verifies R6): the committed artifact is deterministic/sanitized and PASS is impossible unless A1-A5 all pass.
-
-## PR-109: Execute Installed Daily Cron Acceptance
-
-PR name: `fed-policy-cron-acceptance`
-Status: Merged
-Updated: 2026-09-23
-PR: #109
-Git branch: `pr-109/fed-policy-cron-acceptance`
-Git status: `merged`
-Agent lane: Operational cron acceptance QA; one agent only
-Depends on: PR-107, PR-108, PR-116, PR-118
-Commit: `test(pr-109): execute fed policy cron acceptance`
-Design patterns: End-to-End Acceptance, Command, Single-Instance Lock, Failure Injection.
-
-Description:
-- R1: Execute the exact installed/source-controlled daily cron wrapper under the real scheduler/service-account configuration, working directory, timezone, lock, persistent lake, logs, and PostgreSQL roles; direct Python substitution is forbidden for this acceptance.
-- R2: Demonstrate a run with one or more newly available/revised ZQ observations produces the exact four-origin local feature delta, exact PostgreSQL mutations, exactly one materialized-view refresh, and conformant 32-column Fed origin/derived downstream output; an immediate rerun must produce zero semantic mutations and zero refreshes.
-- R3: Demonstrate recovery after intentionally skipping multiple scheduled runs and demonstrate weekend/holiday execution; catch-up must use bounded overlap/delta requests only and no-data runs must be successful no-ops.
-- R4: Inject CME/source unavailability before local publication and PostgreSQL/refresh failure after local publication separately; the first must prevent PostgreSQL mutation, the second must return non-zero and preserve the last committed PostgreSQL/view state for safe retry.
-- R5: Verify lock contention, cwd/Git identity, scheduler timezone/time, log path, exit-code propagation, runtime/admin privilege separation, and secret redaction using the installed execution path.
-- R6: Commit only a deterministic sanitized `artifacts/acceptance/fed-policy-cron-v1.json` with run/source dates, request bounds, mutation/refresh counts, failure-injection outcomes, operational assertions, conformance, and PASS|FAIL.
-
-Acceptance:
-- A1 (verifies R1): evidence identifies the exact cron wrapper/service identity/config/cwd/timezone/lock/log path used and proves no substitute execution path was used.
-- A2 (verifies R2): mutation run records the exact expected origin changes, independently correct affected derived values, and one refresh; immediate rerun records exactly zero semantic changes/refreshes with identical downstream fingerprint.
-- A3 (verifies R3): missed-run recovery stays within bounded delta semantics and weekend/holiday invocation succeeds without fabricated observations or hidden reconcile.
-- A4 (verifies R4): both injected failures produce non-zero status with the required skip/rollback behavior and no false PASS or partially advanced PostgreSQL/view state.
-- A5 (verifies R5): all installed operational/privilege/redaction assertions pass and lock contention prevents concurrent execution.
-- A6 (verifies R6): the cron artifact is deterministic/sanitized and PASS is impossible unless A1-A5 all pass.
-
-## PR-110: Retire Legacy FedWatch Runtime And Finalize Documentation
-
-PR name: `fed-policy-runtime-cleanup-docs`
-Status: Closed/Superseded
-Updated: 2026-09-23
-PR: #110
-Git branch: `pr-110/fed-policy-runtime-cleanup-docs`
-Git status: `closed`
-Agent lane: Cleanup/documentation; one agent only
-Depends on: PR-106, PR-107, PR-108, PR-109, PR-116, PR-118
-Commit: `refactor(pr-110): retire legacy fedwatch runtime path`
-Design patterns: Single Source of Truth, Ports and Adapters.
-
-Description:
-- R1: Remove/deactivate legacy production wiring that can source model features directly from browser-only CME FedWatch exports or the simplified legacy `_outcomes` approximation; retain any browser export adapter only under an explicit QA boundary required by PR-106.
-- R2: Remove/rename stale `fed_m3_expected_move_bp` contracts/tests/docs and any dead Fed-policy pipeline injection left behind by the pre-PR-97 architecture, without deleting canonical historical snapshots/evidence needed for audit.
-- R3: Update README, ARCHITECTURE, BACKLOG status, operational instructions, data-source/availability semantics, the `macro_raw` four-origin plus `macro_features` 28-derived Fed transformation contract, semantic/view versions, and cron documentation to the verified post-PR-109/PR-118 state; do not claim historical/production PASS beyond the committed acceptance artifacts.
-- R4: Add repository-wide reference/import/startup checks proving one authoritative Fed-policy runtime path, all required QA paths remain available, no stale browser production dependency survives, and the complete required quality gate remains green.
-
-Acceptance:
-- A1 (verifies R1): production call-path/code search finds no browser FedWatch or simplified `_outcomes` feature source, while PR-106 QA fixtures/tools remain explicitly isolated and functional.
-- A2 (verifies R2): `fed_m3_expected_move_bp` is absent from the public/runtime contract, no dead injected Fed-policy source remains in daily orchestration, and audit evidence/history is preserved.
-- A3 (verifies R3): all four sidecars/ops docs agree on source, canonical formulas, 28 derived transformation formulas/exclusions, point-in-time availability, 2010 coverage evidence, PostgreSQL publication, daily cron, and current versions with no unverified success claims.
-- A4 (verifies R4): reference/import/startup checks and `lint/type/unit/integration/coverage` are green and repository search identifies exactly one production probability/feature pipeline.
-
+`25/60/120/240obs` columns and their old values are removed. No breadth, dispersion, or
+volume column is added.
 
 ## Delivery Policy
 
+These rules apply to the active GOALS implementation wave above. The compact archive at
+the end is historical only.
+
 - One `PR-XX` entry equals one logical implementation pull request.
-- PRs are sized for two weak coding agents working in parallel: one infrastructure boundary, provider family, transformation boundary, publication concern, or operational concern per PR.
+- Keep each PR small and atomic: one infrastructure boundary, provider family,
+  transformation boundary, publication concern, or operational concern.
 - Every PR has `Status`, `Updated`, `PR`, `Git branch`, `Git status`, `Agent lane`, `Depends on`, `Commit`, and `Design patterns`.
 - Delivery statuses: `Planned`, `In Progress`, `Blocked`, `Ready`, `Merged`.
-- Git statuses: `not-started (branch absent)`, `active-clean`, `active-dirty: <paths>`, `pushed-ci-failing`, `pushed-ci-green`, `merged`.
+- Git statuses: `not-started (branch absent)`, `active-clean`, `active-dirty: <paths>`, `pushed-local-checks-passed`, `merged`.
 - Every `Description` requirement `R<n>` has exactly one matching `Acceptance` item `A<n>`. Counts must match.
 - Implement only the selected PR. Do not pull future-PR scope forward.
-- Required unit/integration tests are offline. Live provider tests use `@pytest.mark.network` and are excluded from required gates.
+- Run checks locally with `make quality-gate`; it includes lint, type, unit, offline integration, and coverage at the 85% threshold configured in `pyproject.toml`.
+- Do not add, trigger, rerun, or rely on GitHub Actions or remote quality gates. Network tests are not part of the local quality gate.
 - Production dataframe operations are Polars-first; no production pandas dependency.
 - Runtime `lake/` is ignored by Git.
 - `README.md`, `ARCHITECTURE.md`, `AGENTS.md`, and this backlog must not intentionally contradict one another.
 
 ## Git Workflow Contract
+
+The active PR specs are listed at the beginning of this backlog.
 
 Every implementation PR uses:
 
@@ -1635,65 +335,23 @@ Rules:
 - Every non-generated commit subject uses Conventional Commit format exactly `type(pr-XX): <description>` with an allowed type and the same PR identifier as the branch.
 - Branch from dependency-complete `main` only after every `Depends on` PR is merged.
 - Before every commit, verify the active branch is exactly the `Git branch` declared by the backlog PR.
-- Before push: required local quality gate passes and `git status --short` is empty.
-- A pushed branch with any failing required checks has Git status `pushed-ci-failing`.
-- Before `Ready`: remote `lint`, `type`, `unit`, `integration`, `coverage` are green and Git status is `pushed-ci-green`.
-- Enable PR auto-merge with squash when the PR is ready; protected `main` ensures merge occurs only after the merge gate passes.
+- Before push: `make quality-gate` passes locally and the worktree is clean.
+- After push: use `pushed-local-checks-passed` only when the branch was pushed after the local gate passed; this is not a remote status check.
+- Do not configure or use GitHub Actions, remote quality gates, or auto-merge.
 - After merge: update backlog status/PR link/Git status in the next documentation-maintenance change; do not keep an implementation task alive to start another PR.
 - No force-push on shared branches, branch reuse, or guessed semantic conflict resolution.
 
-## Push And Merge Quality Gates
+## Local Quality Gate
 
-Required checks:
-
-```text
-lint
-type
-unit
-integration
-coverage
-```
-
-### Parallel execution
-
-`lint`, `type`, `unit`, and offline `integration` start independently/in parallel. `unit` and `integration` produce separate raw coverage data.
-
-### Coverage
-
-`coverage` depends only on `unit` and `integration`, combines their raw data, and enforces production-code **line coverage >= 90.0%** for:
+Run only the repository's local gate:
 
 ```text
-application/
-ingestion/
-api/
-scripts/
+make quality-gate
 ```
 
-Tests, fixtures, generated artifacts, and `lake/` are excluded. `89.99%` fails; `90.00%` passes. Do not exclude production files merely to reach the threshold.
-
-### Triggers
-
-The same gate runs on:
-
-```text
-local pre-push
-GitHub push
-pull_request -> main
-merge_group
-```
-
-### Target GitHub repository policy
-
-`main` must be ruleset/protection controlled:
-
-- pull request required;
-- direct push, force push, and branch deletion blocked;
-- required checks: `lint`, `type`, `unit`, `integration`, `coverage`;
-- branch up-to-date / merge-queue compatible;
-- squash merge only;
-- repository auto-merge enabled;
-- implementation PRs use auto-merge so GitHub completes them only after all required gates pass;
-- head branch deleted after merge.
+The gate runs lint, type, unit, offline integration, and coverage; the production line
+coverage threshold is 85%, configured in `pyproject.toml`. Do not add GitHub Actions or
+remote gates, and do not describe local results as remote GitHub checks.
 
 ## Mandatory Design Patterns
 
@@ -1732,10 +390,11 @@ Every PR declares `Design patterns:` explicitly. If no additional pattern is jus
 | `us_10y` | FRED | `DGS10` | `scalar` | `date_range` | maximum exposed history |
 | `usd_broad` | FRED | `DTWEXBGS` | `scalar` | `date_range` | maximum exposed history |
 
-No additional MVP series or implicit provider fallback is allowed without a separate PR.
+Additional source series in this implementation wave are limited to those explicitly
+listed in PR-177 through PR-180; no implicit provider fallback is allowed.
 
 ## Medallion Storage Contract
-
+The storage contract below remains active.
 ```text
 lake/
   bronze/
@@ -1843,7 +502,7 @@ pruned_at_utc
 Root JSON/PNG are materialized views, not authority.
 
 ## Strict Delta Update Contract
-
+The update contract below remains active.
 The ingestion modes are explicit:
 
 ```text
@@ -1897,143 +556,60 @@ forbidden request     = 2000-01-03 .. 2026-08-19
 
 A shorter/omitted response still never implies deletion. Explicit deletion semantics require a future source-mutation contract.
 
-## PR Graph
+## Obsolete PR Archive
 
-Each PR's `Depends on:` field is authoritative; this diagram is informational only.
+Superseded or completed PR records from earlier delivery waves are condensed here for
+historical reference only. The active GOALS implementation PRs are listed at the top.
 
-```text
-PR-01 foundation + quality/Git policy
-  |\
-  | +--> PR-03 Parquet repositories
-  +----> PR-02 registry/path contracts
-             |\
-             | +--> PR-04 HTTP/provider ports
-             +----> PR-05 planner/state
-  PR-02 + PR-03 --> PR-11 manifests/inventory
+- **PR-00–PR-30: Repository, ingestion, Gold, and operations foundation** — Obsolete (historical delivery range)
+- **PR-31–PR-61: PostgreSQL serving and operational hardening** — Obsolete (historical delivery range)
+- **PR-62–PR-105: Feature transformations, Fed-policy work, and acceptance** — Obsolete (historical delivery range)
 
-PR-02 + PR-04 + PR-05
-       |      |      |      |      |
-     PR-06  PR-07  PR-08  PR-09  PR-10
-       \      |      |      |      /
-        +-----+------+------+-+----+
-                         + PR-03 + PR-11
-                                  |
-                                PR-12
-                               /     \
-                            PR-13   PR-14
-                           /    \
-                        PR-15  PR-16
-                           \    /
-                            PR-17
-                           /     \
-                        PR-18   PR-19
-                          |
-                        PR-20
-                           \     /
-                            PR-21
-                              |
-                            PR-22
-                              |
-                    PR-14 + PR-21 + PR-22
-                              |
-                            PR-23
-
-PR-24 governance contract is an orthogonal repository-policy sidecar. It may run in parallel with already-active PR-04/PR-05/PR-11 and must merge before starting any new not-yet-active implementation PR.
-```
-
----
-
-## Closed Delivery Summary
-
-This section is the concise historical summary for completed delivery work. Backlog PR identifiers
-(`PR-XX`) are the source-of-truth delivery identifiers; GitHub pull-request numbers may differ
-because replacement/cleanup PRs were occasionally opened under the same backlog scope.
-
-- PR-00: Architecture/backlog review established strict delta semantics, hexagonal boundaries, Gold publication safety, and the original Git/quality contract before implementation.
-- PR-01–05: Repository bootstrap, protected quality gates, canonical registry/lake paths, Polars Parquet IO, shared HTTP/retry ports, and explicit bootstrap/update/reconcile planning/state.
-- PR-06–10: Provider adapters for CBOE volatility indices, STOXX VSTOXX, Yahoo MOVE, ECB CISS/ESTR, and FRED rates/credit/USD sources.
-- PR-11–14: Operational manifests/inventory, registry-driven Bronze orchestration, canonical Silver, and inventory CLI.
-- PR-15–17: Original volatility and macro feature transformations plus canonical Gold assembly/validation.
-- PR-18–22: Immutable Gold bundles, catalog resolution, manifests/diagnostic sidecars, publication state machine/materialized root views, and mark-and-sweep retention.
-- PR-23–30: Delta-only daily pipeline/CLI, backlog governance, scheduled runner, live-provider repairs, Polars parallelism, Gold mirroring, protected config, and Gold diagnostics.
-- PR-31–39: Initial PostgreSQL serving program: contracts, delta planner, adapter, service role/config, full accumulated delta sync, CLI, and Sunday sync chain.
-- PR-40–61: Corrective PostgreSQL/operations program covering temporal correctness, repository governance, real-PostgreSQL CI, deterministic cron execution/locking/timezone, provider validation/security, Gold formula/input provenance, bundle verification, transactional locking, schema migrations, admin/runtime separation, least privilege, exact consumer/digest/state reconciliation, bounded waits, documentation accuracy, independent live conformance verification, and authoritative production reconstruction.
-- PR-62: One-valid-observation delta features were added across canonical source series.
-- PR-63–65: Required offline tests were parallelized, duplicate PR CI triggers removed, and Gold integration rendering accelerated while preserving real renderer coverage.
-- PR-66: Official Fed policy expectation work and macro serving-view groundwork were delivered; later raw-serving hardening deliberately kept canonical Gold/`macro_raw` source-level-only.
-- PR-67: PostgreSQL conformance/sync hardening moved canonical serving toward raw-only `macro_raw` and added the current manual macro-feature materialized-view maintenance script that PR-82/85 will replace with versioned migrations.
-- PR-68: Positive autocorrelation momentum features at (1,60), (5,60), and (20,120) were implemented for canonical series.
-- PR-70: Rolling geometric-return features at 10/25/60/120/240 observations were implemented.
-- PR-71: Repository/project/CLI/operational naming was completed as `macro-loader`.
-- PR-74: PostgreSQL table ownership and the dedicated `macro-loader-sync` writer role were hardened.
-- PR-79: Current production-status documentation was reconciled after the latest serving/conformance changes.
-
-- PR-80–81: Materialized-feature-library ownership and executable catalog/version contracts were frozen.
-- PR-82–85: The versioned PostgreSQL materialized feature view, regime-oriented additions, single-refresh synchronization, and conformance/migration enforcement were delivered.
-- PR-86–88: Python-vs-SQL formula parity was proven, duplicate Python feature runtime was removed, and the feature library was validated on real PostgreSQL.
-- PR-89–90: Full-history and installed Sunday-cron acceptance harnesses/artifacts for the materialized macro feature library were delivered.
-- PR-96: Raw source exposure in `macro_features` was changed to explicit logarithmic `*_log_level` columns; GitHub PRs #93–#95 were superseded/closed attempts of the same scope and #96 is the merged implementation.
-- PR-97–105: Fed-policy EOD contract, ZQ persistence/acquisition, point-in-time Fed references, probability reconstruction, four canonical features, private PostgreSQL synchronization, delta orchestration, and installed daily cron were delivered; the next serving-layout wave moves those origins into `macro_raw` and derives `macro_features` from that table.
-
-The detailed Fed-serving backlog above is retained as historical scope and acceptance
-evidence; it is no longer an active delivery program. Completed PR-97–105 are condensed
-in this Closed Delivery Summary. PR-168 supersedes the former Fed-serving contract; old
-Fed PR records must not be reopened or silently rewritten to implement unrelated work.
-
-## Condensed Existing PR Register
-
-This register is intentionally at the end of the backlog data so the new PR-132–139
-transformation wave remains the first actionable scope while previous/current work stays
-available as a compact historical record. No old Fed-policy PR may absorb PR-132–139 scope.
-
-| PR | Scope | Status | Dependencies / evidence |
-|---|---|---|---|
-| PR-106 | CME FedWatch differential QA | Merged (#106) | Formula/differential acceptance |
-| PR-107 | Real-PostgreSQL Fed-policy QA | Closed/superseded (#107) | Replaced by later serving-lineage QA |
-| PR-108 | Full Fed-policy history acceptance | Merged (#108) | Historical acceptance |
-| PR-109 | Installed Fed-policy cron acceptance | Merged (#109) | Operational cron acceptance |
-| PR-110 | Legacy FedWatch cleanup and documentation | Closed/superseded (#110) | Superseded by serving-lineage program |
-| PR-113 | Fed serving-lineage backlog/governance contract | Merged (#115) | Defines `canonical Fed -> macro_raw -> macro_features` |
-| PR-114 | Four Fed columns in `macro_raw` | Merged (#117) | Schema/version/fingerprint contract |
-| PR-115 | Fed raw backfill and bounded population | Merged (#118) | Reconcile/backfill plus delta updates |
-| PR-116 | Fed raw historical/data-quality QA | Merged (#119) | Real PostgreSQL and sanitized quality evidence |
-| PR-117 | Fed features derived exclusively from `macro_raw` | Merged (#120) | Four origins plus 28 signed-safe derived columns |
-| PR-118 | Fed materialized-feature historical QA | Merged (#121) | Historical QA repair merged; must not absorb PR-132–139 |
-| PR-129 | Initial path rename attempt | Closed/superseded | Replaced by PR-130 |
-| PR-130 | Project path rename | Merged (#130) | Protected-main merge; feature branches removed |
-| PR-131 | Cron runtime executable preflight | Merged (#131) | Five required CI checks green; feature branch removed |
-| PR-132 | XETRA-compatible returns and volatility | Merged (#132) | Five required CI checks green; legacy geometric windows removed |
-| PR-133 | XETRA-compatible trend and momentum | Merged (#133) | Five required CI checks green; RSI/SMA/ROC/drawdown view contract |
-| PR-134 | Independent returns/volatility mathematical QA | Merged (#134) | Reference calculator plus live PostgreSQL parity |
-| PR-135 | Independent trend/momentum mathematical QA | Merged (#135) | Reference calculator plus live PostgreSQL parity |
-| PR-136 | Complete view contract and legacy-removal QA | Merged (#136) | Catalog/type/order/fingerprint/absence introspection |
-| PR-137 | Historical revision/replay/refresh QA | Merged (#137) | Causal impact, finite/null, deterministic replay evidence |
-| PR-138 | Complete pipeline/PostgreSQL acceptance | Merged (#138) | Offline-safe ordered end-to-end acceptance contract |
-| PR-139 | Installed cron/failure-recovery acceptance | Merged (#139) | Offline wrapper/lock/exit/report QA; production run guarded |
-| PR-140 | Consolidate final XETRA delivery backlog status | Merged (#140) | Detailed contracts retained at beginning; compact register at end |
-| PR-141 | Finalize merged backlog status and branch cleanup | Merged (#141) | Final metadata and sole-main branch inventory |
-
-The new dependency chain is:
-
-```text
-PR-132 returns + volatility
-        |
-        +--> PR-134 independent returns/volatility QA
-        |
-        v
-PR-133 trend + momentum
-        |
-        +--> PR-135 independent trend/momentum QA
-                         |
-                         v
-              PR-136 complete view contract/legacy removal QA
-                         |
-                         v
-              PR-137 historical/revision/replay QA
-                         |
-                         v
-              PR-138 complete pipeline/PostgreSQL acceptance
-                         |
-                         v
-              PR-139 installed cron/failure-recovery acceptance
-```
+- **PR-175: Add OHLC Bar Range, Intraday Return, And Overnight Gap Features** — Obsolete
+- **PR-173: Add Relative MACD Trend Features** — Obsolete
+- **PR-174: Preserve OHLC Inputs Through Gold And PostgreSQL** — Obsolete
+- **PR-172: Add EMA-Level Trend Features** — Obsolete
+- **PR-171: Add Level-Only Composite And Statistical Features** — Obsolete
+- **PR-170: Complete Scalar-Level Transformation Windows** — Obsolete
+- **PR-169: Run The Daily Pipeline With A Bounded Core Budget** — Obsolete
+- **PR-168: Retire Fed Policy Features And Acquisition** — Obsolete
+- **PR-167: Add Next-Business-Day Availability To PostgreSQL Serving** — Obsolete
+- **PR-165: Reconcile Fed Gaps And Publish Full Raw History** — Obsolete
+- **PR-160: Follow Source Redirects In Cron HTTP Transport** — Obsolete
+- **PR-159: Make PostgreSQL Verification Match Market Gold Artifacts** — Obsolete
+- **PR-158: Scope Gold Summaries To Market-Owned Rows** — Obsolete
+- **PR-157: Bound The Production Feature Refresh Timeout** — Obsolete
+- **PR-156: Ignore Fed-Only Rows During Market Gold Reconciliation** — Obsolete
+- **PR-155: Decouple Market Gold And Fed Policy PostgreSQL Ownership** — Obsolete
+- **PR-146: Record Audit Findings And Remediation Plan** — Obsolete
+- **PR-147: Unify Fed Feature Column Contract End To End** — Obsolete
+- **PR-148: Correct FedWatch Economic Baseline And CME Reconstruction** — Obsolete
+- **PR-149: Define Signed-Series Eligibility For XETRA Feature Families** — Obsolete
+- **PR-150: Make RSI And Momentum Numerically Stable And NULL-Correct** — Obsolete
+- **PR-151: Reconcile Executable Versions And Documentation Contracts** — Obsolete
+- **PR-152: Independent End-To-End Mathematical And Serving Acceptance** — Obsolete
+- **PR-145: Repair Installed Cron Runtime Path And Fail-Closed Configuration** — Obsolete
+- **PR-129: Initial path rename attempt** — Obsolete
+- **PR-130: Project path rename** — Obsolete
+- **PR-131: Cron runtime executable preflight** — Obsolete
+- **PR-141: Finalize Merged Backlog Status And Branch Cleanup** — Obsolete
+- **PR-140: Consolidate Final XETRA Delivery Backlog Status** — Obsolete
+- **PR-132: Implement XETRA-Compatible Returns And Volatility** — Obsolete
+- **PR-133: Implement XETRA-Compatible Trend And Momentum Features** — Obsolete
+- **PR-134: Independent Mathematical QA For Returns And Volatility** — Obsolete
+- **PR-135: Independent Mathematical QA For Trend And Momentum** — Obsolete
+- **PR-136: Verify Complete View Contract And Legacy Removal** — Obsolete
+- **PR-137: Historical Data Quality, Revision, Replay, And Refresh QA** — Obsolete
+- **PR-138: Complete Pipeline And PostgreSQL Serving Acceptance** — Obsolete
+- **PR-139: Installed Cron And Failure-Recovery Acceptance** — Obsolete
+- **PR-114: Extend Canonical Origin And Macro Raw Schema With Four Fed Features** — Obsolete
+- **PR-115: Backfill And Incrementally Populate Macro Raw Fed Origins** — Obsolete
+- **PR-116: Verify Macro Raw Fed History And Data Quality** — Obsolete
+- **PR-117: Build Fed Materialized Features Exclusively From Macro Raw** — Obsolete
+- **PR-118: Verify Macro Features Fed Transformations And Historical Quality** — Obsolete
+- **PR-113: Reframe Fed Policy Serving Through Macro Raw** — Obsolete
+- **PR-106: Differentially Validate Reconstruction Against Official CME FedWatch** — Obsolete
+- **PR-107: Run Real-PostgreSQL Fed Policy Integration QA** — Obsolete
+- **PR-108: Execute Full Fed Policy History Acceptance From 2010** — Obsolete
+- **PR-109: Execute Installed Daily Cron Acceptance** — Obsolete
+- **PR-110: Retire Legacy FedWatch Runtime And Finalize Documentation** — Obsolete

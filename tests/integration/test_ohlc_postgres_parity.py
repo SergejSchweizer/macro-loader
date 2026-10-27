@@ -19,9 +19,12 @@ from application.contracts import NativeShape
 from application.gold_frame import GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
+    FEATURE_POSTGRES_TYPES,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     OHLC_BAR_FEATURE_FAMILIES,
+    OHLC_DONCHIAN_SUFFIXES,
+    OHLC_STOCHASTIC_SUFFIXES,
 )
 from application.postgres_delta import gold_row_sha256
 from application.postgres_sync import (
@@ -169,7 +172,7 @@ def _legacy_v25_contract(
     legacy_catalog = tuple(
         spec
         for spec in feature_catalog_module.FEATURE_CATALOG
-        if spec.family not in OHLC_BAR_FEATURE_FAMILIES
+        if spec.family not in (*OHLC_BAR_FEATURE_FAMILIES, "stochastic", "donchian")
     )
     legacy_view_columns = ("timestamp_m1", *(spec.name for spec in legacy_catalog))
     fingerprint_payload = {
@@ -294,7 +297,9 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
         "timestamp(6) with time zone",
         "timestamp(6) with time zone",
     )
-    assert all(row[1] == "double precision" and row[2] is False for row in rows[2:])
+    assert all(
+        row[1] == FEATURE_POSTGRES_TYPES[str(row[0])] and row[2] is False for row in rows[2:]
+    )
     assert (
         tuple(name for name in names if name.endswith(tuple(f"_{field}" for field in _OHLC_FIELDS)))
         == _OHLC_COLUMNS
@@ -313,13 +318,21 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
         name.startswith("estr_") and any(family in name for family in OHLC_BAR_FEATURE_FAMILIES)
         for name in names
     )
-    assert not any(marker in name for name in names for marker in ("stoch_", "donchian_"))
+    expected_stochastic = tuple(
+        f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in OHLC_STOCHASTIC_SUFFIXES
+    )
+    expected_donchian = tuple(
+        f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in OHLC_DONCHIAN_SUFFIXES
+    )
+    assert tuple(name for name in names if "_stoch_" in name) == expected_stochastic
+    assert tuple(name for name in names if "_donchian_" in name) == expected_donchian
     raw_names = tuple(str(row[0]) for row in _column_rows(connection, "macro_loader.macro_raw"))
-    assert not set(expected_derived).intersection(raw_names)
-    assert not set(expected_derived).intersection(_expected_gold_columns())
+    all_new = (*expected_derived, *expected_stochastic, *expected_donchian)
+    assert not set(all_new).intersection(raw_names)
+    assert not set(all_new).intersection(_expected_gold_columns())
 
 
-@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_26"))
+@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_27"))
 def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
@@ -329,13 +342,13 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
 ) -> None:
     expected_migrations = len(postgres_module._MIGRATIONS)
     assert GOLD_SCHEMA_VERSION == 8
-    assert MACRO_FEATURE_VIEW_VERSION == 15
+    assert MACRO_FEATURE_VIEW_VERSION == 16
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
     assert _expected_gold_columns() == POSTGRES_RAW_COLUMNS
     assert _OHLC_SERIES == ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
     assert len(_OHLC_COLUMNS) == 24
 
-    if migration_mode == "upgrade_25_to_26":
+    if migration_mode == "upgrade_25_to_27":
         with psycopg.connect(postgres_dsn) as connection:
             legacy_timestamp, legacy_fingerprint, legacy_feature_columns = _seed_v25_baseline(
                 connection, monkeypatch
@@ -396,10 +409,10 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
         assert view_comment == (
-            f"macro feature view version=15; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+            f"macro feature view version=16; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
         )
 
-        if migration_mode == "upgrade_25_to_26":
+        if migration_mode == "upgrade_25_to_27":
             legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
             expected_available = datetime(2026, 1, 5, tzinfo=UTC)
             preserved_raw = connection.execute(
@@ -711,3 +724,192 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
             (last_timestamp,),
         ).fetchone()
     assert after == before
+
+
+def _stochastic_donchian_reference(
+    bars: list[tuple[float, float, float, float]],
+) -> list[tuple[float | None, ...]]:
+    k5: list[float | None] = []
+    k14: list[float | None] = []
+    result: list[tuple[float | None, ...]] = []
+    for index, (_, high, low, close) in enumerate(bars):
+        values: list[float | None] = []
+        for window, stream in ((5, k5), (14, k14)):
+            sample = bars[max(0, index - window + 1) : index + 1]
+            value: float | None = None
+            if len(sample) == window:
+                high_max = max(bar[1] for bar in sample)
+                low_min = min(bar[2] for bar in sample)
+                if high_max > low_min:
+                    value = 100.0 * (close - low_min) / (high_max - low_min)
+            stream.append(value)
+            values.append(value)
+        k5_tail = k5[index - 2 : index + 1]
+        k14_tail = k14[index - 2 : index + 1]
+        d5 = (
+            sum(value for value in k5_tail if value is not None) / 3.0
+            if index >= 2 and all(value is not None for value in k5_tail)
+            else None
+        )
+        d14 = (
+            sum(value for value in k14_tail if value is not None) / 3.0
+            if index >= 2 and all(value is not None for value in k14_tail)
+            else None
+        )
+        values.extend((d5, d14))
+        values.append(values[0] - d5 if values[0] is not None and d5 is not None else None)
+        lagged_k5 = k5[index - 3] if index >= 3 else None
+        current_k5 = values[0]
+        values.append(
+            (current_k5 - lagged_k5) / 3.0
+            if current_k5 is not None and lagged_k5 is not None
+            else None
+        )
+        prior = bars[index - 20 : index] if index >= 20 else []
+        values.append(high > max(bar[1] for bar in prior) if len(prior) == 20 else None)
+        values.append(low < min(bar[2] for bar in prior) if len(prior) == 20 else None)
+        result.append(
+            (
+                values[0],
+                d5,
+                values[1],
+                d14,
+                values[4],
+                values[5],
+                values[6],
+                values[7],
+            )
+        )
+    return result
+
+
+@pytest.mark.integration
+def test_disposable_postgres_stochastic_and_donchian_match_independent_reference(
+    postgres_dsn: str,
+    migrator: PostgresGoldSchemaMigrator,
+) -> None:
+    migrator.migrate()
+    start = datetime(2026, 2, 1, tzinfo=UTC)
+    timestamps = [start + timedelta(days=index * 2 + index // 3) for index in range(26)]
+    output_suffixes = (*OHLC_STOCHASTIC_SUFFIXES, *OHLC_DONCHIAN_SUFFIXES)
+    bars_by_series: dict[str, list[tuple[float, float, float, float] | None]] = {}
+    for series_index, series in enumerate(_OHLC_SERIES):
+        series_bars: list[tuple[float, float, float, float] | None] = []
+        ordinal = 0
+        for row_index in range(len(timestamps)):
+            if row_index == 3:  # A calendar row with no complete OHLC source bar.
+                series_bars.append(None)
+                continue
+            base = series_index * 10.0
+            if ordinal < 5:
+                low = high = close = base + 95.0
+            else:
+                low = base + 90.0 + ordinal * 0.5
+                high = low + 10.0
+                close = low + float((ordinal * 3) % 10 + 1)
+            if ordinal == 20:
+                high, low, close = base + 180.0, base + 130.0, base + 160.0
+            elif ordinal == 21:
+                high, low, close = base + 120.0, base + 10.0, base + 60.0
+            elif ordinal == 22:
+                high = max(bar[1] for bar in series_bars if bar is not None)
+                low = min(bar[2] for bar in series_bars if bar is not None)
+                close = (high + low) / 2.0
+            open_value = close if ordinal < 5 else close - 1.0
+            series_bars.append((open_value, high, low, close))
+            ordinal += 1
+        bars_by_series[series] = series_bars
+
+    raw_columns = POSTGRES_RAW_COLUMNS[1:]
+    quoted_columns = ", ".join(f'"{column}"' for column in ("timestamp_m1", *raw_columns))
+    placeholders = ", ".join("%s" for _ in range(len(raw_columns) + 1))
+    with psycopg.connect(postgres_dsn) as connection:
+        for row_index, timestamp in enumerate(timestamps):
+            values: dict[str, float | None] = {column: 40.0 for column in raw_columns}
+            for series in _OHLC_SERIES:
+                bar = bars_by_series[series][row_index]
+                values[f"{series}_level"] = bar[3] if bar is not None else 40.0
+                for field, value in zip(_OHLC_FIELDS, bar or (None, None, None, None), strict=True):
+                    values[f"{series}_{field}"] = value
+            connection.execute(
+                f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})",
+                (timestamp, *(values[column] for column in raw_columns)),
+            )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+
+    output_columns = tuple(
+        f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in output_suffixes
+    )
+    selection = ", ".join(f'"{column}"' for column in output_columns)
+    with psycopg.connect(postgres_dsn) as connection:
+        rows = connection.execute(
+            f"SELECT timestamp_m1, {selection} FROM macro_loader.macro_features "
+            "ORDER BY timestamp_m1"
+        ).fetchall()
+    actual_by_timestamp = {row[0]: row[1:] for row in rows}
+    assert len(actual_by_timestamp) == len(timestamps)
+
+    for row_index, timestamp in enumerate(timestamps):
+        actual = actual_by_timestamp[timestamp]
+        expected: list[object] = []
+        for series in _OHLC_SERIES:
+            valid_bars = [bar for bar in bars_by_series[series][: row_index + 1] if bar is not None]
+            if not valid_bars or bars_by_series[series][row_index] is None:
+                expected.extend((None,) * len(output_suffixes))
+            else:
+                expected.extend(_stochastic_donchian_reference(valid_bars)[-1])
+        assert len(actual) == len(expected) == 48
+        for column, observed, reference in zip(output_columns, actual, expected, strict=True):
+            if reference is None:
+                assert observed is None, f"{timestamp=} {column=} {observed=}"
+            elif column.endswith(OHLC_DONCHIAN_SUFFIXES):
+                assert observed is reference, f"{timestamp=} {column=} {observed=} {reference=}"
+            else:
+                assert isinstance(observed, float)
+                assert observed == pytest.approx(reference, rel=1e-12, abs=1e-12), (
+                    f"{timestamp=} {column=} {observed=} {reference=}"
+                )
+
+    for series_index, series in enumerate(_OHLC_SERIES):
+        row_by_ordinal = [
+            row_index for row_index, bar in enumerate(bars_by_series[series]) if bar is not None
+        ]
+        first_flat_window = actual_by_timestamp[timestamps[row_by_ordinal[4]]]
+        assert first_flat_window[series_index * len(output_suffixes)] is None
+        first_k5 = actual_by_timestamp[timestamps[row_by_ordinal[5]]]
+        assert first_k5[series_index * len(output_suffixes)] is not None
+        first_d5 = actual_by_timestamp[timestamps[row_by_ordinal[7]]]
+        assert first_d5[series_index * len(output_suffixes) + 1] is not None
+        first_d14 = actual_by_timestamp[timestamps[row_by_ordinal[15]]]
+        assert first_d14[series_index * len(output_suffixes) + 3] is not None
+        breakout_up = actual_by_timestamp[timestamps[row_by_ordinal[20]]]
+        breakout_down = actual_by_timestamp[timestamps[row_by_ordinal[21]]]
+        equal_channel = actual_by_timestamp[timestamps[row_by_ordinal[22]]]
+        series_offset = series_index * len(output_suffixes)
+        assert breakout_up[series_offset + 6] is True
+        assert breakout_down[series_offset + 7] is True
+        assert equal_channel[series_offset + 6] is False
+        assert equal_channel[series_offset + 7] is False
+
+    last_timestamp = timestamps[-1]
+    before_future = actual_by_timestamp[last_timestamp]
+    future_timestamp = last_timestamp + timedelta(days=14)
+    future_values: dict[str, float | None] = {column: 40.0 for column in raw_columns}
+    for series_index, series in enumerate(_OHLC_SERIES):
+        close = 400.0 + series_index * 10.0
+        future_values[f"{series}_level"] = close
+        future_values[f"{series}_open"] = close - 1.0
+        future_values[f"{series}_high"] = close + 5.0
+        future_values[f"{series}_low"] = close - 5.0
+        future_values[f"{series}_close"] = close
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(
+            f"INSERT INTO macro_loader.macro_raw ({quoted_columns}) VALUES ({placeholders})",
+            (future_timestamp, *(future_values[column] for column in raw_columns)),
+        )
+        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        after_future = connection.execute(
+            f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+            (last_timestamp,),
+        ).fetchone()
+    assert after_future == before_future

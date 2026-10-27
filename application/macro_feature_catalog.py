@@ -35,7 +35,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 15
+MACRO_FEATURE_VIEW_VERSION = 16
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 SIGNED_LEVEL_SERIES: tuple[str, ...] = ("estr",)
@@ -64,6 +64,18 @@ OHLC_BAR_FEATURE_FAMILIES: tuple[str, ...] = (
     "intraday_return",
     "overnight_gap",
 )
+OHLC_STOCHASTIC_SUFFIXES: tuple[str, ...] = (
+    "stoch_k_5",
+    "stoch_d_5_3",
+    "stoch_k_14",
+    "stoch_d_14_3",
+    "stoch_kd_spread_5",
+    "stoch_k_slope_3",
+)
+OHLC_DONCHIAN_SUFFIXES: tuple[str, ...] = (
+    "donchian_breakout_up",
+    "donchian_breakout_down",
+)
 OHLC_BAR_WINDOWS: tuple[int, ...] = (1, 5)
 RAW_COLUMNS: tuple[str, ...] = tuple(f"{series}_log_level" for series in PRICE_FEATURE_SERIES)
 
@@ -76,6 +88,7 @@ class MacroFeatureSpec:
     family: str
     series: str | None
     formula: str
+    postgres_type: str = "double precision"
 
 
 def _source_specs() -> tuple[MacroFeatureSpec, ...]:
@@ -119,6 +132,34 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
                 ),
             )
             for window in OHLC_BAR_WINDOWS
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_{suffix}",
+                "stochastic",
+                series,
+                {
+                    "stoch_k_5": "100*(close-min(low,5))/(max(high,5)-min(low,5))",
+                    "stoch_d_5_3": "mean(stoch_k_5 over three consecutive source observations)",
+                    "stoch_k_14": "100*(close-min(low,14))/(max(high,14)-min(low,14))",
+                    "stoch_d_14_3": "mean(stoch_k_14 over three consecutive source observations)",
+                    "stoch_kd_spread_5": "stoch_k_5-stoch_d_5_3",
+                    "stoch_k_slope_3": "(stoch_k_5(t)-stoch_k_5(t-3 source rows))/3",
+                }[suffix],
+            )
+            for suffix in OHLC_STOCHASTIC_SUFFIXES
+        )
+        specs.extend(
+            MacroFeatureSpec(
+                f"{series}_{suffix}",
+                "donchian",
+                series,
+                "current high strictly exceeds prior 20 valid source highs"
+                if suffix.endswith("up")
+                else "current low is strictly below prior 20 valid source lows",
+                "boolean",
+            )
+            for suffix in OHLC_DONCHIAN_SUFFIXES
         )
     for series in VOLATILITY_SERIES:
         specs.extend(
@@ -341,6 +382,7 @@ def _source_specs() -> tuple[MacroFeatureSpec, ...]:
 
 FEATURE_CATALOG: tuple[MacroFeatureSpec, ...] = _source_specs()
 FEATURE_COLUMNS: tuple[str, ...] = ("timestamp_m1", *(spec.name for spec in FEATURE_CATALOG))
+FEATURE_POSTGRES_TYPES: dict[str, str] = {spec.name: spec.postgres_type for spec in FEATURE_CATALOG}
 
 
 def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG) -> None:
@@ -366,6 +408,21 @@ def validate_feature_catalog(catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CAT
             raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
         if {spec.series for spec in family_specs} != set(OHLC_SERIES):
             raise ValueError(f"macro feature catalog {family} series mismatch")
+    for family, suffixes in (
+        ("stochastic", OHLC_STOCHASTIC_SUFFIXES),
+        ("donchian", OHLC_DONCHIAN_SUFFIXES),
+    ):
+        family_specs = tuple(spec for spec in catalog if spec.family == family)
+        expected = tuple(f"{series}_{suffix}" for series in OHLC_SERIES for suffix in suffixes)
+        if tuple(spec.name for spec in family_specs) != expected:
+            raise ValueError(f"macro feature catalog {family} domain/coverage mismatch")
+        if {spec.series for spec in family_specs} != set(OHLC_SERIES):
+            raise ValueError(f"macro feature catalog {family} series mismatch")
+        expected_type = "boolean" if family == "donchian" else "double precision"
+        if any(spec.postgres_type != expected_type for spec in family_specs):
+            raise ValueError(f"macro feature catalog {family} type mismatch")
+    if any(spec.postgres_type not in {"double precision", "boolean"} for spec in catalog):
+        raise ValueError("macro feature catalog contains an unsupported PostgreSQL type")
     for family in PRICE_FEATURE_FAMILIES:
         family_series = {spec.series for spec in catalog if spec.family == family}
         if family_series != set(PRICE_FEATURE_SERIES):
@@ -386,7 +443,13 @@ def feature_catalog_payload(
 ) -> tuple[dict[str, str | None], ...]:
     validate_feature_catalog(catalog)
     return tuple(
-        {"name": spec.name, "family": spec.family, "series": spec.series, "formula": spec.formula}
+        {
+            "name": spec.name,
+            "family": spec.family,
+            "series": spec.series,
+            "formula": spec.formula,
+            "postgres_type": spec.postgres_type,
+        }
         for spec in catalog
     )
 

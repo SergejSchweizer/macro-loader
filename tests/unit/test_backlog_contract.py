@@ -148,8 +148,17 @@ def _validate(text: str) -> list[BacklogPr]:
 
 
 def test_backlog_contains_only_current_detailed_program() -> None:
-    sections = _validate(BACKLOG.read_text(encoding="utf-8"))
-    assert [section.pr_id for section in sections] == EXPECTED_DETAILED
+    text = BACKLOG.read_text(encoding="utf-8")
+    archive_start = text.index("## Obsolete PR Archive")
+    archive = text[archive_start:]
+    assert not _sections(text)
+    assert archive_start == text.rfind("## Obsolete PR Archive")
+    entries = re.findall(r"^- \*\*(PR-\d{2,3}: .+)\*\* — Obsolete(?: .*)?$", archive, re.MULTILINE)
+    assert len(entries) >= 45
+    assert all("Obsolete" in line for line in archive.splitlines() if line.startswith("- **PR-"))
+    assert "PR-31–PR-61" in archive
+    assert "PR-00–PR-30" in archive
+    assert archive.rstrip().endswith(entries[-1] + "** — Obsolete")
 
 
 def _minimal_section(pr_number: int) -> str:

@@ -20,6 +20,7 @@ from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
+    FEATURE_POSTGRES_TYPES,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     PRICE_FEATURE_SERIES,
@@ -1342,7 +1343,7 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
     )
     assert columns[0][2] == "timestamp(6) with time zone"
     assert columns[1][2] == "timestamp(6) with time zone"
-    assert all(column[2] == "double precision" for column in columns[2:])
+    assert all(column[2] == FEATURE_POSTGRES_TYPES[column[1]] for column in columns[2:])
     assert comment == (
         f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
         f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
@@ -1693,7 +1694,7 @@ def test_real_postgres_pr171_exact_schema_and_no_raw_or_gold_leakage(
     }
     assert len(expected) == len(set(expected))
     assert actual == expected
-    assert all(row[1] == "double precision" for row in view_columns[2:])
+    assert all(row[1] == FEATURE_POSTGRES_TYPES[row[0]] for row in view_columns[2:])
     assert not any(column.endswith("_rsi_15obs") for column in actual)
     assert additions.isdisjoint(raw_columns)
     assert additions.isdisjoint(GOLD_COLUMNS)
