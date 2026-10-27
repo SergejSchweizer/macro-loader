@@ -19,7 +19,7 @@ PR: [#200](https://github.com/SergejSchweizer/macro-loader/pull/200) (open)
 Git status: pushed-local-checks-passed
 Agent lane: make the raw-derived long transformation materialized view the sole public feature view
 Depends on: PR-199 (merged to `origin/main`)
-Commit: `f66df93 feat(pr-200): rename long feature view and retire legacy views`; `2baa229 test(pr-200): validate renamed view calculations`
+Commit: `f66df93 feat(pr-200): rename long feature view and retire legacy views`; `2baa229 test(pr-200): validate renamed view calculations`; `8a2e7d2 docs(pr-200): record pull request and local acceptance`
 Design patterns: Versioned Migration, Materialized View, Catalog Conformance.
 
 Description:
