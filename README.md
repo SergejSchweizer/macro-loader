@@ -11,11 +11,15 @@ The project is intentionally a **data product**, not a trading system. It does n
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
 The repository includes native OHLC inputs and OHLC-derived transformations in the
-PostgreSQL serving-view contract. Production migration 33 was applied on 2026-10-27:
-the 25 `macro_raw_<feature>` tables and both materialized views exist, the wide `macro_raw`
-and orphaned retired Fed table are absent, and both views currently contain the 16,794
-legacy rows through 2026-10-12. The current Gold build is newer, but its PostgreSQL sync
-is pending schema-state reconciliation. The host crontab has not been changed or accepted.
+PostgreSQL serving-view contract. Production migration 33 and canonical Gold sync were
+completed on 2026-10-27. All 25 `macro_raw_<feature>` tables contain source rows; the wide
+`macro_raw` and orphaned retired Fed table are absent. Both public materialized views are
+current through `timestamp_m1=2026-10-27`, with `available_at_utc` through 2026-10-28.
+PostgreSQL sync state is schema 11 / feature 6, with 16,805 consumer rows and matching
+row digests. The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full
+acceptance on 2026-10-27: both wrapper runs succeeded, the explicit PostgreSQL replay
+made zero row changes, independent verification passed, and each raw table had at least
+37 observations in the latest 60-calendar-day window.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.
@@ -465,7 +469,7 @@ contract version 1) for the 12 additional positive-level scalar sources
 `ciss_financials`, `euro_hy_yield`, `euro_hy_ytw`, `euro_hy_total_return`, `us_3m`, and
 `us_5y`. It exposes all 792 catalog-defined causal transformation columns for those
 series plus `timestamp_m1` and `available_at_utc`. Signed `estr` remains excluded from
-positive-level transformations. The existing 953-column `macro_features` contract is
+positive-level transformations. The existing 954-column `macro_features` contract is
 preserved. Together the two views provide transformations for all 24 applicable positive
 series without exceeding PostgreSQL's 1,600-column limit on a single relation. Join the
 views on `timestamp_m1`; both expose the same generated `available_at_utc` and are
@@ -543,7 +547,7 @@ serving contract uses a generic weekday-only calendar.
 This is PostgreSQL-serving metadata, not a canonical Gold timestamp. Its generated
 value does not alter the canonical Gold payload or row digests.
 
-The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more weekly runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
+The first successful `gold-sync-postgres` run is necessarily a complete bootstrap because PostgreSQL has no synchronized state. Every later run compares the complete current Gold state against the complete stored row-digest state. This is an **accumulated delta**: if one or more daily runs were missed, the next run inserts all missing rows, updates historical revisions, deletes stale serving keys, leaves unchanged rows untouched, and advances the synchronized checkpoint atomically.
 
 A `feature_version` mismatch, backwards schema transition, or schema transition outside
 the supported contract fails closed. Consecutive Gold schema versions 7 through 11 may be
@@ -629,7 +633,7 @@ timeouts, application identity, and two UTC microsecond round trips. It rolls it
 back, emits deterministic sanitized JSON only, and returns non-zero unless every check is `PASS`.
 
 `postgres-reconstruct --execute` is the one explicit production reconstruction command. It
-disables the Sunday runner, acquires its filesystem lock and a PostgreSQL maintenance lock,
+disables the Daily runner, acquires its filesystem lock and a PostgreSQL maintenance lock,
 requires the exact production endpoint, validates private restore evidence before source
 reconciliation or schema recreation, then reconciles all canonical series, rebuilds Gold,
 recreates only the loader-owned PostgreSQL schemas, publishes, independently verifies, and
@@ -681,6 +685,22 @@ All PostgreSQL macro data is stored in the dedicated `macro_loader` database. Th
 `macro_loader` and `macro_loader_sync` schemas are created inside that database;
 the CI-only `macro_loader_test` database remains separate.
 
+The 25 raw feature tables are in schema `macro_loader` and are named
+`macro_raw_<feature>` (for example `macro_loader.macro_raw_vix`). In the deployed
+environment, SQL-client inspection was verified with the `macro-loader-sync` login
+using its configured `PGSYNCUSER`/`PGSYNCPASSWORD` credentials. The `macro-loader`
+login did not authenticate with the configured password during that check. In a SQL
+client, select database `macro_loader`, schema `macro_loader`, and use the working
+deployment login; list the raw tables with:
+
+```sql
+SELECT table_schema, table_name
+FROM information_schema.tables
+WHERE table_schema = 'macro_loader'
+  AND table_name LIKE 'macro_raw_%'
+ORDER BY table_name;
+```
+
 Runtime sync first performs a read-only schema-contract preflight. Missing or incompatible
 feature-specific raw tables, support tables, columns, or keys fail before it acquires the
 row-mutation transaction. It never creates, alters, drops, grants, or migrates PostgreSQL
@@ -710,16 +730,16 @@ The optional Gold mirror still runs only as part of local publication; a Postgre
 
 ### Scheduling
 
-The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs every **Sunday at 10:00 in the deployment host's local time zone**. It loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
+The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs **daily at 09:00 Europe/Vienna time**. It loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
 
 ```cron
 CRON_TZ=Europe/Vienna
-0 10 * * 0 /home/dev_macro/macro-loader/ops/run-macro-loader-sunday.sh
+0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh
 ```
 
-The one Sunday job runs at 10:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from $UTC+1$ in winter to $UTC+2$ in summer. The runner script resolves its project root, exports the protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. The PostgreSQL sync runs only after `run-daily` succeeds.
+The daily job runs at 09:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from UTC+1 in winter to UTC+2 in summer. The runner resolves its project root, exports protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. It uses `--overlap-days 60`, a bounded calendar window spanning at least 30 normal weekday EOD observations for daily series, then synchronizes the complete canonical Gold snapshot to PostgreSQL. PostgreSQL sync runs only after `run-daily` succeeds.
 
-The Sunday runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
+The daily runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
 that variable in the service environment to use a different positive concurrency limit.
 
 Install it for the service account after reviewing the absolute project path:
@@ -733,8 +753,8 @@ Operational semantics are explicit:
 - `run-daily` failure prevents PostgreSQL synchronization;
 - `gold-sync-postgres` failure makes the cron job non-zero but does **not** roll back or invalidate the already published local Gold build;
 - after a database-only failure, retry only `uv run macro-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
-- the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed weekly runs;
-- source maximum-history reconciliation remains a separate explicit schedule/command and is never part of the Sunday main chain;
+- the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed daily runs;
+- source maximum-history reconciliation remains a separate explicit command and is never part of the daily main chain;
 - both main commands append stdout/stderr to the same `${PROJECT_ROOT}/.logs/macro-loader.log` through `LOG_PATH`.
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
@@ -755,9 +775,10 @@ uv run python scripts/macro_feature_cron_acceptance.py \
 
 The first runner plans maximum-history reconciliation for every registered series,
 then Silver/Gold publication, PostgreSQL migration/sync/verification, and an
-unchanged replay. The second executes the installed Sunday wrapper twice. Both write
+unchanged replay. The second executes the installed daily wrapper twice, explicitly
+checks a zero-change PostgreSQL replay, and runs independent `postgres-verify`. It writes
 only a sanitized JSON report under `artifacts/acceptance/`; no credentials or raw
-provider payloads are recorded. A report is `PASS` only when every stage exits zero.
+provider payloads are recorded. A report is `PASS` only when every stage passes.
 
 ## Local Quality Checks
 

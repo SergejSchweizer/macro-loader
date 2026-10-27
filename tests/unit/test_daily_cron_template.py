@@ -6,7 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 CRON_TEMPLATE = Path("ops/macro-loader.cron")
-CRON_RUNNER = Path("ops/run-macro-loader-sunday.sh")
+CRON_RUNNER = Path("ops/run-macro-loader-daily.sh")
 
 
 def _job_line() -> str:
@@ -17,31 +17,31 @@ def _job_line() -> str:
     )
 
 
-def test_sunday_gold_sync_cron_template_has_explicit_vienna_timezone_and_dst() -> None:
+def test_daily_gold_sync_cron_template_has_explicit_vienna_timezone_and_dst() -> None:
     text = CRON_TEMPLATE.read_text(encoding="utf-8")
     vienna = ZoneInfo("Europe/Vienna")
 
     assert "CRON_TZ=Europe/Vienna" in text
-    assert datetime(2026, 1, 4, 10, tzinfo=vienna).utcoffset() == timedelta(hours=1)
-    assert datetime(2026, 7, 5, 10, tzinfo=vienna).utcoffset() == timedelta(hours=2)
+    assert datetime(2026, 1, 4, 9, tzinfo=vienna).utcoffset() == timedelta(hours=1)
+    assert datetime(2026, 7, 5, 9, tzinfo=vienna).utcoffset() == timedelta(hours=2)
 
 
-def test_sunday_gold_sync_cron_template_is_operational() -> None:
+def test_daily_gold_sync_cron_template_is_operational() -> None:
     job = _job_line()
     runner = CRON_RUNNER.read_text(encoding="utf-8")
 
-    assert job.startswith("0 10 * * 0 ")
-    assert job == "0 10 * * 0 /home/dev_macro/macro-loader/ops/run-macro-loader-sunday.sh"
+    assert job.startswith("0 9 * * * ")
+    assert job == "0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh"
     assert '"$PROJECT_ROOT/scripts/export_cron_config.py" "$CONFIG_FILE"' in runner
     assert 'cd "$PROJECT_ROOT"' in runner
     assert 'git -C "$PROJECT_ROOT" rev-parse --verify HEAD' in runner
     assert "export MACRO_LOADER_GIT_SHA" in runner
-    assert 'LOCK_PATH="$LOCK_DIR/macro-loader-sunday.lock"' in runner
+    assert 'LOCK_PATH="$LOCK_DIR/macro-loader-daily.lock"' in runner
     assert "if ! flock -n 9; then" in runner
     assert "exit 3" in runner
     assert 'mkdir -p "$LOG_DIR"' in runner
     assert 'exec >>"$LOG_PATH" 2>&1' in runner
-    assert '"$CLI" --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily' in runner
+    assert '"$CLI" --overlap-days 60 --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily' in runner
     assert '"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres' in runner
     assert runner.index("run-daily") < runner.index("gold-sync-postgres")
     assert "/var/log" not in job
@@ -78,7 +78,7 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
     (project_root / "ops").mkdir(parents=True)
     (project_root / "scripts").mkdir()
     (project_root / ".venv" / "bin").mkdir(parents=True)
-    runner_path = project_root / "ops" / "run-macro-loader-sunday.sh"
+    runner_path = project_root / "ops" / "run-macro-loader-daily.sh"
     runner_path.write_text(CRON_RUNNER.read_text(encoding="utf-8"), encoding="utf-8")
     runner_path.chmod(0o755)
     (project_root / "config.yaml").write_text("fixture\n", encoding="utf-8")
@@ -103,7 +103,7 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
     return project_root, bin_dir
 
 
-def test_sunday_runner_uses_repository_root_and_exports_one_git_identity(tmp_path: Path) -> None:
+def test_daily_runner_uses_repository_root_and_exports_one_git_identity(tmp_path: Path) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
     record_path = tmp_path / "runner-record"
     unrelated_cwd = tmp_path / "unrelated"
@@ -115,7 +115,7 @@ def test_sunday_runner_uses_repository_root_and_exports_one_git_identity(tmp_pat
     }
 
     completed = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=unrelated_cwd,
         env=environment,
         check=False,
@@ -125,18 +125,19 @@ def test_sunday_runner_uses_repository_root_and_exports_one_git_identity(tmp_pat
 
     assert completed.returncode == 0
     assert record_path.read_text(encoding="utf-8").splitlines() == [
-        f"{project_root}|fixture-sha|--cores 6 --lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--overlap-days 60 --cores 6 "
+        "--lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
 
 
-def test_sunday_runner_passes_environment_core_override_to_daily_command(
+def test_daily_runner_passes_environment_core_override_to_daily_command(
     tmp_path: Path,
 ) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
     record_path = tmp_path / "runner-record"
     completed = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
         env={
             **os.environ,
@@ -151,12 +152,13 @@ def test_sunday_runner_passes_environment_core_override_to_daily_command(
 
     assert completed.returncode == 0
     assert record_path.read_text(encoding="utf-8").splitlines() == [
-        f"{project_root}|fixture-sha|--cores 3 --lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--overlap-days 60 --cores 3 "
+        "--lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
 
 
-def test_sunday_runner_stops_before_commands_when_git_identity_is_unavailable(
+def test_daily_runner_stops_before_commands_when_git_identity_is_unavailable(
     tmp_path: Path,
 ) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path, git_exit_code=1)
@@ -168,7 +170,7 @@ def test_sunday_runner_stops_before_commands_when_git_identity_is_unavailable(
     }
 
     completed = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -181,11 +183,11 @@ def test_sunday_runner_stops_before_commands_when_git_identity_is_unavailable(
     assert not record_path.exists()
 
 
-def test_sunday_runner_rejects_lock_contention_before_any_cli_command(tmp_path: Path) -> None:
+def test_daily_runner_rejects_lock_contention_before_any_cli_command(tmp_path: Path) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
     lock_dir = project_root / ".locks"
     lock_dir.mkdir()
-    lock_path = lock_dir / "macro-loader-sunday.lock"
+    lock_path = lock_dir / "macro-loader-daily.lock"
     record_path = tmp_path / "runner-record"
     environment = {
         **os.environ,
@@ -196,7 +198,7 @@ def test_sunday_runner_rejects_lock_contention_before_any_cli_command(tmp_path: 
     with lock_path.open("w", encoding="utf-8") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
         completed = subprocess.run(
-            [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+            [str(project_root / "ops" / "run-macro-loader-daily.sh")],
             cwd=tmp_path,
             env=environment,
             check=False,
@@ -209,7 +211,7 @@ def test_sunday_runner_rejects_lock_contention_before_any_cli_command(tmp_path: 
     assert not record_path.exists()
 
 
-def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verification(
+def test_daily_runner_blocks_maintenance_but_allows_non_destructive_verification(
     tmp_path: Path,
 ) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
@@ -224,7 +226,7 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
     }
 
     blocked = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -232,9 +234,9 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
         text=True,
     )
     verified = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
-        env={**environment, "MACRO_LOADER_SUNDAY_VERIFY_ONLY": "true"},
+        env={**environment, "MACRO_LOADER_DAILY_VERIFY_ONLY": "true"},
         check=False,
         capture_output=True,
         text=True,
@@ -247,7 +249,7 @@ def test_sunday_runner_blocks_maintenance_but_allows_non_destructive_verificatio
     assert verified.returncode == 0
 
 
-def test_sunday_runner_dry_verification_reports_default_and_override_cores(
+def test_daily_runner_dry_verification_reports_default_and_override_cores(
     tmp_path: Path,
 ) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
@@ -258,11 +260,11 @@ def test_sunday_runner_dry_verification_reports_default_and_override_cores(
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "RUNNER_RECORD": str(record_path),
-        "MACRO_LOADER_SUNDAY_VERIFY_ONLY": "true",
+        "MACRO_LOADER_DAILY_VERIFY_ONLY": "true",
     }
 
     default = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=unrelated_cwd,
         env={key: value for key, value in base_environment.items() if key != "MACRO_LOADER_CORES"},
         check=False,
@@ -270,7 +272,7 @@ def test_sunday_runner_dry_verification_reports_default_and_override_cores(
         text=True,
     )
     override = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=unrelated_cwd,
         env={**base_environment, "MACRO_LOADER_CORES": "3"},
         check=False,
@@ -287,7 +289,7 @@ def test_sunday_runner_dry_verification_reports_default_and_override_cores(
     assert not (project_root / ".logs").exists()
 
 
-def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync(
+def test_daily_runner_releases_lock_after_daily_failure_and_skips_postgres_sync(
     tmp_path: Path,
 ) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
@@ -300,7 +302,7 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
     }
 
     failed = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
         env=environment,
         check=False,
@@ -308,7 +310,7 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
         text=True,
     )
     retry = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
         env={key: value for key, value in environment.items() if key != "RUNNER_FAIL_DAILY"},
         check=False,
@@ -319,18 +321,20 @@ def test_sunday_runner_releases_lock_after_daily_failure_and_skips_postgres_sync
     assert failed.returncode == 7
     assert retry.returncode == 0
     assert record_path.read_text(encoding="utf-8").splitlines() == [
-        f"{project_root}|fixture-sha|--cores 6 --lake-root fixture-lake run-daily",
-        f"{project_root}|fixture-sha|--cores 6 --lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--overlap-days 60 --cores 6 "
+        "--lake-root fixture-lake run-daily",
+        f"{project_root}|fixture-sha|--overlap-days 60 --cores 6 "
+        "--lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
 
 
-def test_sunday_runner_fails_before_config_export_when_runtime_is_missing(tmp_path: Path) -> None:
+def test_daily_runner_fails_before_config_export_when_runtime_is_missing(tmp_path: Path) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
     (project_root / ".venv" / "bin" / "python").unlink()
 
     completed = subprocess.run(
-        [str(project_root / "ops" / "run-macro-loader-sunday.sh")],
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
         cwd=tmp_path,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
         check=False,

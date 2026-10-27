@@ -364,7 +364,7 @@ def build_production_reconstruction_runtime(
         lake_root=lake_root,
         project_root=project_root,
         today=today,
-        sunday_runner=project_root / "ops" / "run-macro-loader-sunday.sh",
+        daily_runner=project_root / "ops" / "run-macro-loader-daily.sh",
     )
     return ProductionReconstructionRuntime(
         reconstruction=ProductionReconstruction(operations, tuple(SERIES_REGISTRY))

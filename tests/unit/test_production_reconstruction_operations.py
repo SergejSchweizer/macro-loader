@@ -79,7 +79,7 @@ def _operations(tmp_path: Path) -> module.GuardedProductionReconstructionOperati
         lake_root=tmp_path / "lake",
         project_root=tmp_path / "project",
         today=date(2026, 8, 28),
-        sunday_runner=tmp_path / "runner",
+        daily_runner=tmp_path / "runner",
     )
 
 
@@ -209,7 +209,7 @@ def test_operations_delegate_pipeline_sync_and_wrapper_without_payload_output(
     assert operations.publish_postgres().inserted == 0
     assert operations.verify_postgres().status == "PASS"
     assert operations.replay_postgres().deleted == 0
-    operations.verify_sunday_wrapper()
+    operations.verify_daily_wrapper()
 
     assert operations.pipeline.calls == [
         ("reconcile", ("vix",)),
@@ -227,6 +227,6 @@ def test_wrapper_failure_and_missing_marker_keep_scheduling_disabled(
     )
 
     with pytest.raises(RuntimeError, match="wrapper verification"):
-        operations.verify_sunday_wrapper()
+        operations.verify_daily_wrapper()
     with pytest.raises(RuntimeError, match="marker is missing"):
         operations.enable_scheduling()

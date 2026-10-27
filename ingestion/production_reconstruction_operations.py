@@ -29,7 +29,7 @@ from ingestion.postgres_gold_repository import (
 )
 
 _MAINTENANCE_MARKER = ".maintenance/macro-loader-reconstruction"
-_RUNNER_LOCK = ".locks/macro-loader-sunday.lock"
+_RUNNER_LOCK = ".locks/macro-loader-daily.lock"
 
 
 @dataclass(slots=True)
@@ -46,7 +46,7 @@ class GuardedProductionReconstructionOperations:
     lake_root: Path
     project_root: Path
     today: date
-    sunday_runner: Path
+    daily_runner: Path
     _runner_handle: object | None = field(default=None, init=False, repr=False)
     _maintenance_connection: psycopg.Connection[tuple[object, ...]] | None = field(
         default=None, init=False, repr=False
@@ -65,7 +65,7 @@ class GuardedProductionReconstructionOperations:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             handle.close()
-            raise RuntimeError("Sunday runner lock is already held") from None
+            raise RuntimeError("Daily runner lock is already held") from None
         self._runner_handle = handle
         try:
             connection = psycopg.connect(
@@ -170,16 +170,16 @@ class GuardedProductionReconstructionOperations:
     def replay_postgres(self) -> GoldSyncResult:
         return self.sync.sync()
 
-    def verify_sunday_wrapper(self) -> None:
+    def verify_daily_wrapper(self) -> None:
         completed = subprocess.run(
-            [str(self.sunday_runner)],
+            [str(self.daily_runner)],
             cwd=self.project_root,
             check=False,
             capture_output=True,
-            env={**os.environ, "MACRO_LOADER_SUNDAY_VERIFY_ONLY": "true"},
+            env={**os.environ, "MACRO_LOADER_DAILY_VERIFY_ONLY": "true"},
         )
         if completed.returncode != 0:
-            raise RuntimeError("guarded Sunday wrapper verification failed")
+            raise RuntimeError("guarded Daily wrapper verification failed")
 
     def enable_scheduling(self) -> None:
         marker = self.project_root / _MAINTENANCE_MARKER

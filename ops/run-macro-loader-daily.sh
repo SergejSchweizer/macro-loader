@@ -13,7 +13,7 @@ export MACRO_LOADER_PROJECT_ROOT="$PROJECT_ROOT"
 LOG_DIR="$PROJECT_ROOT/.logs"
 LOG_PATH="$LOG_DIR/macro-loader.log"
 LOCK_DIR="$PROJECT_ROOT/.locks"
-LOCK_PATH="$LOCK_DIR/macro-loader-sunday.lock"
+LOCK_PATH="$LOCK_DIR/macro-loader-daily.lock"
 MAINTENANCE_PATH="$PROJECT_ROOT/.maintenance/macro-loader-reconstruction"
 CORES=${MACRO_LOADER_CORES:-6}
 
@@ -23,8 +23,8 @@ if ! MACRO_LOADER_GIT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --verify HEAD); the
 fi
 export MACRO_LOADER_GIT_SHA
 
-if [[ "${MACRO_LOADER_SUNDAY_VERIFY_ONLY:-}" == "true" ]]; then
-	printf 'Sunday runner verification completed without data operations (--cores %s)\n' "$CORES"
+if [[ "${MACRO_LOADER_DAILY_VERIFY_ONLY:-}" == "true" ]]; then
+	printf 'Daily runner verification completed without data operations (--cores %s)\n' "$CORES"
 	exit 0
 fi
 
@@ -39,26 +39,26 @@ mkdir -p "$LOG_DIR"
 mkdir -p "$LOCK_DIR"
 exec 9>"$LOCK_PATH"
 if ! flock -n 9; then
-	printf 'Sunday macro-loader job is already running\n' >&2
+	printf 'Daily macro-loader job is already running\n' >&2
 	exit 3
 fi
 exec >>"$LOG_PATH" 2>&1
 
-printf '\n[%s] Starting Sunday macro-loader job\n' "$(date --iso-8601=seconds)"
+printf '\n[%s] Starting daily macro-loader job\n' "$(date --iso-8601=seconds)"
 
 if [[ -e "$MAINTENANCE_PATH" ]]; then
-	printf 'Sunday macro-loader job is disabled for production reconstruction\n' >&2
+	printf 'Daily macro-loader job is disabled for production reconstruction\n' >&2
 	exit 4
 fi
 
 eval "$("$PYTHON" "$PROJECT_ROOT/scripts/export_cron_config.py" "$CONFIG_FILE")"
 
 printf '[%s] Running delta-only daily pipeline\n' "$(date --iso-8601=seconds)"
-"$CLI" --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily
+"$CLI" --overlap-days 60 --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily
 
 printf '[%s] Synchronizing canonical Gold to PostgreSQL\n' "$(date --iso-8601=seconds)"
 PGUSER="${PGSYNCUSER:-macro-loader-sync}" \
 PGPASSWORD="${PGSYNCPASSWORD:-${PGPASSWORD:-}}" \
 	"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres
 
-printf '[%s] Sunday macro-loader job completed\n' "$(date --iso-8601=seconds)"
+printf '[%s] Daily macro-loader job completed\n' "$(date --iso-8601=seconds)"

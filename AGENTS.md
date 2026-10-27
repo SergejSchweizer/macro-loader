@@ -2,10 +2,12 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PR-193 is merged to `origin/main` as GitHub PR #193.
-Production migration 33 has created the 25 feature tables and both views; Gold sync is
-pending because the durable state is schema 7 / feature 6 while canonical Gold is schema
-11 / feature 6. PR-194, `pr-194/allow-schema-version-sync-jumps`, is the active branch. Per
+Current delivery status (2026-10-27): PRs #192–#194 are merged to `origin/main`.
+Production migration 33, canonical Gold sync, and independent verification have completed;
+25 feature tables and both public views are populated through 2026-10-27 (schema 11 /
+feature 6). PR-195, `pr-195/daily-09-cron-30obs`, has passed local quality gates and its
+full live daily-cron acceptance; its PR is awaiting merge. The installed 09:00 Europe/Vienna
+schedule and 60-calendar-day delta window are verified. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

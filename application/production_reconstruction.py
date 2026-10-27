@@ -23,7 +23,7 @@ _STAGES = (
     "publication",
     "verification",
     "replay",
-    "sunday_wrapper",
+    "daily_wrapper",
 )
 
 
@@ -89,7 +89,7 @@ class ProductionReconstructionOperations(Protocol):
 
     def replay_postgres(self) -> GoldSyncResult: ...
 
-    def verify_sunday_wrapper(self) -> None: ...
+    def verify_daily_wrapper(self) -> None: ...
 
     def enable_scheduling(self) -> None: ...
 
@@ -133,8 +133,8 @@ class ProductionReconstruction:
             if replay.inserted or replay.updated or replay.deleted:
                 return ProductionReconstructionReport("FAIL", tuple(completed), "replay")
             completed.append("replay")
-            self.operations.verify_sunday_wrapper()
-            completed.append("sunday_wrapper")
+            self.operations.verify_daily_wrapper()
+            completed.append("daily_wrapper")
         except Exception:
             failed_stage = _STAGES[len(completed)]
             return ProductionReconstructionReport("FAIL", tuple(completed), failed_stage)
