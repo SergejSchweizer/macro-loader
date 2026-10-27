@@ -480,8 +480,19 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert queries.count(module._FEATURES_VIEW_DDL) == 1
-    assert ddl.count("TRUNCATE TABLE") == 1
+    assert ddl.count("TRUNCATE TABLE") == 2
     assert "TRUNCATE TABLE" in module._FEATURE_VALUE_REFRESH_FUNCTION
+    assert module._FEATURE_VALUE_REFRESH_FUNCTION.count(module._FEATURE_VALUE_ALL_SOURCE_SQL) == 1
+    assert "CREATE TEMP TABLE macro_feature_values_staging ON COMMIT DROP AS" in (
+        module._FEATURE_VALUE_REFRESH_FUNCTION
+    )
+    assert "FROM pg_temp.macro_feature_values_staging AS staged" in (
+        module._FEATURE_VALUE_REFRESH_FUNCTION
+    )
+    assert "staged.value <> 'null'::jsonb" in module._FEATURE_VALUE_REFRESH_FUNCTION
+    assert "macro_loader.refresh_macro_feature_values()" not in (
+        module._FEATURE_VALUE_INVALID_SOURCE_SQL
+    )
     assert 'DROP TABLE IF EXISTS "macro_loader"."macro_raw"' in ddl
     assert "to_regclass('macro_loader.macro_features_daily')" in ddl
     assert 'ALTER TABLE "macro_loader"."macro_features_daily" RENAME TO "macro_raw"' in ddl
@@ -582,10 +593,11 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert '"available_at_utc"' in availability_sql
     assert "GENERATED ALWAYS AS" in availability_sql
     assert "TIMESTAMPTZ(6)" in availability_sql
-    feature_views_migration_index = len(module._MIGRATIONS) - 3
+    feature_views_migration_index = len(module._MIGRATIONS) - 4
     feature_views_migration = "\n".join(module._MIGRATIONS[feature_views_migration_index])
-    drift_cleanup = "\n".join(module._MIGRATIONS[-2])
-    feature_values_migration = "\n".join(module._MIGRATIONS[-1])
+    drift_cleanup = "\n".join(module._MIGRATIONS[-3])
+    feature_values_migration = "\n".join(module._MIGRATIONS[-2])
+    feature_values_population_migration = "\n".join(module._MIGRATIONS[-1])
     assert availability_migration_index < feature_views_migration_index
     assert module._FEATURES_VIEW_DDL in feature_views_migration
     assert "version=16" in feature_views_migration
@@ -599,7 +611,9 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert module._FEATURES_VIEW_DDL not in drift_cleanup
     assert module._FEATURE_VALUES_DDL in feature_values_migration
     assert "refresh_macro_feature_values" in feature_values_migration
-    assert module._FEATURE_VALUE_REFRESH_CALL in feature_values_migration
+    assert module._FEATURE_VALUE_REFRESH_CALL not in feature_values_migration
+    assert module._FEATURE_VALUE_REFRESH_FUNCTION in feature_values_population_migration
+    assert module._FEATURE_VALUE_REFRESH_CALL in feature_values_population_migration
 
 
 def test_long_feature_values_projection_preserves_types_and_omits_nulls() -> None:
@@ -726,24 +740,24 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._LEGACY_FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-6])
+    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-7])
     assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in (
-        "\n".join(module._MIGRATIONS[-7])
+        "\n".join(module._MIGRATIONS[-8])
     )
     assert 'ADD COLUMN IF NOT EXISTS "euro_hy_total_return_level" DOUBLE PRECISION NULL' in (
         prior_euro_hy_migration
     )
-    treasury_migration = "\n".join(module._MIGRATIONS[-5])
+    treasury_migration = "\n".join(module._MIGRATIONS[-6])
     assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in treasury_migration
     assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration
     assert treasury_migration.count("ADD COLUMN IF NOT EXISTS") == 2
-    cutover_migration = "\n".join(module._MIGRATIONS[-4])
+    cutover_migration = "\n".join(module._MIGRATIONS[-5])
     assert 'DROP TABLE "macro_loader"."macro_raw"' in cutover_migration
     assert 'INSERT INTO "macro_loader"."macro_raw_euro_hy_oas"' in cutover_migration
     assert "macro_raw_vix" in cutover_migration and "macro_raw_usd_broad" in cutover_migration
     assert len(module.POSTGRES_RAW_TABLES) == 25
     assert not any(spec.name == "macro_raw" for spec in module._SCHEMA_SPECIFICATION)
-    extended_migration = "\n".join(module._MIGRATIONS[-3])
+    extended_migration = "\n".join(module._MIGRATIONS[-4])
     assert "macro_features_extended" in extended_migration
 
 

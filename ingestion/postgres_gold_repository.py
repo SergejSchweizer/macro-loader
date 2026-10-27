@@ -1707,6 +1707,20 @@ _FEATURE_VALUE_INVALID_SOURCE_SQL = (
     + f"feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY}) "
     + "AND jsonb_typeof(value) = 'number'))"
 )
+_FEATURE_VALUE_STAGING_TABLE = "pg_temp.macro_feature_values_staging"
+_FEATURE_VALUE_BOOLEAN_CAST_SQL = (
+    "CASE staged.value #>> '{}' "
+    "WHEN 'true' THEN 1.0::double precision "
+    "WHEN 'false' THEN 0.0::double precision ELSE NULL END"
+)
+_FEATURE_VALUE_STAGING_INSERT_SQL = f"""INSERT INTO {_FEATURE_VALUES}
+    (timestamp_m1, feature_name, value)
+SELECT staged.timestamp_m1, staged.feature_name,
+       CASE WHEN staged.feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY})
+            THEN {_FEATURE_VALUE_BOOLEAN_CAST_SQL}
+            ELSE (staged.value #>> '{{}}')::double precision END
+FROM {_FEATURE_VALUE_STAGING_TABLE} AS staged
+WHERE staged.value <> 'null'::jsonb"""
 _FEATURE_VALUE_POPULATION_SQL = f"""WITH actual AS (
     SELECT count(*) AS row_count,
            count(DISTINCT feature_name) AS feature_count,
@@ -1731,11 +1745,20 @@ SET search_path = pg_catalog, macro_loader
 SET jit = off
 AS $$
 BEGIN
-    IF ({_FEATURE_VALUE_INVALID_SOURCE_SQL}) > 0 THEN
+    CREATE TEMP TABLE macro_feature_values_staging ON COMMIT DROP AS
+    {_FEATURE_VALUE_ALL_SOURCE_SQL};
+    IF EXISTS (
+        SELECT 1 FROM {_FEATURE_VALUE_STAGING_TABLE} AS staged
+        WHERE staged.value <> 'null'::jsonb AND NOT ((
+            staged.feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY})
+            AND jsonb_typeof(staged.value) = 'boolean') OR (
+            staged.feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY})
+            AND jsonb_typeof(staged.value) = 'number'))
+    ) THEN
         RAISE EXCEPTION 'macro feature values contain unsupported catalog types';
     END IF;
     TRUNCATE TABLE {_FEATURE_VALUES};
-    {_FEATURE_VALUE_INSERT_SQL};
+    {_FEATURE_VALUE_STAGING_INSERT_SQL};
 END
 $$"""
 _FEATURE_VALUE_REFRESH_CALL = "SELECT macro_loader.refresh_macro_feature_values()"
@@ -1792,7 +1815,6 @@ _FEATURE_VALUES_MIGRATION = (
     _FEATURE_VALUES_REFRESH_FUNCTION,
     _FEATURE_VALUES_REFRESH_FUNCTION_OWNER,
     *_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS,
-    _FEATURE_VALUE_REFRESH_CALL,
 )
 _FEATURES_VIEW_MIGRATION = (
     _macro_features_view_query(_CONSUMER),
@@ -2310,6 +2332,9 @@ _MIGRATIONS = (
     _RETIRED_FED_DRIFT_CLEANUP_MIGRATION,
     # Publish the catalogued transformations in one transactional, typed long-form table.
     _FEATURE_VALUES_MIGRATION,
+    # Keep the expensive first population independently retryable and repair refresh
+    # functions on deployments that already recorded migration 34.
+    (_FEATURE_VALUE_REFRESH_FUNCTION, _FEATURE_VALUE_REFRESH_CALL),
 )
 _FEATURE_VIEW_PUBLICATION_VERSION = max(
     version

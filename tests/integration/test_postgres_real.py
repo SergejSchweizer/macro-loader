@@ -1430,6 +1430,42 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
 
 
 @pytest.mark.integration
+def test_real_postgres_long_feature_values_refresh_from_staged_raw_source(
+    repository: PostgresGoldSyncRepository,
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    del repository
+    migrator.migrate()
+    timestamps = [datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(60)]
+    series_values = {
+        table.removeprefix("macro_raw_"): [100.0 + index for index in range(len(timestamps))]
+        for table in POSTGRES_RAW_TABLES
+    }
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        _insert_level_values(connection, timestamps, series_values)
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        populated = connection.execute(
+            "SELECT count(*), count(DISTINCT feature_name), "
+            "count(DISTINCT (timestamp_m1, feature_name)), "
+            "count(*) FILTER (WHERE value NOT IN (0.0, 1.0) "
+            "AND feature_name LIKE '%donchian%') "
+            "FROM macro_loader.macro_feature_values"
+        ).fetchone()
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        replay_count = connection.execute(
+            "SELECT count(*) FROM macro_loader.macro_feature_values"
+        ).fetchone()
+
+    assert populated is not None
+    assert populated[0] > 0
+    assert 0 < populated[1] <= len(postgres_module.FEATURE_VALUE_NAMES)
+    assert populated[2] == populated[0]
+    assert populated[3] == 0
+    assert replay_count == (populated[0],)
+
+
+@pytest.mark.integration
 def test_real_postgres_xetra_view_contract_is_closed_world(
     repository: PostgresGoldSyncRepository,
     migrator: PostgresGoldSchemaMigrator,
