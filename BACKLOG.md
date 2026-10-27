@@ -12,13 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-199: Publish Long Transformations As A Raw-Derived Materialized View
 
 PR name: `long-feature-values-materialized-view`
-Status: In progress — replace the long-form table with a raw-derived materialized view
+Status: PR #199 open — local checks passed; production full-history acceptance pending
 Updated: 2026-10-27
 Git branch: `pr-199/long-feature-materialized-view`
-Git status: in-progress
+PR: [#199](https://github.com/SergejSchweizer/macro-loader/pull/199) (open)
+Git status: pushed-local-checks-passed
 Agent lane: publish the 1,720 typed transformations directly from the core raw feature tables
 Depends on: PR-198 (merged to `origin/main`)
-Commit: pending
+Commit: `9342d28 feat(pr-199): replace long table with raw-derived materialized view`
 Design patterns: Materialized View, Registry-driven Projection, Catalog Conformance.
 
 Description:
