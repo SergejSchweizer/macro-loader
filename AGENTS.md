@@ -2,8 +2,8 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PR-188 is merged to `origin/main` as GitHub PR #188.
-PR-189, `pr-189/bootstrap-empty-series-in-live-acceptance`, is the active implementation branch. Per
+Current delivery status (2026-10-27): PR-189 is merged to `origin/main` as GitHub PR #189.
+PR-190, `pr-190/repair-legacy-ohlc-migration`, is the active implementation branch. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

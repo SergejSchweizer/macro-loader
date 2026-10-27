@@ -489,6 +489,17 @@ def test_retirement_migration_archives_fed_data_before_removing_active_columns()
     assert "to_regclass('macro_loader.macro_raw') IS NOT NULL" in legacy_migration
 
 
+def test_legacy_view_migration_adds_ohlc_columns_before_rebuilding_the_view() -> None:
+    legacy_upgrade_migration = module._MIGRATIONS[23]
+
+    assert legacy_upgrade_migration[0] == module._OHLC_COLUMN_MIGRATION[0]
+    assert legacy_upgrade_migration[1] == module._LEGACY_FEATURES_VIEW_REBUILD_MIGRATION[0]
+    assert all(
+        f'ADD COLUMN IF NOT EXISTS "{column}" DOUBLE PRECISION NULL' in legacy_upgrade_migration[0]
+        for column in module.POSTGRES_OHLC_COLUMNS
+    )
+
+
 def test_latest_migrations_add_generated_availability_before_rebuilding_the_view() -> None:
     availability_migration_index = next(
         index
