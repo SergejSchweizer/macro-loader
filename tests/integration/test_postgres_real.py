@@ -1063,7 +1063,7 @@ def test_real_postgres_generated_availability_uses_next_weekday_in_raw_and_view(
                 'INSERT INTO macro_loader.macro_raw_vix ("timestamp_m1") VALUES (%s)',
                 ((timestamp,) for timestamp in observations),
             )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         raw_values = connection.execute(
             """SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_raw_vix
                ORDER BY timestamp_m1"""
