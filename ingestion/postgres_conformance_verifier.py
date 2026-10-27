@@ -216,6 +216,7 @@ class PostgresLiveDatabaseConformanceInspector:
             "idle_in_transaction_session_timeout": (
                 self._config.timeout_policy.idle_in_transaction_timeout_ms
             ),
+            "jit": "off",
         }
         for setting, expected_value in expected.items():
             cursor.execute(f"SHOW {setting}")

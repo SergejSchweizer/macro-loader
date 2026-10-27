@@ -166,9 +166,7 @@ _OHLC_BAR_SUFFIXES = (
 )
 
 
-def _legacy_v25_contract(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[str, tuple[str, ...], str, str]:
+def _legacy_v25_contract() -> tuple[str, tuple[str, ...], str, str]:
     """Build the migration-25 raw table and v14 view without replaying old migrations."""
     legacy_catalog = tuple(
         spec
@@ -193,18 +191,21 @@ def _legacy_v25_contract(
     ).hexdigest()
 
     legacy_consumer_ddl = postgres_module._CONSUMER_DDL
-    monkeypatch.setattr(postgres_module, "_FEATURES_VIEW_COLUMNS", legacy_view_columns[1:])
-    legacy_view_ddl = postgres_module._macro_features_view_query()
+    legacy_view_ddl = postgres_module._macro_features_view_query(
+        raw_relation=postgres_module._CONSUMER,
+        raw_series=feature_catalog_module.RAW_SERIES,
+        price_feature_series=feature_catalog_module.PRICE_FEATURE_SERIES,
+        feature_columns=legacy_view_columns[1:],
+    )
     return legacy_consumer_ddl, legacy_view_columns[1:], legacy_view_ddl, legacy_fingerprint
 
 
 def _seed_v25_baseline(
     connection: psycopg.Connection[object],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[datetime, str, tuple[str, ...]]:
     """Create a minimal v25 schema, dependent v14 view, and completed migration ledger."""
     legacy_raw_ddl, legacy_feature_columns, legacy_view_ddl, legacy_fingerprint = (
-        _legacy_v25_contract(monkeypatch)
+        _legacy_v25_contract()
     )
     legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
     raw_columns = POSTGRES_RAW_COLUMNS[1:]
@@ -394,7 +395,6 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
     sync_repository: PostgresGoldSyncRepository,
-    monkeypatch: pytest.MonkeyPatch,
     migration_mode: str,
 ) -> None:
     expected_migrations = len(postgres_module._MIGRATIONS)
@@ -408,7 +408,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     if migration_mode == "upgrade_25_to_31":
         with psycopg.connect(postgres_dsn) as connection:
             legacy_timestamp, legacy_fingerprint, legacy_feature_columns = _seed_v25_baseline(
-                connection, monkeypatch
+                connection
             )
             before = connection.execute(
                 f"SELECT version FROM {postgres_module._MIGRATION_LEDGER} ORDER BY version"

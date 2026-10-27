@@ -470,7 +470,10 @@ refreshed together by `macro_loader.refresh_macro_features_explicit()` in the sy
 transaction. Migration 32 leaves the existing `macro_features` materialized view
 untouched; its private raw-key and added-series support relations are not granted to
 consumer roles. This describes the code contract only; it does not assert that migration
-32 has run in production.
+32 has run in production. Loader-controlled PostgreSQL sessions and the explicit refresh
+function disable JIT: recursive CTE cardinality estimates can otherwise trigger costly
+compilation for these large feature queries. Connection, lock, statement, and
+idle-transaction timeouts remain bounded.
 
 #### PR-171: Composite and Statistical Feature Semantics
 

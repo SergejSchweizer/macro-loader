@@ -1606,7 +1606,8 @@ _EXTENDED_FEATURES_MIGRATION = (
     f"{_quote(POSTGRES_SYNC_USER)}",
     "CREATE OR REPLACE FUNCTION macro_loader.refresh_macro_features_explicit() "
     "RETURNS void LANGUAGE plpgsql SECURITY DEFINER "
-    "SET search_path = pg_catalog, macro_loader SET join_collapse_limit = 1 AS $$ BEGIN "
+    "SET search_path = pg_catalog, macro_loader SET join_collapse_limit = 1 SET jit = off "
+    "AS $$ BEGIN "
     f"REFRESH MATERIALIZED VIEW {_FEATURES_VIEW}; "
     f"REFRESH MATERIALIZED VIEW {_FEATURE_RAW_PROJECTION_VIEW}; "
     + " ".join(
@@ -2108,6 +2109,7 @@ def _session_configuration(policy: PostgresTimeoutPolicy) -> tuple[str, ...]:
         f"SET lock_timeout = '{policy.lock_timeout_ms}ms'",
         f"SET statement_timeout = '{policy.statement_timeout_ms}ms'",
         f"SET idle_in_transaction_session_timeout = '{policy.idle_in_transaction_timeout_ms}ms'",
+        "SET jit = off",
     )
 
 
