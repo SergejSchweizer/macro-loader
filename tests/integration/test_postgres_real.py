@@ -1627,6 +1627,15 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
     runtime_dsn = _runtime_dsn(postgres_dsn, "macro-loader", "runtime-secret")
     with psycopg.connect(runtime_dsn) as runtime_connection:
         runtime_connection.execute("SELECT * FROM macro_loader_sync.schema_migrations")
+        for table in POSTGRES_RAW_TABLES:
+            privileges = runtime_connection.execute(
+                "SELECT has_table_privilege(current_user, %s, 'SELECT'), "
+                "has_table_privilege(current_user, %s, 'INSERT'), "
+                "has_table_privilege(current_user, %s, 'UPDATE'), "
+                "has_table_privilege(current_user, %s, 'DELETE')",
+                (f"macro_loader.{table}",) * 4,
+            ).fetchone()
+            assert privileges == (True, False, False, False)
         for operation, statement in (
             (
                 "INSERT",
@@ -1665,6 +1674,15 @@ def test_real_postgres_runtime_and_sync_roles_are_least_privilege(postgres_dsn: 
 
     sync_dsn = _runtime_dsn(postgres_dsn, "macro-loader-sync", "runtime-secret")
     with psycopg.connect(sync_dsn) as sync_connection:
+        for table in POSTGRES_RAW_TABLES:
+            privileges = sync_connection.execute(
+                "SELECT has_table_privilege(current_user, %s, 'SELECT'), "
+                "has_table_privilege(current_user, %s, 'INSERT'), "
+                "has_table_privilege(current_user, %s, 'UPDATE'), "
+                "has_table_privilege(current_user, %s, 'DELETE')",
+                (f"macro_loader.{table}",) * 4,
+            ).fetchone()
+            assert privileges == (True, True, True, True)
         sync_connection.execute("DELETE FROM macro_loader_sync.gold_sync_state")
         sync_connection.rollback()
 

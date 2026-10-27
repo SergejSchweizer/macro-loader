@@ -650,14 +650,22 @@ All PostgreSQL macro data is stored in the dedicated `macro_loader` database. Th
 `macro_loader` and `macro_loader_sync` schemas are created inside that database;
 the CI-only `macro_loader_test` database remains separate.
 
-Runtime sync first performs a read-only schema-contract preflight. Missing or incompatible PR-54 tables, columns, or keys fail before it acquires the row-mutation transaction. It never creates, alters, drops, grants, or migrates PostgreSQL objects.
+Runtime sync first performs a read-only schema-contract preflight. Missing or incompatible
+feature-specific raw tables, support tables, columns, or keys fail before it acquires the
+row-mutation transaction. It never creates, alters, drops, grants, or migrates PostgreSQL
+objects.
 
 `postgres-verify` uses the same strictly validated runtime `PG*` endpoint configuration. It does
 not run the synchronization mutation path and does not create durable probe rows or objects.
 
 Schema migration is an explicit, separately authorized `postgres-migrate` operation. It requires the protected admin-only environment variables `MARKET_MACRO_POSTGRES_ADMIN_HOST`, `MARKET_MACRO_POSTGRES_ADMIN_PORT`, `MARKET_MACRO_POSTGRES_ADMIN_USER`, `MARKET_MACRO_POSTGRES_ADMIN_DATABASE`, and `MARKET_MACRO_POSTGRES_ADMIN_PASSWORD`. The admin user and password are distinct from the runtime role/credential and are never exported by the normal cron configuration.
 
-The `macro-loader` runtime role is a non-owning LOGIN principal with schema `USAGE` and read-only access to the loader-owned consumer and sync tables; it cannot create schemas or objects, change grants, or access unrelated schemas. The dedicated `macro-loader-sync` LOGIN role performs Gold synchronization with DML on the consumer and sync tables, while the admin-managed `macro-loader-owner` role owns loader schemas and tables without LOGIN capability.
+The `macro-loader` runtime role is a non-owning LOGIN principal with schema `USAGE` and
+read-only access to the 25 loader-owned feature tables and sync tables; it cannot create
+schemas or objects, change grants, or access unrelated schemas. The dedicated
+`macro-loader-sync` LOGIN role performs Gold synchronization with DML on those feature
+tables and the sync tables, while the admin-managed `macro-loader-owner` role owns loader
+schemas and tables without LOGIN capability.
 
 Do not commit either credential set as a connection string. Deployment configuration lives in ignored `config.yaml`. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and role and exports shell-safe runtime `PG*`, lake, project, mirror, FRED, and logging variables only. The installed cron wrapper also rejects a configuration whose `runtime.project_root` does not match its resolved checkout, preventing stale paths from an older project rename.
 
