@@ -12,11 +12,11 @@ Last reviewed: 2026-10-27
 ### PR-193: Archive Orphaned Retired Fed Table Before Schema Conformance
 
 PR name: `archive-orphaned-retired-fed-table`
-Status: In Progress — local implementation
+Status: Open — production cutover pending
 Updated: 2026-10-27
-PR: not created
+PR: [#193](https://github.com/SergejSchweizer/macro-loader/pull/193)
 Git branch: `pr-193/archive-orphaned-retired-fed-table`
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: repair the production migration ledger/object drift without discarding retired data
 Depends on: PR-192 (merged to `origin/main`)
 Commit: `c59c7e5 fix(pr-193): archive orphaned retired fed table`
