@@ -243,6 +243,26 @@ INITIAL_SERIES: tuple[SeriesContract, ...] = (
         BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY,
         FetchCapability.DATE_RANGE,
     ),
+    SeriesContract(
+        "us_3m",
+        Provider.FRED,
+        "DGS3MO",
+        "percent",
+        NativeShape.SCALAR,
+        Frequency.DAILY,
+        BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY,
+        FetchCapability.DATE_RANGE,
+    ),
+    SeriesContract(
+        "us_5y",
+        Provider.FRED,
+        "DGS5",
+        "percent",
+        NativeShape.SCALAR,
+        Frequency.DAILY,
+        BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY,
+        FetchCapability.DATE_RANGE,
+    ),
 )
 
 SERIES_REGISTRY = validate_series_registry(INITIAL_SERIES)

@@ -69,7 +69,7 @@ def _fixture() -> dict[str, pl.DataFrame]:
 def test_registry_ohlc_values_reach_gold_without_new_dates_or_scalar_fields() -> None:
     silver = _fixture()
     build = assemble_gold_frame(silver)
-    assert build.schema_version == GOLD_SCHEMA_VERSION == 10
+    assert build.schema_version == GOLD_SCHEMA_VERSION == 11
     expected_dates = sorted(
         {
             observation_date

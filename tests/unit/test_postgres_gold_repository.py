@@ -468,20 +468,19 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    previous_source_migration = "\n".join(module._MIGRATIONS[-2])
+    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-2])
     assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in (
-        previous_source_migration
-    )
-    assert 'ADD COLUMN IF NOT EXISTS "ciss_financials_level" DOUBLE PRECISION NULL' in (
-        previous_source_migration
-    )
-    final_migration = "\n".join(module._MIGRATIONS[-1])
-    assert 'ADD COLUMN IF NOT EXISTS "euro_hy_yield_level" DOUBLE PRECISION NULL' in (
-        final_migration
+        "\n".join(module._MIGRATIONS[-3])
     )
     assert 'ADD COLUMN IF NOT EXISTS "euro_hy_total_return_level" DOUBLE PRECISION NULL' in (
-        final_migration
+        prior_euro_hy_migration
     )
+    final_migration = "\n".join(module._MIGRATIONS[-1])
+    assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in (final_migration)
+    assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in (final_migration)
+    assert final_migration.count("ADD COLUMN IF NOT EXISTS") == 2
+    assert "DROP TABLE" not in final_migration
+    assert "DELETE FROM" not in final_migration
     assert "version=16" in final_migration
 
 

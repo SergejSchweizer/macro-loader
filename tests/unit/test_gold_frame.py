@@ -55,7 +55,7 @@ def test_raw_gold_has_only_source_levels_and_provenance() -> None:
         *(f"{series_id}_{field}" for series_id in OHLC_SERIES for field in OHLC_FIELDS),
     ]
     assert build.frame.item(1, "vix_level") == pytest.approx(2.0)
-    assert build.schema_version == GOLD_SCHEMA_VERSION == 10
+    assert build.schema_version == GOLD_SCHEMA_VERSION == 11
     assert build.feature_version == GOLD_FEATURE_VERSION == 6
     assert [item.series_id for item in build.inputs] == list(GOLD_SOURCE_SERIES)
     assert all(len(item.sha256) == 64 for item in build.inputs)

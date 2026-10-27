@@ -208,6 +208,37 @@ def test_new_euro_hy_series_keeps_history_outside_short_source_update(tmp_path: 
     ]
 
 
+def test_us_5y_delta_update_preserves_history_from_first_exposed_observation(
+    tmp_path: Path,
+) -> None:
+    provider = FakeFredProvider()
+    provider.queue(
+        "us_5y",
+        [(date(1962, 1, 2), 3.88), (date(2026, 8, 18), 3.86)],
+        [(date(2026, 8, 11), 3.89), (TODAY, 3.86)],
+    )
+    service, _, paths = _service(tmp_path, provider)
+
+    assert service.run_series("us_5y", today=TODAY).mode is OperationMode.BOOTSTRAP
+    assert service.run_series("us_5y", today=TODAY).mode is OperationMode.UPDATE
+    assert provider.requests[-1][1].logical_start == date(2026, 8, 11)
+    assert provider.requests[-1][1].logical_end == TODAY
+
+    bronze_files = sorted(
+        (paths.root / "bronze" / "provider=fred" / "series=us_5y").glob(
+            "year=*/month=*/data.parquet"
+        )
+    )
+    bronze = pl.concat([pl.read_parquet(path) for path in bronze_files]).sort("observation_date")
+    assert bronze.get_column("observation_date").min() == date(1962, 1, 2)
+    assert bronze.get_column("observation_date").to_list() == [
+        date(1962, 1, 2),
+        date(2026, 8, 11),
+        date(2026, 8, 18),
+        TODAY,
+    ]
+
+
 @pytest.mark.parametrize("fault_stage", ["after_bronze", "after_run", "after_state"])
 def test_barrier_failure_rolls_back_authoritative_data_and_state(
     tmp_path: Path, fault_stage: str

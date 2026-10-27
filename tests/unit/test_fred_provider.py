@@ -51,6 +51,8 @@ def test_registered_series_send_exact_delta_and_scalar_schema() -> None:
         "euro_hy_yield": "BAMLHE00EHYIEY",
         "euro_hy_ytw": "BAMLHE00EHYISYTW",
         "euro_hy_total_return": "BAMLHE00EHYITRIV",
+        "us_3m": "DGS3MO",
+        "us_5y": "DGS5",
     }
     for series_id, source_id in expected.items():
         transport = FakeTransport(HttpResponse(200, content, {}))
@@ -103,6 +105,32 @@ def test_bootstrap_and_reconcile_are_max_history_without_start_bound() -> None:
         assert "observation_start" not in transport.calls[0][0].params
         assert transport.calls[0][0].params["observation_end"] == END.isoformat()
         assert frame.height == 2
+
+
+@pytest.mark.parametrize(
+    ("series_id", "first_date", "first_value"),
+    (
+        ("us_3m", "1981-09-01", "17.01"),
+        ("us_5y", "1962-01-02", "3.88"),
+    ),
+)
+def test_treasury_bootstrap_keeps_full_exposed_history_and_bounds_only_at_today(
+    series_id: str, first_date: str, first_value: str
+) -> None:
+    content = fred_payload([(first_date, first_value), ("2026-08-19", "3.5")])
+    transport = FakeTransport(HttpResponse(200, content, {}))
+
+    frame = make_provider(transport).fetch(
+        series_contract(series_id), ProviderRequest("bootstrap", None, END, True)
+    )
+
+    sent, context = transport.calls[0]
+    assert sent.params["series_id"] == series_contract(series_id).source_id
+    assert "observation_start" not in sent.params
+    assert sent.params["observation_end"] == END.isoformat()
+    assert context.series_id == series_id
+    assert frame.get_column("observation_date").to_list() == [date.fromisoformat(first_date), END]
+    assert frame.get_column("value").to_list() == [float(first_value), 3.5]
 
 
 def test_documented_missing_values_remain_absent() -> None:

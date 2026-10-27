@@ -14,7 +14,7 @@ This document contains no Fed-specific operator commands or scheduling instructi
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
 
-The executable Gold contract is currently schema version **10** and feature version
+The executable Gold contract is currently schema version **11** and feature version
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
 `macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
 rebuilt or refreshed from that table and is the serving projection for the causal
@@ -228,6 +228,8 @@ euro_hy_total_return
 us_2y
 us_10y
 usd_broad
+us_3m
+us_5y
 ```
 
 Provider ownership:
@@ -238,7 +240,7 @@ STOXX  -> vstoxx, vstoxx1m, vstoxx2m, vstoxx3m
 Yahoo  -> move
 ECB    -> ciss, ciss_money, ciss_bonds, ciss_equity, ciss_financials, estr
 FRED   -> euro_hy_oas, euro_hy_yield, euro_hy_ytw, euro_hy_total_return,
-          us_2y, us_10y, usd_broad
+          us_2y, us_10y, usd_broad, us_3m, us_5y
 ```
 
 The four Euro high-yield series use daily ICE BofA Index observations from FRED.
@@ -247,6 +249,12 @@ FRED currently exposes three years of history (2023-10-27 through 2026-10-23 whe
 verified on 2026-10-27). Existing durable observations are retained when source history
 is shorter. ICE's FRED terms restrict this licensed index data to internal use and
 prohibit third-party redistribution without prior written approval.
+
+The daily Treasury yield series `us_3m` (`DGS3MO`) and `us_5y` (`DGS5`) are published
+by the Federal Reserve Board in H.15, in percent and not seasonally adjusted. Their first
+FRED observations are 1981-09-01 and 1962-01-02 respectively; on 2026-10-27 the exposed
+last observations were 2026-10-22 and 2026-10-23. Missing source markers remain absent,
+and shorter source responses do not delete retained history.
 
 The STOXX term-structure scalar series use official daily full-history files:
 `V6I1` (`vstoxx1m`), `V6I2` (`vstoxx2m`), and `V6I3` (`vstoxx3m`). Their source

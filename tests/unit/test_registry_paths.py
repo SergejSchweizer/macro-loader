@@ -60,8 +60,10 @@ def test_initial_registry_contains_exact_canonical_series() -> None:
         "us_2y",
         "us_10y",
         "usd_broad",
+        "us_3m",
+        "us_5y",
     )
-    assert len(INITIAL_SERIES) == 23
+    assert len(INITIAL_SERIES) == 25
     assert all(entry.source_id and entry.unit for entry in INITIAL_SERIES)
 
 
@@ -126,6 +128,24 @@ def test_euro_hy_series_are_daily_fred_scalars_with_distinct_units(
     assert contract.provider is Provider.FRED
     assert contract.source_id == source_id
     assert contract.unit == unit
+    assert contract.native_shape is NativeShape.SCALAR
+    assert contract.frequency is Frequency.DAILY
+    assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY
+    assert contract.fetch_capability is FetchCapability.DATE_RANGE
+
+
+@pytest.mark.parametrize(
+    ("series_id", "source_id"),
+    (
+        ("us_3m", "DGS3MO"),
+        ("us_5y", "DGS5"),
+    ),
+)
+def test_us_treasury_series_are_daily_fred_percent_scalars(series_id: str, source_id: str) -> None:
+    contract = series_contract(series_id)
+    assert contract.provider is Provider.FRED
+    assert contract.source_id == source_id
+    assert contract.unit == "percent"
     assert contract.native_shape is NativeShape.SCALAR
     assert contract.frequency is Frequency.DAILY
     assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY
