@@ -722,7 +722,7 @@ The optional Gold mirror still runs only as part of local publication; a Postgre
 
 ### Scheduling
 
-The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs **daily at 09:00 Europe/Vienna time**. It loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
+The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs ingestion **daily at 09:00 Europe/Vienna** and copies Gold to the NAS **Sundays at 22:00 Europe/Vienna**. The daily job loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
 
 ```cron
 CRON_TZ=Europe/Vienna
@@ -754,7 +754,7 @@ Operational semantics are explicit:
 - after a database-only failure, retry only `uv run macro-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
 - the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed daily runs;
 - source maximum-history reconciliation remains a separate explicit command and is never part of the daily main chain;
-- both main commands append stdout/stderr to the same `${PROJECT_ROOT}/.logs/macro-loader.log` through `LOG_PATH`.
+- `run-daily` and `gold-sync-postgres` append stdout/stderr to `${PROJECT_ROOT}/.logs/macro-loader.log`; the Sunday copy uses its separate `macro-loader-gold-copy.log`.
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
 
