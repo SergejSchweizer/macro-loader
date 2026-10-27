@@ -6,8 +6,8 @@ Current delivery status (2026-10-27): PRs #192–#200 are merged to `origin/main
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
-`pr-201/sunday-gold-copy-cron`, adds a Sunday 22:00 Europe/Vienna copy from `lake/gold/`
-to `/volume1/Temp/Quotes/macro/`; its implementation and live installation are in progress.
+`pr-201/sunday-gold-copy-cron`, adds the installed Sunday 22:00 Europe/Vienna copy from
+`lake/gold/` to `/volume1/Temp/Quotes/macro/`; a live copy and checksum comparison passed.
 The installed daily 09:00 Europe/Vienna schedule and 60-calendar-day delta window remain
 unchanged. Per
 the user's instruction, GitHub Actions must remain disabled and must not be

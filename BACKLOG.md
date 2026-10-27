@@ -12,10 +12,11 @@ Last reviewed: 2026-10-27
 ### PR-201: Copy Gold To NAS Every Sunday
 
 PR name: `sunday-gold-copy-cron`
-Status: Implementation in progress
+Status: PR #201 open — local quality gate passed; host schedule installed and live copy verified
 Updated: 2026-10-27
 Git branch: `pr-201/sunday-gold-copy-cron`
-Git status: in-progress
+PR: [#201](https://github.com/SergejSchweizer/macro-loader/pull/201) (open)
+Git status: pushed-local-checks-passed
 Commit: `feat(pr-201): add weekly gold copy cron`
 Design patterns: Architectural baseline only.
 Depends on: PR-200 (merged to `origin/main`)
@@ -36,8 +37,8 @@ Acceptance:
 - A2 local tests verify copying, preservation of destination-only files, and failure
   before writes when the volume is not mounted.
 - A3 `make quality-gate` passes locally; no GitHub Actions.
-- A4 the authorized host crontab contains both entries and a live copy completes with
-  source contents present at the destination.
+- A4 passed 2026-10-27: the installed host crontab contains both entries; the live copy
+  produced 90 destination files and a checksum dry-run found no differences.
 
 ### PR-200: Retire Wide Feature Views And Publish Long View As `macro_features`
 

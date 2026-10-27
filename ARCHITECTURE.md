@@ -14,8 +14,9 @@ retired the superseded views on 2026-10-27. All 25 `macro_raw_<feature>` tables 
 populated; the old wide `macro_raw` and orphaned Fed serving table are absent. The long
 view has 11,794,988 rows across 1,720 features. The sync checkpoint is schema 11 / feature
 6 with 16,805 consumer and digest rows. The daily cron contract is 09:00 `Europe/Vienna`
-with a 60-calendar-day bounded source overlap. PR-201 adds the Sunday 22:00
-`Europe/Vienna` Gold-to-NAS copy schedule; deployment is in progress.
+with a 60-calendar-day bounded source overlap. The host crontab also copies Gold to the NAS
+each Sunday at 22:00 `Europe/Vienna`; the installed schedule and live copy were verified
+on 2026-10-27.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
