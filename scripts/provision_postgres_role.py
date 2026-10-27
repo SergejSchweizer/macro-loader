@@ -18,10 +18,14 @@ POSTGRES_OWNER_ROLE = "macro-loader-owner"
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
     *(("macro_loader", table) for table in POSTGRES_RAW_TABLES),
-    ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE),
     ("macro_loader_sync", "gold_sync_state"),
     ("macro_loader_sync", "gold_row_hashes"),
     ("macro_loader_sync", "schema_migrations"),
+)
+POSTGRES_MATERIALIZED_VIEWS = (
+    ("macro_loader", "macro_features"),
+    ("macro_loader", "macro_features_extended"),
+    ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE),
 )
 
 
@@ -119,6 +123,13 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
         f"ALTER TABLE IF EXISTS {_table_identifier(schema, table)} OWNER TO {owner_i};"
         for schema, table in POSTGRES_TABLES
     )
+    materialized_view_ownership = "\n".join(
+        "DO $$ BEGIN\n"
+        f"IF to_regclass({_literal(f'{schema}.{view}')}) IS NOT NULL THEN\n"
+        f"    ALTER MATERIALIZED VIEW {_table_identifier(schema, view)} OWNER TO {owner_i};\n"
+        "END IF;\nEND $$;"
+        for schema, view in POSTGRES_MATERIALIZED_VIEWS
+    )
     table_grants = "\n".join(
         [
             *(_conditional_read_grant(schema, table, role_i) for schema, table in POSTGRES_TABLES),
@@ -134,6 +145,10 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
         "END IF;\n"
         "IF to_regclass('macro_loader.macro_features_extended') IS NOT NULL THEN\n"
         f'    GRANT SELECT ON TABLE "macro_loader"."macro_features_extended" '
+        f"TO {role_i}, {sync_role_i};\n"
+        "END IF;\n"
+        f"IF to_regclass('macro_loader.{POSTGRES_FEATURE_VALUES_TABLE}') IS NOT NULL THEN\n"
+        f'    GRANT SELECT ON TABLE "macro_loader"."{POSTGRES_FEATURE_VALUES_TABLE}" '
         f"TO {role_i}, {sync_role_i};\n"
         "END IF;"
     )
@@ -189,6 +204,7 @@ GRANT {owner_i} TO {admin_i};
 REVOKE {owner_i} FROM {role_i}, {sync_role_i};
 {schemas}
 {table_ownership}
+{materialized_view_ownership}
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM {role_i};
 REVOKE ALL ON ALL TABLES IN SCHEMA "macro_loader" FROM {sync_role_i};

@@ -710,10 +710,10 @@ def test_real_postgres_independent_conformance_verifier_passes(
         {
             "consumer_row_count": 1,
             "digest_row_count": 1,
-            "role_count": 3,
-            "schema_table_count": 29,
-            "temporal_probe_count": 2,
             "feature_value_row_count": feature_value_row_count,
+            "role_count": 3,
+            "schema_table_count": 28,
+            "temporal_probe_count": 2,
         },
     )
 
@@ -1430,7 +1430,7 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
 
 
 @pytest.mark.integration
-def test_real_postgres_long_feature_values_refresh_from_staged_raw_source(
+def test_real_postgres_long_feature_materialized_view_refreshes_from_raw_source(
     repository: PostgresGoldSyncRepository,
     migrator: PostgresGoldSchemaMigrator,
     postgres_dsn: str,
@@ -1445,6 +1445,21 @@ def test_real_postgres_long_feature_values_refresh_from_staged_raw_source(
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         _insert_level_values(connection, timestamps, series_values)
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        relation = connection.execute(
+            """SELECT classes.relkind FROM pg_class AS classes
+               JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+               WHERE namespaces.nspname = 'macro_loader'
+                 AND classes.relname = 'macro_feature_values'"""
+        ).fetchone()
+        definition = connection.execute(
+            """SELECT pg_get_viewdef('macro_loader.macro_feature_values'::regclass, true)"""
+        ).fetchone()
+        columns = connection.execute(
+            """SELECT attname, format_type(atttypid, atttypmod)
+               FROM pg_attribute
+               WHERE attrelid = 'macro_loader.macro_feature_values'::regclass
+                 AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
+        ).fetchall()
         populated = connection.execute(
             "SELECT count(*), count(DISTINCT feature_name), "
             "count(DISTINCT (timestamp_m1, feature_name)), "
@@ -1458,6 +1473,16 @@ def test_real_postgres_long_feature_values_refresh_from_staged_raw_source(
         ).fetchone()
 
     assert populated is not None
+    assert relation == ("m",)
+    assert definition is not None
+    assert "macro_raw_vix" in definition[0]
+    assert "macro_features" not in definition[0]
+    assert tuple(columns) == (
+        ("timestamp_m1", "timestamp(6) with time zone"),
+        ("available_at_utc", "timestamp(6) with time zone"),
+        ("feature_name", "text"),
+        ("value", "double precision"),
+    )
     assert populated[0] > 0
     assert 0 < populated[1] <= len(postgres_module.FEATURE_VALUE_NAMES)
     assert populated[2] == populated[0]

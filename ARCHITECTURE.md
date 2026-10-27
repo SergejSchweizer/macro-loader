@@ -22,24 +22,20 @@ This document contains no Fed-specific operator commands or scheduling instructi
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
 
-The target PostgreSQL transformation layout adds migration 34's
-`macro_loader.macro_feature_values` (schema migration 34; population migration 35): a
-single sparse long-form table for the primary and
-extended transformation catalogs. Its key is `(timestamp_m1, feature_name)`; generated
-`available_at_utc` uses the same UTC next-trading-day convention as the serving views,
-and `value DOUBLE PRECISION` stores numeric outputs. Boolean Donchian outputs are mapped
-to `1.0` (true) and `0.0` (false). NULL/warm-up values are omitted, and raw OHLC
-passthroughs remain in their source/view contracts rather than being copied as
-transformations. The table's catalog-generated refresh query calculates primary and
-extended transformations directly over `macro_raw_<feature>` tables; neither public
-feature materialized view is a source dependency. After Gold sync changes raw tables, the
-explicit refresh transaction rebuilds it from a transaction-scoped staging result, which is
-evaluated once for both validation and population. This is a full rebuild, not a delta
-upsert; manual raw-table writes require an explicit refresh and do not fire a trigger. The
-primary key prevents duplicate observation/feature pairs. Runtime consumer and sync roles
-are read-only; the owner-controlled refresh is the sole writer. Production status is not
-implied by this design statement and must be established by migration and independent
-conformance QA.
+The target PostgreSQL transformation layout publishes
+`macro_loader.macro_feature_values` as a sparse long-form materialized view over the primary
+and extended transformation catalogs. It exposes `timestamp_m1`, projected
+`available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`; a unique index on
+`(timestamp_m1, feature_name)` prevents duplicate observation/feature pairs, and a
+feature-first index supports time-series lookup. Boolean Donchian outputs map to `1.0`
+(true) and `0.0` (false). NULL/warm-up values are omitted, and raw OHLC passthroughs are not
+copied as transformations. The catalog-generated query calculates every transformation
+directly from the 25 `macro_raw_<feature>` tables; neither public feature view is a source.
+Refresh is a complete recomputation, not a delta update, and is invoked after Gold sync has
+updated raw tables. Manual raw-table writes require an explicit refresh and do not fire a
+trigger. Runtime consumer and sync roles have SELECT-only access; the owner-controlled sync
+path performs refreshes. Production availability is established only after migration and
+independent conformance QA.
 
 The executable Gold contract is currently schema version **11** and feature version
 **6** (`application.gold_frame`). PostgreSQL schema migration 31 creates one

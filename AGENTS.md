@@ -2,12 +2,14 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-27): PRs #192–#194 are merged to `origin/main`.
+Current delivery status (2026-10-27): PRs #192–#198 are merged to `origin/main`.
 Production migration 33, canonical Gold sync, and independent verification have completed;
 25 feature tables and both public views are populated through 2026-10-27 (schema 11 /
-feature 6). PR-195, `pr-195/daily-09-cron-30obs`, has passed local quality gates and its
-full live daily-cron acceptance; its PR is awaiting merge. The installed 09:00 Europe/Vienna
-schedule and 60-calendar-day delta window are verified. Per
+feature 6). PR-199, `pr-199/long-feature-materialized-view`, is the active branch for
+replacing the unpopulated long-form base-table design with a raw-derived materialized view.
+Production migrations 34–35 have not completed: the previous table backfill timed out and
+rolled back atomically. The installed 09:00 Europe/Vienna schedule and 60-calendar-day delta
+window are verified. Per
 the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be

@@ -9,16 +9,54 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-199: Publish Long Transformations As A Raw-Derived Materialized View
+
+PR name: `long-feature-values-materialized-view`
+Status: In progress — replace the long-form table with a raw-derived materialized view
+Updated: 2026-10-27
+Git branch: `pr-199/long-feature-materialized-view`
+Git status: in-progress
+Agent lane: publish the 1,720 typed transformations directly from the core raw feature tables
+Depends on: PR-198 (merged to `origin/main`)
+Commit: pending
+Design patterns: Materialized View, Registry-driven Projection, Catalog Conformance.
+
+Description:
+- R1: Replace `macro_loader.macro_feature_values` base table with a materialized view that
+  computes all primary and extended catalog transformations directly from the 25
+  `macro_raw_<feature>` tables; do not source either existing public feature view.
+- R2: Preserve the four-column long contract, UTC next-trading-day availability, null/warm-up
+  omission, numeric values, and boolean `1.0`/`0.0` encoding. Add a unique index on
+  `(timestamp_m1, feature_name)` and a feature-first lookup index.
+- R3: Refresh the materialized view after source sync and update migration, role provisioning,
+  schema conformance, independent verification, and operator documentation. Refresh is a full
+  recomputation; document and test its timeout behavior.
+
+Acceptance:
+- A1 verifies the materialized-view SQL reads the registered raw feature tables and neither
+  existing public feature view, and exposes exactly the declared four columns.
+- A2 disposable PostgreSQL tests verify all catalog names/types, availability values, NULL and
+  warm-up omission, boolean encoding, unique key, replay, and raw-source insert/update/delete
+  refresh behavior.
+- A3 schema migration, role provisioning, runtime preflight, and independent conformance all
+  recognize the relation as a materialized view; `make quality-gate` passes locally. No GitHub
+  Actions.
+- A4 run the authorized production migration/refresh only after local QA, then independently
+  verify catalog coverage, counts, sampled values, and a zero-change sync replay. If the full
+  raw-source refresh exceeds the configured bound, keep production unchanged and report that
+  the selected materialized-view design needs a separate runtime-boundary decision.
+
 ### PR-198: Materialize The Long-Table Source Once Per Refresh
 
 PR name: `materialize-feature-value-source-once`
-Status: In progress — optimize and verify the production backfill
+Status: Merged — code merged; production population was not completed and is superseded by PR-199
 Updated: 2026-10-27
 Git branch: `pr-198/materialize-feature-value-source-once`
-Git status: in-progress
+PR: [#198](https://github.com/SergejSchweizer/macro-loader/pull/198) (merged)
+Git status: merged
 Agent lane: keep migration 34 within the production statement-timeout boundary
 Depends on: PR-197 (merged to `origin/main`)
-Commit: pending
+Commit: `742cc34 fix(pr-198): stage long feature source once`; squash merge `0334a7b`
 Design patterns: Unit of Work, Materialized Staging Relation.
 
 Description:
@@ -36,8 +74,8 @@ Acceptance:
 - A2 executes migration/refresh in disposable PostgreSQL and verifies data, replay,
   rollback on invalid type, and no duplicate `(timestamp_m1, feature_name)` keys.
 - A3 passes local `make quality-gate`; no GitHub Actions.
-- A4 applies migrations 34–35 in production within the configured timeout, then independently
-  checks population and runs `postgres-verify` plus a zero-change Gold sync replay.
+- A4 production attempt exceeded the configured 15-minute timeout and rolled back atomically;
+  PR-199 supersedes this storage design before another production attempt.
 
 ### PR-197: Validate Raw JSON Types Before Long-Table Casting
 

@@ -513,24 +513,18 @@ _FEATURE_VALUE_TYPE_MATCH_SQL = (
     "('NaN'::double precision, 'Infinity'::double precision, "
     "'-Infinity'::double precision))"
 )
-_FEATURE_VALUES_DDL = f"""CREATE TABLE IF NOT EXISTS {_FEATURE_VALUES} (
-    timestamp_m1 TIMESTAMPTZ(6) NOT NULL,
-    {_AVAILABLE_AT_COLUMN_DDL},
-    feature_name TEXT NOT NULL,
-    value DOUBLE PRECISION NOT NULL CHECK (
-        value NOT IN ('NaN'::double precision, 'Infinity'::double precision,
-                      '-Infinity'::double precision)
-    ),
-    PRIMARY KEY (timestamp_m1, feature_name)
-)"""
 _FEATURE_VALUES_COMMENT = (
-    f"COMMENT ON TABLE {_FEATURE_VALUES} IS "
+    f"COMMENT ON MATERIALIZED VIEW {_FEATURE_VALUES} IS "
     f"'macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
     f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}'"
 )
 _FEATURE_VALUES_INDEX = (
     f"CREATE INDEX IF NOT EXISTS macro_feature_values_feature_timestamp_idx "
     f"ON {_FEATURE_VALUES} (feature_name, timestamp_m1)"
+)
+_FEATURE_VALUES_UNIQUE_INDEX = (
+    f"CREATE UNIQUE INDEX IF NOT EXISTS macro_feature_values_timestamp_feature_uidx "
+    f"ON {_FEATURE_VALUES} (timestamp_m1, feature_name)"
 )
 
 
@@ -668,7 +662,6 @@ _OWNERSHIP_MIGRATIONS = tuple(
     for schema, table in (
         (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
         *((POSTGRES_CONSUMER_SCHEMA, table) for table in POSTGRES_RAW_TABLES),
-        (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
         (POSTGRES_SYNC_SCHEMA, _MIGRATION_LEDGER_TABLE),
@@ -1679,6 +1672,16 @@ _FEATURE_VALUE_SOURCE_SQL = " UNION ALL ".join(
         _feature_value_select_sql(_FEATURE_VALUE_EXTENDED_SOURCE, FEATURE_VALUE_EXTENDED_NAMES),
     )
 )
+_FEATURE_VALUES_DDL = f"""CREATE MATERIALIZED VIEW IF NOT EXISTS {_FEATURE_VALUES} AS
+SELECT source.timestamp_m1,
+       ({_AVAILABLE_AT_EXPRESSION})::TIMESTAMPTZ(6) AS available_at_utc,
+       source.feature_name,
+       source.value
+FROM ({_FEATURE_VALUE_SOURCE_SQL}) AS source
+WHERE source.value IS NOT NULL
+  AND source.value NOT IN ('NaN'::double precision, 'Infinity'::double precision,
+                           '-Infinity'::double precision)
+WITH NO DATA"""
 _FEATURE_VALUE_ALL_SOURCE_SQL = " UNION ALL ".join(
     (
         _feature_value_select_sql(
@@ -1745,20 +1748,7 @@ SET search_path = pg_catalog, macro_loader
 SET jit = off
 AS $$
 BEGIN
-    CREATE TEMP TABLE macro_feature_values_staging ON COMMIT DROP AS
-    {_FEATURE_VALUE_ALL_SOURCE_SQL};
-    IF EXISTS (
-        SELECT 1 FROM {_FEATURE_VALUE_STAGING_TABLE} AS staged
-        WHERE staged.value <> 'null'::jsonb AND NOT ((
-            staged.feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY})
-            AND jsonb_typeof(staged.value) = 'boolean') OR (
-            staged.feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY})
-            AND jsonb_typeof(staged.value) = 'number'))
-    ) THEN
-        RAISE EXCEPTION 'macro feature values contain unsupported catalog types';
-    END IF;
-    TRUNCATE TABLE {_FEATURE_VALUES};
-    {_FEATURE_VALUE_STAGING_INSERT_SQL};
+    REFRESH MATERIALIZED VIEW {_FEATURE_VALUES};
 END
 $$"""
 _FEATURE_VALUE_REFRESH_CALL = "SELECT macro_loader.refresh_macro_feature_values()"
@@ -1802,7 +1792,8 @@ _FEATURE_VALUES_REFRESH_FUNCTION_GRANTS = (
 )
 _FEATURE_VALUES_MIGRATION = (
     _FEATURE_VALUES_DDL,
-    f"ALTER TABLE {_FEATURE_VALUES} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    f"ALTER MATERIALIZED VIEW {_FEATURE_VALUES} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    _FEATURE_VALUES_UNIQUE_INDEX,
     _FEATURE_VALUES_INDEX,
     _FEATURE_VALUES_COMMENT,
     f"REVOKE ALL ON {_FEATURE_VALUES} FROM PUBLIC",
@@ -2128,7 +2119,7 @@ def _normalize_view_definition(value: str) -> str:
 
 
 def _assert_generated_availability(cursor: CursorPort) -> None:
-    for table in (*POSTGRES_RAW_TABLES, POSTGRES_FEATURE_VALUES_TABLE):
+    for table in POSTGRES_RAW_TABLES:
         cursor.execute(
             _GENERATED_AVAILABILITY_SQL,
             (POSTGRES_CONSUMER_SCHEMA, table),
@@ -2205,17 +2196,6 @@ _TIMESTAMPTZ6_NOT_NULL = PostgresColumnSpecification(
     "timestamp_m1", "timestamp with time zone", 6, False
 )
 _SCHEMA_SPECIFICATION = (
-    PostgresTableSpecification(
-        POSTGRES_CONSUMER_SCHEMA,
-        POSTGRES_FEATURE_VALUES_TABLE,
-        (
-            _TIMESTAMPTZ6_NOT_NULL,
-            PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),
-            PostgresColumnSpecification("feature_name", "text", None, False),
-            PostgresColumnSpecification("value", "double precision", None, False),
-        ),
-        ("timestamp_m1", "feature_name"),
-    ),
     *(
         PostgresTableSpecification(
             POSTGRES_CONSUMER_SCHEMA,
@@ -3017,11 +2997,53 @@ class PostgresGoldSyncRepository:
         if (
             row is None
             or len(row) != 3
-            or row[0] != "r"
+            or row[0] != "m"
             or row[1] != _POSTGRES_OWNER_ROLE
             or row[2] != expected_comment
         ):
-            raise ValueError("PostgreSQL long-form feature table contract differs")
+            raise ValueError("PostgreSQL long-form feature materialized-view contract differs")
+
+        cursor.execute(
+            """SELECT attributes.attnum, attributes.attname,
+                      format_type(attributes.atttypid, attributes.atttypmod)
+               FROM pg_attribute AS attributes
+               WHERE attributes.attrelid = %s::regclass
+                 AND attributes.attnum > 0 AND NOT attributes.attisdropped
+               ORDER BY attributes.attnum""",
+            (f"{POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_FEATURE_VALUES_TABLE}",),
+        )
+        expected_columns = (
+            (1, "timestamp_m1", "timestamp(6) with time zone"),
+            (2, "available_at_utc", "timestamp(6) with time zone"),
+            (3, "feature_name", "text"),
+            (4, "value", "double precision"),
+        )
+        actual_columns = tuple(cursor.fetchall())
+        if actual_columns != expected_columns:
+            raise ValueError(
+                "PostgreSQL long-form feature materialized-view columns differ: "
+                + repr(actual_columns)
+            )
+
+        cursor.execute(
+            """SELECT pg_get_viewdef(classes.oid, true)
+               FROM pg_class AS classes
+               JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+               WHERE namespaces.nspname = %s AND classes.relname = %s""",
+            (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
+        )
+        definition_row = cursor.fetchone()
+        definition = definition_row[0] if definition_row is not None else None
+        if not isinstance(definition, str):
+            raise ValueError("PostgreSQL long-form feature materialized-view definition is absent")
+        normalized = _normalize_view_definition(definition).replace('"', "")
+        if (
+            "macro_features" in normalized
+            or "extract(isodow" not in normalized
+            or "when 5 then 3" not in normalized
+            or any(f"macro_raw_{series}" not in normalized for series in GOLD_SOURCE_SERIES)
+        ):
+            raise ValueError("PostgreSQL long-form feature materialized-view source differs")
 
         cursor.execute(
             """SELECT indexdef FROM pg_indexes
@@ -3035,6 +3057,20 @@ class PostgresGoldSyncRepository:
             marker in index_definition.lower() for marker in ("(feature_name, timestamp_m1)",)
         ):
             raise ValueError("PostgreSQL long-form feature lookup index differs")
+
+        cursor.execute(
+            """SELECT indexdef FROM pg_indexes
+               WHERE schemaname = %s AND tablename = %s
+                 AND indexname = 'macro_feature_values_timestamp_feature_uidx'""",
+            (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
+        )
+        unique_index_row = cursor.fetchone()
+        unique_index_definition = unique_index_row[0] if unique_index_row is not None else None
+        if not isinstance(unique_index_definition, str) or not all(
+            marker in unique_index_definition.lower()
+            for marker in ("unique index", "(timestamp_m1, feature_name)")
+        ):
+            raise ValueError("PostgreSQL long-form feature unique index differs")
 
         qualified = f"{POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_FEATURE_VALUES_TABLE}"
         for role, select_expected in (

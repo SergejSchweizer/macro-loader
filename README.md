@@ -482,25 +482,21 @@ function disable JIT: recursive CTE cardinality estimates can otherwise trigger 
 compilation for these large feature queries. Connection, lock, statement, and
 idle-transaction timeouts remain bounded.
 
-PostgreSQL migration 34 adds `macro_loader.macro_feature_values`, a shared long-form
-projection of the primary and extended transformation catalogs. Each non-NULL
-transformation result is one row keyed by `(timestamp_m1, feature_name)` with generated
+PostgreSQL migrations 34–35 publish `macro_loader.macro_feature_values` as a materialized
+view with one sparse row per non-NULL transformation result, keyed by the unique index
+`(timestamp_m1, feature_name)`. Its four columns are `timestamp_m1`, projected
 `available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`. Boolean Donchian outputs
-are encoded as `1.0` (true) and `0.0` (false); SQL NULLs (including causal warm-up values)
-have no row. Raw OHLC passthrough fields are deliberately excluded: this relation is for
-transformations, not another copy of raw input. Its refresh SQL inlines the catalogued
-primary and extended feature queries over `macro_raw_<feature>` tables; it does not read
-either public feature materialized view. The `(feature_name, timestamp_m1)` index supports
-feature-first time-series reads. Consumer and sync roles may SELECT but cannot write. After
-the Gold sync updates raw tables, its explicit refresh transaction refreshes the serving
-views and rebuilds the long table from a transaction-scoped staging result; validation and
-population reuse that one source evaluation. The primary key prevents duplicate
-`(timestamp_m1, feature_name)` rows. This is a full transactional rebuild, not incremental
-delta insertion, and direct manual writes to raw tables do not fire an automatic trigger;
-they must be followed by the explicit refresh function. The catalog fingerprint and
-independent PostgreSQL conformance check detect schema, type, or population drift. This
-describes the code contract; production availability is confirmed only after migrations
-34–35 have been applied and independently verified.
+are encoded as `1.0` (true) and `0.0` (false); SQL NULLs, including causal warm-up values,
+have no row. Raw OHLC passthrough fields are excluded. The materialized-view definition
+inlines the catalogued primary and extended feature queries over the 25
+`macro_raw_<feature>` tables; it does not read either public feature materialized view. A
+feature-first index supports reads. Consumer and sync roles may SELECT but cannot write.
+After Gold sync updates raw tables and refreshes the serving views, the explicit refresh
+routine fully recomputes this materialized view from the raw tables. This is not incremental;
+manual raw-table writes require the explicit refresh routine and do not fire a trigger. The
+catalog fingerprint and independent PostgreSQL conformance check detect schema, type, source,
+index, or population drift. A full-history refresh remains subject to the configured
+statement timeout and must be verified in production before claiming availability.
 
 #### PR-171: Composite and Statistical Feature Semantics
 
