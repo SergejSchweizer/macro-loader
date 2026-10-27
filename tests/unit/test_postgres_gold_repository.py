@@ -126,9 +126,11 @@ class FakeCursor:
                 for specification in module._SCHEMA_SPECIFICATION
             ]
         elif "FROM pg_class AS classes" in query:
-            if isinstance(params, tuple) and params[1] == module.POSTGRES_FEATURE_VALUES_TABLE:
+            if "SELECT pg_get_viewdef(classes.oid, true)" in query:
+                self.one = (module._FEATURE_VALUES_DDL,)
+            elif isinstance(params, tuple) and params[1] == module.POSTGRES_FEATURE_VALUES_TABLE:
                 self.one = (
-                    "r",
+                    "m",
                     module._POSTGRES_OWNER_ROLE,
                     "macro feature values schema "
                     f"version={module.FEATURE_VALUE_SCHEMA_VERSION}; "
@@ -150,11 +152,31 @@ class FakeCursor:
                     f"fingerprint={module.MACRO_FEATURE_VIEW_FINGERPRINT}",
                     module._FEATURES_VIEW_DEFINITION,
                 )
+        elif (
+            "FROM pg_attribute AS attributes" in query
+            and isinstance(params, tuple)
+            and str(params[0]).endswith(".macro_feature_values")
+        ):
+            self.many = [
+                (1, "timestamp_m1", "timestamp(6) with time zone"),
+                (2, "available_at_utc", "timestamp(6) with time zone"),
+                (3, "feature_name", "text"),
+                (4, "value", "double precision"),
+            ]
         elif "FROM pg_indexes" in query:
+            unique = "timestamp_feature" in query
+            index_name = (
+                "macro_feature_values_timestamp_feature_uidx"
+                if unique
+                else "macro_feature_values_feature_timestamp_idx"
+            )
+            index_columns = (
+                "(timestamp_m1, feature_name)" if unique else "(feature_name, timestamp_m1)"
+            )
+            unique_sql = "UNIQUE " if unique else ""
             self.one = (
-                "CREATE INDEX macro_feature_values_feature_timestamp_idx "
-                "ON macro_loader.macro_feature_values USING btree "
-                "(feature_name, timestamp_m1)",
+                f"CREATE {unique_sql}INDEX {index_name} "
+                f"ON macro_loader.macro_feature_values USING btree {index_columns}",
             )
         elif "FROM pg_attribute AS attributes" in query:
             extended_view = isinstance(params, tuple) and str(params[0]).endswith(
@@ -480,16 +502,12 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert queries.count(module._FEATURES_VIEW_DDL) == 1
-    assert ddl.count("TRUNCATE TABLE") == 2
-    assert "TRUNCATE TABLE" in module._FEATURE_VALUE_REFRESH_FUNCTION
-    assert module._FEATURE_VALUE_REFRESH_FUNCTION.count(module._FEATURE_VALUE_ALL_SOURCE_SQL) == 1
-    assert "CREATE TEMP TABLE macro_feature_values_staging ON COMMIT DROP AS" in (
+    assert "TRUNCATE TABLE" not in module._FEATURE_VALUE_REFRESH_FUNCTION
+    assert "REFRESH MATERIALIZED VIEW" in module._FEATURE_VALUE_REFRESH_FUNCTION
+    assert module._FEATURE_VALUE_SOURCE_SQL in module._FEATURE_VALUES_DDL
+    assert "CREATE TEMP TABLE macro_feature_values_staging" not in (
         module._FEATURE_VALUE_REFRESH_FUNCTION
     )
-    assert "FROM pg_temp.macro_feature_values_staging AS staged" in (
-        module._FEATURE_VALUE_REFRESH_FUNCTION
-    )
-    assert "staged.value <> 'null'::jsonb" in module._FEATURE_VALUE_REFRESH_FUNCTION
     assert "macro_loader.refresh_macro_feature_values()" not in (
         module._FEATURE_VALUE_INVALID_SOURCE_SQL
     )
@@ -619,8 +637,9 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
 def test_long_feature_values_projection_preserves_types_and_omits_nulls() -> None:
     statements = "\n".join(module._FEATURE_VALUES_MIGRATION)
     assert len(module.FEATURE_VALUE_NAMES) == 1720
-    assert "PRIMARY KEY (timestamp_m1, feature_name)" in module._FEATURE_VALUES_DDL
-    assert "value DOUBLE PRECISION NOT NULL" in module._FEATURE_VALUES_DDL
+    assert module._FEATURE_VALUES_DDL.startswith("CREATE MATERIALIZED VIEW IF NOT EXISTS")
+    assert "WITH NO DATA" in module._FEATURE_VALUES_DDL
+    assert "UNIQUE INDEX" in module._FEATURE_VALUES_UNIQUE_INDEX
     assert "WHEN 'true' THEN 1.0::double precision" in module._FEATURE_VALUE_SOURCE_SQL
     assert "WHEN 'false' THEN 0.0::double precision" in module._FEATURE_VALUE_SOURCE_SQL
     assert module._FEATURES_VIEW not in module._FEATURE_VALUE_SOURCE_SQL
@@ -637,7 +656,7 @@ def test_long_feature_values_projection_preserves_types_and_omits_nulls() -> Non
     assert "value <> 'null'::jsonb" not in module._FEATURE_VALUE_SOURCE_SQL
     assert "raw_ohlc" not in module._FEATURE_VALUE_SOURCE_SQL
     assert "(feature_name, timestamp_m1)" in module._FEATURE_VALUES_INDEX
-    assert "TRUNCATE TABLE" in module._FEATURE_VALUE_REFRESH_FUNCTION
+    assert "REFRESH MATERIALIZED VIEW" in module._FEATURE_VALUE_REFRESH_FUNCTION
     assert "PERFORM macro_loader.refresh_macro_feature_values()" in (
         module._FEATURE_VALUES_REFRESH_FUNCTION
     )

@@ -103,11 +103,26 @@ class FakeCursor:
             "macro_feature_values",
         ):
             self._one = (
-                "r",
+                "m",
                 _POSTGRES_OWNER_ROLE,
                 f"macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
                 f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
             )
+        elif (
+            "FROM pg_attribute AS attributes" in query
+            and isinstance(params, tuple)
+            and str(params[0]).endswith(".macro_feature_values")
+        ):
+            self._many = [
+                (1, "timestamp_m1", "timestamp(6) with time zone"),
+                (2, "available_at_utc", "timestamp(6) with time zone"),
+                (3, "feature_name", "text"),
+                (4, "value", "double precision"),
+            ]
+        elif "SELECT pg_get_viewdef(classes.oid, true)" in query:
+            from ingestion.postgres_gold_repository import _FEATURE_VALUES_DDL
+
+            self._one = (_FEATURE_VALUES_DDL,)
         elif "obj_description(classes.oid" in query:
             self._one = (
                 "m",
@@ -139,10 +154,19 @@ class FakeCursor:
                 for ordinal, name in enumerate(_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
             ]
         elif "FROM pg_indexes" in query:
+            unique = "timestamp_feature" in query
+            index_name = (
+                "macro_feature_values_timestamp_feature_uidx"
+                if unique
+                else "macro_feature_values_feature_timestamp_idx"
+            )
+            index_columns = (
+                "(timestamp_m1, feature_name)" if unique else "(feature_name, timestamp_m1)"
+            )
+            unique_sql = "UNIQUE " if unique else ""
             self._one = (
-                "CREATE INDEX macro_feature_values_feature_timestamp_idx "
-                "ON macro_loader.macro_feature_values USING btree "
-                "(feature_name, timestamp_m1)",
+                f"CREATE {unique_sql}INDEX {index_name} "
+                f"ON macro_loader.macro_feature_values USING btree {index_columns}",
             )
         elif query == _FEATURE_VALUE_POPULATION_SQL:
             self._one = (100, 100, 20, 20, 0, 0, 0)
@@ -226,7 +250,7 @@ def test_live_inspector_independently_checks_schema_roles_session_and_temporal_p
         _config(), connection_factory=lambda _: connection
     )
 
-    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(29, 3, 2, 100)
+    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(28, 3, 2, 100)
     assert connection.rollbacks == 1
     assert connection.closed
     assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2

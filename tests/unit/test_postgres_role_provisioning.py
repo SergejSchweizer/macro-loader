@@ -3,6 +3,7 @@ from __future__ import annotations
 from application.postgres_sync import POSTGRES_FEATURE_VALUES_TABLE, POSTGRES_RAW_TABLES
 from scripts.provision_postgres_role import (
     POSTGRES_HOST,
+    POSTGRES_MATERIALIZED_VIEWS,
     POSTGRES_OWNER_ROLE,
     POSTGRES_PORT,
     POSTGRES_ROLE,
@@ -58,7 +59,7 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     assert raw_tables == POSTGRES_RAW_TABLES
     assert len(raw_tables) == 25
     assert "macro_raw" not in raw_tables
-    assert ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE) in POSTGRES_TABLES
+    assert ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE) in POSTGRES_MATERIALIZED_VIEWS
     assert all(table != "fed_policy_features_daily" for _, table in POSTGRES_TABLES)
     assert all(schema != "macro_loader_retired" for schema, _ in POSTGRES_TABLES)
     assert (
@@ -71,6 +72,7 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro-loader"' in sql
     assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro-loader"' in sql
     assert "to_regclass('macro_loader.macro_features_extended') IS NOT NULL" in sql
+    assert 'ALTER MATERIALIZED VIEW "macro_loader"."macro_feature_values"' in sql
     assert (
         'GRANT SELECT ON TABLE "macro_loader"."macro_features_extended" '
         f'TO "{POSTGRES_ROLE}", "{POSTGRES_SYNC_ROLE}";'
@@ -82,7 +84,6 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
             if table
             in {
                 "schema_migrations",
-                POSTGRES_FEATURE_VALUES_TABLE,
             }
             else "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE"
         )
