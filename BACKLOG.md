@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-190: Repair OHLC Migration Ordering For Legacy PostgreSQL Schemas
 
 PR name: `repair-legacy-ohlc-migration`
-Status: In Progress — local implementation
+Status: Open — local checks passed
 Updated: 2026-10-27
-PR: not created
+PR: [#190](https://github.com/SergejSchweizer/macro-loader/pull/190) (open)
 Git branch: `pr-190/repair-legacy-ohlc-migration`
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: safely upgrade production v23 schemas before feature-table cutover
 Depends on: PR-189 (merged to `origin/main`)
-Commit: pending
+Commit: `975dbbf fix(pr-190): repair legacy OHLC migration ordering`
 Design patterns: Versioned Migration, Upgrade Integration Test.
 
 Description:
