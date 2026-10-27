@@ -13,10 +13,15 @@ from application.contracts import FetchCapability, NativeShape, Provider, Series
 from application.errors import ProviderHttpError
 from application.ports.http import HttpRequest, HttpTransport, RequestContext
 from application.ports.market_data import ProviderRequest
+from application.registry import SERIES_REGISTRY
 
 Clock = Callable[[], datetime]
 _DEFAULT_URL = "https://api.stlouisfed.org/fred/series/observations"
-_FRED_SERIES = frozenset({"us_2y", "us_10y", "usd_broad", "euro_hy_oas"})
+_FRED_SERIES = frozenset(
+    series_id
+    for series_id, contract in SERIES_REGISTRY.items()
+    if contract.provider is Provider.FRED
+)
 
 
 def _system_utc_now() -> datetime:
@@ -88,6 +93,8 @@ class FredProvider:
     def _validate_contract(self, series: SeriesContract) -> None:
         if series.provider is not self.provider or series.series_id not in _FRED_SERIES:
             raise ValueError("unsupported FRED series contract")
+        if SERIES_REGISTRY[series.series_id] != series:
+            raise ValueError("FRED series contract does not match the canonical registry")
         if series.native_shape is not NativeShape.SCALAR:
             raise ValueError("FRED regime series must use scalar Bronze shape")
         if series.fetch_capability is not FetchCapability.DATE_RANGE:

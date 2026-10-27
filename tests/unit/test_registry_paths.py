@@ -54,11 +54,14 @@ def test_initial_registry_contains_exact_canonical_series() -> None:
         "ciss_financials",
         "estr",
         "euro_hy_oas",
+        "euro_hy_yield",
+        "euro_hy_ytw",
+        "euro_hy_total_return",
         "us_2y",
         "us_10y",
         "usd_broad",
     )
-    assert len(INITIAL_SERIES) == 20
+    assert len(INITIAL_SERIES) == 23
     assert all(entry.source_id and entry.unit for entry in INITIAL_SERIES)
 
 
@@ -102,6 +105,27 @@ def test_ciss_components_are_daily_scalar_dimensionless_contributions(
     assert contract.provider is Provider.ECB
     assert contract.source_id == source_id
     assert contract.unit == "dimensionless_contribution"
+    assert contract.native_shape is NativeShape.SCALAR
+    assert contract.frequency is Frequency.DAILY
+    assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY
+    assert contract.fetch_capability is FetchCapability.DATE_RANGE
+
+
+@pytest.mark.parametrize(
+    ("series_id", "source_id", "unit"),
+    (
+        ("euro_hy_yield", "BAMLHE00EHYIEY", "percent"),
+        ("euro_hy_ytw", "BAMLHE00EHYISYTW", "percent"),
+        ("euro_hy_total_return", "BAMLHE00EHYITRIV", "index"),
+    ),
+)
+def test_euro_hy_series_are_daily_fred_scalars_with_distinct_units(
+    series_id: str, source_id: str, unit: str
+) -> None:
+    contract = series_contract(series_id)
+    assert contract.provider is Provider.FRED
+    assert contract.source_id == source_id
+    assert contract.unit == unit
     assert contract.native_shape is NativeShape.SCALAR
     assert contract.frequency is Frequency.DAILY
     assert contract.bootstrap_policy is BootstrapPolicy.MAXIMUM_EXPOSED_HISTORY

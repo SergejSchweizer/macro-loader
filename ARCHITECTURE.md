@@ -14,7 +14,7 @@ This document contains no Fed-specific operator commands or scheduling instructi
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
 
-The executable Gold contract is currently schema version **9** and feature version
+The executable Gold contract is currently schema version **10** and feature version
 **6** (`application.gold_frame`). PostgreSQL synchronization populates
 `macro_loader.macro_raw`; the `macro_loader.macro_features` materialized view is
 rebuilt or refreshed from that table and is the serving projection for the causal
@@ -222,6 +222,9 @@ ciss_equity
 ciss_financials
 estr
 euro_hy_oas
+euro_hy_yield
+euro_hy_ytw
+euro_hy_total_return
 us_2y
 us_10y
 usd_broad
@@ -234,8 +237,16 @@ CBOE   -> vix, vix9d, vix3m, vix6m, vix1y
 STOXX  -> vstoxx, vstoxx1m, vstoxx2m, vstoxx3m
 Yahoo  -> move
 ECB    -> ciss, ciss_money, ciss_bonds, ciss_equity, ciss_financials, estr
-FRED   -> euro_hy_oas, us_2y, us_10y, usd_broad
+FRED   -> euro_hy_oas, euro_hy_yield, euro_hy_ytw, euro_hy_total_return,
+          us_2y, us_10y, usd_broad
 ```
+
+The four Euro high-yield series use daily ICE BofA Index observations from FRED.
+OAS/effective yield/yield-to-worst are percent units; total return is an index level.
+FRED currently exposes three years of history (2023-10-27 through 2026-10-23 when
+verified on 2026-10-27). Existing durable observations are retained when source history
+is shorter. ICE's FRED terms restrict this licensed index data to internal use and
+prohibit third-party redistribution without prior written approval.
 
 The STOXX term-structure scalar series use official daily full-history files:
 `V6I1` (`vstoxx1m`), `V6I2` (`vstoxx2m`), and `V6I3` (`vstoxx3m`). Their source
