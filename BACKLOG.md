@@ -15,10 +15,10 @@ PR name: `daily-09-cron-30obs`
 Status: Implementation and live acceptance passed; PR awaiting merge
 Updated: 2026-10-27
 Git branch: `pr-195/daily-09-cron-30obs`
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: align installed daily ingestion and PostgreSQL synchronization with GOALS.md
 Depends on: PR-194 (merged to `origin/main`)
-Commit: `chore(pr-195): run daily PostgreSQL sync at 09:00`
+Commit: `docs(pr-195): record live cron acceptance`
 Design patterns: Command, bounded delta policy, acceptance verifier.
 
 Description:
