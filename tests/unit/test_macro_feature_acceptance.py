@@ -1,15 +1,31 @@
 from __future__ import annotations
 
-from pathlib import Path
+from datetime import date
 
+import polars as pl
+
+from application.paths import LakePaths
 from application.registry import SERIES_REGISTRY
 from scripts.macro_feature_acceptance import _commands, main
 
 
-def test_acceptance_plan_covers_every_registered_series_and_replay() -> None:
-    commands = _commands(Path("/srv/lake"))
-    assert commands[0][0].startswith("reconcile:")
-    assert sum(name.startswith("reconcile:") for name, _ in commands) == len(SERIES_REGISTRY)
+def test_acceptance_bootstraps_empty_series_and_reconciles_existing_series(tmp_path) -> None:
+    lake_root = tmp_path / "lake"
+    existing_bronze = LakePaths(lake_root).bronze_month(
+        SERIES_REGISTRY["vix"].provider, "vix", date(2026, 10, 1)
+    )
+    existing_bronze.parent.mkdir(parents=True)
+    pl.DataFrame({"observation_date": [date(2026, 10, 1)]}).write_parquet(existing_bronze)
+
+    commands = _commands(lake_root)
+
+    assert commands[0][0] == "reconcile:vix"
+    assert commands[0][1][3:] == ("reconcile", "--series", "vix")
+    assert commands[1][0] == "bootstrap:vix9d"
+    assert commands[1][1][3:] == ("bootstrap", "--series", "vix9d")
+    assert sum(name.startswith(("bootstrap:", "reconcile:")) for name, _ in commands) == len(
+        SERIES_REGISTRY
+    )
     assert commands[-2][0] == "gold-sync-postgres-replay"
     assert commands[-1][0] == "postgres-verify-replay"
 
