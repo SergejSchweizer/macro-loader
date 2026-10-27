@@ -18,7 +18,7 @@ Git branch: `pr-175/add-ohlc-bar-features`
 Git status: not-pushed
 Agent lane: OHLC SQL/catalog implementation and independent mathematical/PostgreSQL QA; two agents
 Depends on: PR-174
-Commit: pending
+Commit: `9bfa5b6` (OHLC bar range, intraday return, overnight gap, and QA)
 Design patterns: Registry-driven Projection, Pure Transformation, Materialized View.
 
 Description:
