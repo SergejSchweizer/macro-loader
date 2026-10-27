@@ -41,13 +41,16 @@ def make_provider(transport: FakeTransport, *, clock=lambda: NOW) -> FredProvide
     return FredProvider(transport, api_key=API_KEY, clock=clock)
 
 
-def test_four_registered_series_send_exact_delta_and_scalar_schema() -> None:
+def test_registered_series_send_exact_delta_and_scalar_schema() -> None:
     content = fred_payload([("2026-08-11", "4.1"), ("2026-08-19", "4.2")])
     expected = {
         "us_2y": "DGS2",
         "us_10y": "DGS10",
         "usd_broad": "DTWEXBGS",
         "euro_hy_oas": "BAMLHE00EHYIOAS",
+        "euro_hy_yield": "BAMLHE00EHYIEY",
+        "euro_hy_ytw": "BAMLHE00EHYISYTW",
+        "euro_hy_total_return": "BAMLHE00EHYITRIV",
     }
     for series_id, source_id in expected.items():
         transport = FakeTransport(HttpResponse(200, content, {}))
@@ -63,6 +66,30 @@ def test_four_registered_series_send_exact_delta_and_scalar_schema() -> None:
         assert frame.columns[-1] == "value"
         assert API_KEY not in frame.get_column("source_url").unique().item()
         assert API_KEY not in repr(provider)
+
+
+def test_euro_hy_bootstrap_preserves_exposed_history_and_source_values() -> None:
+    content = fred_payload(
+        [
+            ("2023-10-27", "7.83"),
+            ("2023-10-30", "."),
+            ("2026-10-23", "5.25"),
+        ]
+    )
+    for series_id in ("euro_hy_yield", "euro_hy_ytw", "euro_hy_total_return"):
+        transport = FakeTransport(HttpResponse(200, content, {}))
+        frame = make_provider(transport).fetch(
+            series_contract(series_id), ProviderRequest("bootstrap", None, END, True)
+        )
+        sent, context = transport.calls[0]
+        assert "observation_start" not in sent.params
+        assert sent.params["observation_end"] == END.isoformat()
+        assert context.series_id == series_id
+        assert frame.get_column("observation_date").to_list() == [
+            date(2023, 10, 27),
+            date(2026, 10, 23),
+        ]
+        assert frame.get_column("source_id").unique().item() == series_contract(series_id).source_id
 
 
 def test_bootstrap_and_reconcile_are_max_history_without_start_bound() -> None:

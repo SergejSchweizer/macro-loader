@@ -19,7 +19,7 @@ or scheduling instructions. Historical Fed acceptance artifacts and backlog entr
 retained for audit. The independent FRED provider remains active for its registered macro
 series.
 
-The current Gold semantic contract is schema version **9** and feature version **6**;
+The current Gold semantic contract is schema version **10** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
 `application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL synchronization populates
 `macro_raw`, and the `macro_features` materialized view is refreshed from it,
@@ -125,6 +125,9 @@ Prefer `typing.Protocol`, immutable contracts, pure transformations, and constru
 | `ciss_financials` | ECB (`SS_FIN.CON`) | New-CISS financial-intermediaries component contribution |
 | `estr` | ECB | euro short-term rate |
 | `euro_hy_oas` | FRED | euro high-yield credit spread |
+| `euro_hy_yield` | FRED (`BAMLHE00EHYIEY`) | Euro high-yield effective yield, percent |
+| `euro_hy_ytw` | FRED (`BAMLHE00EHYISYTW`) | Euro high-yield semi-annual yield to worst, percent |
+| `euro_hy_total_return` | FRED (`BAMLHE00EHYITRIV`) | Euro high-yield total-return index |
 | `us_2y` | FRED | US 2-year Treasury yield |
 | `us_10y` | FRED | US 10-year Treasury yield |
 | `usd_broad` | FRED | broad US-dollar index |
@@ -158,6 +161,22 @@ dimensionless contribution, not an independent component index. The ECB catalog 
 history from 1999-01-01 through its latest published observation. Sparse dates and source
 missing-value markers remain absent from the stored observations; nothing is carried or
 synthesized. Normal updates send exact `startPeriod`/`endPeriod` bounds to the ECB API.
+
+### Euro high-yield source series
+
+`euro_hy_oas`, `euro_hy_yield`, `euro_hy_ytw`, and `euro_hy_total_return` are daily
+ICE BofA Euro High Yield Index series exposed through FRED. Their FRED identifiers are
+`BAMLHE00EHYIOAS`, `BAMLHE00EHYIEY`, `BAMLHE00EHYISYTW`, and `BAMLHE00EHYITRIV`,
+respectively. OAS, effective yield, and semi-annual yield-to-worst are percentages;
+total return is an index level and is not a percentage return. Each source reports daily
+close observations. On 2026-10-27, FRED exposed values from 2023-10-27 through
+2026-10-23 for all four series. FRED notes that since April 2026 these ICE BofA series
+expose only a rolling three years; this is a source limitation, not a reason to remove
+older observations already durable in the lake. Existing `euro_hy_oas` history is reused
+for migration rather than downloaded a second time. New observations enter the normal
+source/Gold sync path. ICE's FRED terms state that index data is for internal use and may
+not be redistributed to third parties without ICE's prior written approval; users must
+observe those restrictions.
 
 ## Source Update Policy
 

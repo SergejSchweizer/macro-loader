@@ -89,14 +89,14 @@ Acceptance:
 ### PR-178: Add Daily ECB CISS Component Series
 
 PR name: `add-ecb-ciss-components`
-Status: Ready
+Status: Merged
 Updated: 2026-10-27
-PR: [#178](https://github.com/SergejSchweizer/macro-loader/pull/178) (open)
+PR: [#178](https://github.com/SergejSchweizer/macro-loader/pull/178) (merged)
 Git branch: `pr-178/add-ecb-ciss-components`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: ECB series registration and independent provider QA
 Depends on: PR-177
-Commit: `836a51d feat(pr-178): add daily ecb ciss component series`
+Commit: `56d5c04 feat(pr-178): add daily ecb ciss component series` (GitHub squash merge)
 Design patterns: Adapter, Registry/Factory, Pure Parser.
 
 Description:
@@ -128,11 +128,11 @@ Acceptance:
 ### PR-179: Add Euro High-Yield Yield And Total-Return Series
 
 PR name: `add-euro-high-yield-series`
-Status: Planned
+Status: In Progress
 Updated: 2026-10-27
 PR: not created
 Git branch: `pr-179/add-euro-high-yield-series`
-Git status: not-started (branch absent)
+Git status: local-worktree
 Agent lane: FRED credit-series registration and source-history QA
 Depends on: PR-178
 Commit: pending
@@ -150,6 +150,9 @@ Description:
   never infer deletion from source truncation.
 - R3: Document the FRED identifiers, daily frequency, units, source restrictions, and
   available date range; add offline parsing and exact delta-bound tests.
+- R4: Add the new source columns to Gold schema version 10 and append a PostgreSQL
+  additive migration 29 for those columns; preserve migration 28 and the retained
+  `euro_hy_oas` history.
 
 Acceptance:
 - A1 verifies R1: each FRED ID has its own daily scalar contract and values are not
@@ -159,6 +162,8 @@ Acceptance:
   behavior without deleting retained older rows.
 - A3 verifies R3: local provider/catalog tests and README metadata describe the current
   2023-10-27 source limit without promising full history.
+- A4 verifies R4: sync state accepts schema upgrade 9→10, migration 29 adds only the three
+  new nullable scalar columns and preserves prior rows, and local quality-gate passes.
 
 ### PR-180: Add U.S. Three-Month And Five-Year Treasury Series
 
@@ -243,7 +248,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 is merged and PR-177 is open; PR-178 through PR-181 are planned. No production migration or
+PR-176 through PR-178 are merged; PR-179 is in progress and PR-180 through PR-181 are planned. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
@@ -388,10 +393,20 @@ Every PR declares `Design patterns:` explicitly. If no additional pattern is jus
 | `vix6m` | CBOE | `VIX6M_History.csv` | `ohlc` | `full_file` | maximum exposed history when available |
 | `vix1y` | CBOE | `VIX1Y_History.csv` | `ohlc` | `full_file` | maximum exposed history when available |
 | `vstoxx` | STOXX | `V2TX` | `scalar` | `full_file` | maximum exposed history |
+| `vstoxx1m` | STOXX | `V6I1` | `scalar` | `full_file` | maximum exposed history |
+| `vstoxx2m` | STOXX | `V6I2` | `scalar` | `full_file` | maximum exposed history |
+| `vstoxx3m` | STOXX | `V6I3` | `scalar` | `full_file` | maximum exposed history |
 | `move` | Yahoo Finance | `^MOVE` | `ohlc` | `date_range` | maximum available history |
 | `ciss` | ECB | `CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX` | `scalar` | `date_range` | maximum exposed history |
+| `ciss_money` | ECB | `CISS.D.U2.Z0Z.4F.EC.SS_MMN.CON` | `scalar` | `date_range` | maximum exposed history |
+| `ciss_bonds` | ECB | `CISS.D.U2.Z0Z.4F.EC.SS_BMN.CON` | `scalar` | `date_range` | maximum exposed history |
+| `ciss_equity` | ECB | `CISS.D.U2.Z0Z.4F.EC.SS_EMN.CON` | `scalar` | `date_range` | maximum exposed history |
+| `ciss_financials` | ECB | `CISS.D.U2.Z0Z.4F.EC.SS_FIN.CON` | `scalar` | `date_range` | maximum exposed history |
 | `estr` | ECB | `EST.B.EU000A2X2A25.WT` | `scalar` | `date_range` | maximum exposed history |
 | `euro_hy_oas` | FRED | `BAMLHE00EHYIOAS` | `scalar` | `date_range` | maximum currently exposed history; preserve older local history |
+| `euro_hy_yield` | FRED | `BAMLHE00EHYIEY` | `scalar` | `date_range` | rolling three years since 2026-04; preserve older local history |
+| `euro_hy_ytw` | FRED | `BAMLHE00EHYISYTW` | `scalar` | `date_range` | rolling three years since 2026-04; preserve older local history |
+| `euro_hy_total_return` | FRED | `BAMLHE00EHYITRIV` | `scalar` | `date_range` | rolling three years since 2026-04; preserve older local history |
 | `us_2y` | FRED | `DGS2` | `scalar` | `date_range` | maximum exposed history |
 | `us_10y` | FRED | `DGS10` | `scalar` | `date_range` | maximum exposed history |
 | `usd_broad` | FRED | `DTWEXBGS` | `scalar` | `date_range` | maximum exposed history |

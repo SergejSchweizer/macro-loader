@@ -338,7 +338,7 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     assert not set(all_new).intersection(_expected_gold_columns())
 
 
-@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_28"))
+@pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_29"))
 def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
@@ -347,14 +347,14 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
     migration_mode: str,
 ) -> None:
     expected_migrations = len(postgres_module._MIGRATIONS)
-    assert GOLD_SCHEMA_VERSION == 9
+    assert GOLD_SCHEMA_VERSION == 10
     assert MACRO_FEATURE_VIEW_VERSION == 16
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
     assert _expected_gold_columns() == POSTGRES_RAW_COLUMNS
     assert _OHLC_SERIES == ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
     assert len(_OHLC_COLUMNS) == 24
 
-    if migration_mode == "upgrade_25_to_28":
+    if migration_mode == "upgrade_25_to_29":
         with psycopg.connect(postgres_dsn) as connection:
             legacy_timestamp, legacy_fingerprint, legacy_feature_columns = _seed_v25_baseline(
                 connection, monkeypatch
@@ -418,7 +418,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             f"macro feature view version=16; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
         )
 
-        if migration_mode == "upgrade_25_to_28":
+        if migration_mode == "upgrade_25_to_29":
             legacy_timestamp = datetime(2026, 1, 2, tzinfo=UTC)
             expected_available = datetime(2026, 1, 5, tzinfo=UTC)
             preserved_raw = connection.execute(
@@ -460,7 +460,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             dataset_id=POSTGRES_DATASET_ID,
             source_build_id="ohlc-reference-build",
             data_sha256="a" * 64,
-            schema_version=9,
+            schema_version=10,
             feature_version=6,
             row_count=1,
             min_timestamp=timestamp,
@@ -519,7 +519,7 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
                 dataset_id=POSTGRES_DATASET_ID,
                 source_build_id="ohlc-reference-revision",
                 data_sha256="b" * 64,
-                schema_version=9,
+                schema_version=10,
                 feature_version=6,
                 row_count=1,
                 min_timestamp=timestamp,

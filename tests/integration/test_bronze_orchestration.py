@@ -177,6 +177,37 @@ def test_explicit_reconcile_only_and_bootstrap_guard(tmp_path: Path) -> None:
     assert provider.requests[-1][1].logical_start is None
 
 
+def test_new_euro_hy_series_keeps_history_outside_short_source_update(tmp_path: Path) -> None:
+    provider = FakeFredProvider()
+    provider.queue(
+        "euro_hy_yield",
+        [(date(2023, 10, 27), 7.83), (date(2026, 8, 18), 5.46)],
+        [(date(2026, 8, 11), 5.50), (TODAY, 5.53)],
+    )
+    service, _, paths = _service(tmp_path, provider)
+
+    first = service.run_series("euro_hy_yield", today=TODAY)
+    assert first.mode is OperationMode.BOOTSTRAP
+    update = service.run_series("euro_hy_yield", today=TODAY)
+    assert update.mode is OperationMode.UPDATE
+    assert provider.requests[-1][1].logical_start == date(2026, 8, 11)
+    assert provider.requests[-1][1].logical_end == TODAY
+
+    bronze_files = sorted(
+        (paths.root / "bronze" / "provider=fred" / "series=euro_hy_yield").glob(
+            "year=*/month=*/data.parquet"
+        )
+    )
+    bronze = pl.concat([pl.read_parquet(path) for path in bronze_files]).sort("observation_date")
+    assert bronze.get_column("observation_date").min() == date(2023, 10, 27)
+    assert bronze.get_column("observation_date").to_list() == [
+        date(2023, 10, 27),
+        date(2026, 8, 11),
+        date(2026, 8, 18),
+        TODAY,
+    ]
+
+
 @pytest.mark.parametrize("fault_stage", ["after_bronze", "after_run", "after_state"])
 def test_barrier_failure_rolls_back_authoritative_data_and_state(
     tmp_path: Path, fault_stage: str
