@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -397,7 +398,10 @@ _RETIRED_LEGACY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_legacy_raw_co
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _EXTENDED_FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_extended"'
-_FEATURE_VALUES = f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(POSTGRES_FEATURE_VALUES_TABLE)}"
+_FEATURE_VALUES = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_feature_values"'
+_PUBLISHED_FEATURES_VIEW = (
+    f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(POSTGRES_FEATURE_VALUES_TABLE)}"
+)
 _AVAILABLE_AT_EXPRESSION = """(
     (
         ("timestamp_m1" AT TIME ZONE 'UTC')::date
@@ -1728,7 +1732,7 @@ _FEATURE_VALUE_POPULATION_SQL = f"""WITH actual AS (
     SELECT count(*) AS row_count,
            count(DISTINCT feature_name) AS feature_count,
            count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
-    FROM {_FEATURE_VALUES}
+    FROM {_PUBLISHED_FEATURES_VIEW}
 ), expected AS (
     SELECT count(*) AS row_count,
            count(DISTINCT feature_name) AS feature_count,
@@ -1786,6 +1790,34 @@ _FEATURE_VALUES_REFRESH_FUNCTION_OWNER = (
     f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
 )
 _FEATURE_VALUES_REFRESH_FUNCTION_GRANTS = (
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
+    "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
+
+_RETIRE_WIDE_FEATURE_VIEWS_MIGRATION = (
+    f"DROP MATERIALIZED VIEW IF EXISTS {_EXTENDED_FEATURES_VIEW}",
+    f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW}",
+    *(
+        f"DROP MATERIALIZED VIEW IF EXISTS {relation}"
+        for relation in _EXTENDED_FEATURE_SERIES_RELATIONS.values()
+    ),
+    f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURE_RAW_PROJECTION_VIEW}",
+    f"ALTER MATERIALIZED VIEW {_FEATURE_VALUES} RENAME TO macro_features",
+    "ALTER INDEX macro_loader.macro_feature_values_timestamp_feature_uidx "
+    "RENAME TO macro_features_timestamp_feature_uidx",
+    "ALTER INDEX macro_loader.macro_feature_values_feature_timestamp_idx "
+    "RENAME TO macro_features_feature_timestamp_idx",
+    f"COMMENT ON MATERIALIZED VIEW {_PUBLISHED_FEATURES_VIEW} IS "
+    f"'macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+    f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}'",
+    "DROP FUNCTION IF EXISTS macro_loader.refresh_macro_feature_values()",
+    "CREATE OR REPLACE FUNCTION macro_loader.refresh_macro_features_explicit() "
+    "RETURNS void LANGUAGE plpgsql SECURITY DEFINER "
+    "SET search_path = pg_catalog, macro_loader SET jit = off "
+    "AS $$ BEGIN REFRESH MATERIALIZED VIEW macro_loader.macro_features; END; $$",
+    "ALTER FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
     "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
     "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
@@ -2315,11 +2347,14 @@ _MIGRATIONS = (
     # Keep the expensive first population independently retryable and repair refresh
     # functions on deployments that already recorded migration 34.
     (_FEATURE_VALUE_REFRESH_FUNCTION, _FEATURE_VALUE_REFRESH_CALL),
+    # Replace the superseded wide feature-view chain with the populated long view under
+    # the stable public macro_features name without recomputing its contents.
+    _RETIRE_WIDE_FEATURE_VIEWS_MIGRATION,
 )
 _FEATURE_VIEW_PUBLICATION_VERSION = max(
     version
     for version, statements in enumerate(_MIGRATIONS, start=1)
-    if _FEATURES_VIEW_DDL in statements
+    if statements is _RETIRE_WIDE_FEATURE_VIEWS_MIGRATION
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables
@@ -2410,6 +2445,21 @@ def _is_features_view_publication_statement(statement: str) -> bool:
             f"REVOKE ALL ON {_FEATURES_VIEW}",
             f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW}",
         )
+    )
+
+
+def _is_retired_feature_view_statement(statement: str) -> bool:
+    """Identify superseded view DDL so upgrades do not build views migration 36 drops."""
+    retired_relations = (
+        "macro_features_extended",
+        "macro_feature_raw_projection",
+        *(f"macro_feature_transform_{series}" for series in EXTENDED_RAW_SERIES),
+        "macro_features",
+    )
+    legacy_refresh_function = "macro_loader.refresh_macro_features_explicit()" in statement
+    return legacy_refresh_function or (
+        any(re.search(rf"\b{re.escape(relation)}\b", statement) for relation in retired_relations)
+        and ("MATERIALIZED VIEW" in statement or statement.startswith(("GRANT ", "REVOKE ")))
     )
 
 
@@ -2975,8 +3025,8 @@ class PostgresGoldSyncRepository:
                 )
                 if cursor.fetchone() != (expected,):
                     raise ValueError(f"PostgreSQL raw table grants differ for {role}")
-        PostgresGoldSyncRepository._assert_features_view_contract(cursor)
         PostgresGoldSyncRepository._assert_feature_values_table_contract(cursor)
+        PostgresGoldSyncRepository._assert_retired_feature_views_absent(cursor)
 
     @staticmethod
     def _assert_feature_values_table_contract(cursor: CursorPort) -> None:
@@ -2991,7 +3041,7 @@ class PostgresGoldSyncRepository:
         )
         row = cursor.fetchone()
         expected_comment = (
-            f"macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
+            f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
             f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}"
         )
         if (
@@ -3001,7 +3051,7 @@ class PostgresGoldSyncRepository:
             or row[1] != _POSTGRES_OWNER_ROLE
             or row[2] != expected_comment
         ):
-            raise ValueError("PostgreSQL long-form feature materialized-view contract differs")
+            raise ValueError("PostgreSQL macro_features long-view contract differs")
 
         cursor.execute(
             """SELECT attributes.attnum, attributes.attname,
@@ -3035,7 +3085,7 @@ class PostgresGoldSyncRepository:
         definition_row = cursor.fetchone()
         definition = definition_row[0] if definition_row is not None else None
         if not isinstance(definition, str):
-            raise ValueError("PostgreSQL long-form feature materialized-view definition is absent")
+            raise ValueError("PostgreSQL macro_features long-view definition is absent")
         normalized = _normalize_view_definition(definition).replace('"', "")
         if (
             "macro_features" in normalized
@@ -3043,12 +3093,12 @@ class PostgresGoldSyncRepository:
             or "when 5 then 3" not in normalized
             or any(f"macro_raw_{series}" not in normalized for series in GOLD_SOURCE_SERIES)
         ):
-            raise ValueError("PostgreSQL long-form feature materialized-view source differs")
+            raise ValueError("PostgreSQL macro_features long-view source differs")
 
         cursor.execute(
             """SELECT indexdef FROM pg_indexes
                WHERE schemaname = %s AND tablename = %s
-                 AND indexname = 'macro_feature_values_feature_timestamp_idx'""",
+                 AND indexname = 'macro_features_feature_timestamp_idx'""",
             (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
         )
         index_row = cursor.fetchone()
@@ -3056,12 +3106,12 @@ class PostgresGoldSyncRepository:
         if not isinstance(index_definition, str) or not all(
             marker in index_definition.lower() for marker in ("(feature_name, timestamp_m1)",)
         ):
-            raise ValueError("PostgreSQL long-form feature lookup index differs")
+            raise ValueError("PostgreSQL macro_features lookup index differs")
 
         cursor.execute(
             """SELECT indexdef FROM pg_indexes
                WHERE schemaname = %s AND tablename = %s
-                 AND indexname = 'macro_feature_values_timestamp_feature_uidx'""",
+                 AND indexname = 'macro_features_timestamp_feature_uidx'""",
             (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
         )
         unique_index_row = cursor.fetchone()
@@ -3070,7 +3120,7 @@ class PostgresGoldSyncRepository:
             marker in unique_index_definition.lower()
             for marker in ("unique index", "(timestamp_m1, feature_name)")
         ):
-            raise ValueError("PostgreSQL long-form feature unique index differs")
+            raise ValueError("PostgreSQL macro_features unique index differs")
 
         qualified = f"{POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_FEATURE_VALUES_TABLE}"
         for role, select_expected in (
@@ -3083,7 +3133,7 @@ class PostgresGoldSyncRepository:
                 (role, qualified),
             )
             if cursor.fetchone() != (select_expected,):
-                raise ValueError(f"PostgreSQL long-form feature SELECT grant differs for {role}")
+                raise ValueError(f"PostgreSQL macro_features SELECT grant differs for {role}")
         for role in (POSTGRES_USER, POSTGRES_SYNC_USER, "public"):
             cursor.execute(
                 "SELECT has_table_privilege(%s, %s, 'INSERT') "
@@ -3093,7 +3143,7 @@ class PostgresGoldSyncRepository:
                 (role, qualified, role, qualified, role, qualified, role, qualified),
             )
             if cursor.fetchone() != (False,):
-                raise ValueError(f"PostgreSQL long-form feature write grant differs for {role}")
+                raise ValueError(f"PostgreSQL macro_features write grant differs for {role}")
 
     @staticmethod
     def _assert_features_view_contract(cursor: CursorPort) -> None:
@@ -3249,6 +3299,26 @@ class PostgresGoldSyncRepository:
             if cursor.fetchone() != (select_expected,):
                 raise ValueError(f"PostgreSQL extended macro feature view grants differ for {role}")
 
+    @staticmethod
+    def _assert_retired_feature_views_absent(cursor: CursorPort) -> None:
+        retired = (
+            "macro_features_extended",
+            "macro_feature_raw_projection",
+            *(f"macro_feature_transform_{series}" for series in EXTENDED_RAW_SERIES),
+        )
+        cursor.execute(
+            "SELECT relname FROM pg_class AS relations "
+            "JOIN pg_namespace AS namespaces ON namespaces.oid = relations.relnamespace "
+            "WHERE namespaces.nspname = %s AND relations.relkind = 'm' "
+            "AND relations.relname = ANY(%s)",
+            (POSTGRES_CONSUMER_SCHEMA, list(retired)),
+        )
+        remaining = tuple(row[0] for row in cursor.fetchall())
+        if remaining:
+            raise ValueError(
+                "PostgreSQL obsolete feature materialized views remain: " + repr(remaining)
+            )
+
 
 class PostgresGoldSchemaMigrator:
     """Admin-only adapter for idempotent serving-schema migrations."""
@@ -3306,6 +3376,13 @@ class PostgresGoldSchemaMigrator:
                         continue
                     for statement in statements:
                         if _defer_intermediate_feature_view_statement(version, statement):
+                            continue
+                        if (
+                            version < _FEATURE_VIEW_PUBLICATION_VERSION
+                            and _is_retired_feature_view_statement(statement)
+                            and statement
+                            != f"DROP MATERIALIZED VIEW IF EXISTS {_FEATURES_VIEW} CASCADE"
+                        ):
                             continue
                         if statement == _FEATURES_VIEW_DDL:
                             cursor.execute("SELECT to_regclass(%s)", (_FEATURES_VIEW,))

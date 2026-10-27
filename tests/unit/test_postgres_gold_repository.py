@@ -125,6 +125,8 @@ class FakeCursor:
                 )
                 for specification in module._SCHEMA_SPECIFICATION
             ]
+        elif "SELECT relname FROM pg_class AS relations" in query:
+            self.many = []
         elif "FROM pg_class AS classes" in query:
             if "SELECT pg_get_viewdef(classes.oid, true)" in query:
                 self.one = (module._FEATURE_VALUES_DDL,)
@@ -132,7 +134,7 @@ class FakeCursor:
                 self.one = (
                     "m",
                     module._POSTGRES_OWNER_ROLE,
-                    "macro feature values schema "
+                    "macro feature view "
                     f"version={module.FEATURE_VALUE_SCHEMA_VERSION}; "
                     f"fingerprint={module.FEATURE_VALUE_CATALOG_FINGERPRINT}",
                 )
@@ -155,20 +157,21 @@ class FakeCursor:
         elif (
             "FROM pg_attribute AS attributes" in query
             and isinstance(params, tuple)
-            and str(params[0]).endswith(".macro_feature_values")
+            and str(params[0]).endswith(".macro_features")
         ):
-            self.many = [
+            columns = [
                 (1, "timestamp_m1", "timestamp(6) with time zone"),
                 (2, "available_at_utc", "timestamp(6) with time zone"),
                 (3, "feature_name", "text"),
                 (4, "value", "double precision"),
             ]
+            self.many = list(self.connection.feature_view_columns or columns)
         elif "FROM pg_indexes" in query:
             unique = "timestamp_feature" in query
             index_name = (
-                "macro_feature_values_timestamp_feature_uidx"
+                "macro_features_timestamp_feature_uidx"
                 if unique
-                else "macro_feature_values_feature_timestamp_idx"
+                else "macro_features_feature_timestamp_idx"
             )
             index_columns = (
                 "(timestamp_m1, feature_name)" if unique else "(feature_name, timestamp_m1)"
@@ -176,7 +179,7 @@ class FakeCursor:
             unique_sql = "UNIQUE " if unique else ""
             self.one = (
                 f"CREATE {unique_sql}INDEX {index_name} "
-                f"ON macro_loader.macro_feature_values USING btree {index_columns}",
+                f"ON macro_loader.macro_features USING btree {index_columns}",
             )
         elif "FROM pg_attribute AS attributes" in query:
             extended_view = isinstance(params, tuple) and str(params[0]).endswith(
@@ -264,7 +267,7 @@ class FakeConnection:
         rowcounts: dict[str, int] | None = None,
         summary_row: tuple[object, ...] = (0, None, None),
         fail_on: str | None = None,
-        extended_view_columns: tuple[tuple[object, ...], ...] | None = None,
+        feature_view_columns: tuple[tuple[object, ...], ...] | None = None,
     ) -> None:
         self.state_row = state_row
         self.digest_rows = digest_rows
@@ -272,7 +275,7 @@ class FakeConnection:
         self.rowcounts = {} if rowcounts is None else rowcounts
         self.summary_row = summary_row
         self.fail_on = fail_on
-        self.extended_view_columns = extended_view_columns
+        self.feature_view_columns = feature_view_columns
         self.events: list[tuple[str, object, object]] = []
 
     def cursor(self) -> FakeCursor:
@@ -304,8 +307,10 @@ def _execute_queries(connection: FakeConnection) -> list[str]:
     return [str(query) for kind, query, _ in connection.events if kind == "execute"]
 
 
-def test_schema_contract_verifies_extended_materialized_view() -> None:
-    module.PostgresGoldSyncRepository._assert_features_view_contract(FakeConnection().cursor())
+def test_schema_contract_verifies_long_materialized_view() -> None:
+    module.PostgresGoldSyncRepository._assert_feature_values_table_contract(
+        FakeConnection().cursor()
+    )
 
 
 @pytest.mark.parametrize(
@@ -313,20 +318,15 @@ def test_schema_contract_verifies_extended_materialized_view() -> None:
     (
         ("missing", "columns differ"),
         ("reordered", "columns differ"),
-        ("wrong_type", "type differs"),
+        ("wrong_type", "columns differ"),
     ),
 )
-def test_schema_contract_rejects_extended_view_column_drift(
-    problem: str, error_message: str
-) -> None:
+def test_schema_contract_rejects_long_view_column_drift(problem: str, error_message: str) -> None:
     expected = [
-        (
-            ordinal,
-            name,
-            module._EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED[name],
-            False,
-        )
-        for ordinal, name in enumerate(module._EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
+        (1, "timestamp_m1", "timestamp(6) with time zone"),
+        (2, "available_at_utc", "timestamp(6) with time zone"),
+        (3, "feature_name", "text"),
+        (4, "value", "double precision"),
     ]
     if problem == "missing":
         columns = tuple(expected[:-1])
@@ -334,11 +334,11 @@ def test_schema_contract_rejects_extended_view_column_drift(
         expected[2], expected[3] = expected[3], expected[2]
         columns = tuple(expected)
     else:
-        expected[2] = (expected[2][0], expected[2][1], "text", expected[2][3])
+        expected[3] = (expected[3][0], expected[3][1], "text")
         columns = tuple(expected)
-    cursor = FakeConnection(extended_view_columns=columns).cursor()
+    cursor = FakeConnection(feature_view_columns=columns).cursor()
     with pytest.raises(ValueError, match=error_message):
-        module.PostgresGoldSyncRepository._assert_features_view_contract(cursor)
+        module.PostgresGoldSyncRepository._assert_feature_values_table_contract(cursor)
 
 
 def test_schema_reconstructor_recreates_only_loader_schemas_and_revalidates_contract(
@@ -501,7 +501,13 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._CONSUMER_DDL) == 3
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
-    assert queries.count(module._FEATURES_VIEW_DDL) == 1
+    assert queries.count(module._FEATURES_VIEW_DDL) == 0
+    assert queries.count(module._FEATURE_VALUES_DDL) == 1
+    assert any("RENAME TO macro_features" in query for query in queries)
+    assert not any(
+        query.startswith("CREATE MATERIALIZED VIEW") and "macro_features_extended" in query
+        for query in queries
+    )
     assert "TRUNCATE TABLE" not in module._FEATURE_VALUE_REFRESH_FUNCTION
     assert "REFRESH MATERIALIZED VIEW" in module._FEATURE_VALUE_REFRESH_FUNCTION
     assert module._FEATURE_VALUE_SOURCE_SQL in module._FEATURE_VALUES_DDL
@@ -611,11 +617,12 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert '"available_at_utc"' in availability_sql
     assert "GENERATED ALWAYS AS" in availability_sql
     assert "TIMESTAMPTZ(6)" in availability_sql
-    feature_views_migration_index = len(module._MIGRATIONS) - 4
+    feature_views_migration_index = len(module._MIGRATIONS) - 5
     feature_views_migration = "\n".join(module._MIGRATIONS[feature_views_migration_index])
-    drift_cleanup = "\n".join(module._MIGRATIONS[-3])
-    feature_values_migration = "\n".join(module._MIGRATIONS[-2])
-    feature_values_population_migration = "\n".join(module._MIGRATIONS[-1])
+    drift_cleanup = "\n".join(module._MIGRATIONS[-4])
+    feature_values_migration = "\n".join(module._MIGRATIONS[-3])
+    feature_values_population_migration = "\n".join(module._MIGRATIONS[-2])
+    retire_feature_views_migration = "\n".join(module._MIGRATIONS[-1])
     assert availability_migration_index < feature_views_migration_index
     assert module._FEATURES_VIEW_DDL in feature_views_migration
     assert "version=16" in feature_views_migration
@@ -632,6 +639,10 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert module._FEATURE_VALUE_REFRESH_CALL not in feature_values_migration
     assert module._FEATURE_VALUE_REFRESH_FUNCTION in feature_values_population_migration
     assert module._FEATURE_VALUE_REFRESH_CALL in feature_values_population_migration
+    assert "ALTER MATERIALIZED VIEW" in retire_feature_views_migration
+    assert "RENAME TO macro_features" in retire_feature_views_migration
+    assert "DROP MATERIALIZED VIEW IF EXISTS" in retire_feature_views_migration
+    assert "macro_features_extended" in retire_feature_views_migration
 
 
 def test_long_feature_values_projection_preserves_types_and_omits_nulls() -> None:
@@ -759,24 +770,24 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._LEGACY_FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-7])
+    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-8])
     assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in (
-        "\n".join(module._MIGRATIONS[-8])
+        "\n".join(module._MIGRATIONS[-9])
     )
     assert 'ADD COLUMN IF NOT EXISTS "euro_hy_total_return_level" DOUBLE PRECISION NULL' in (
         prior_euro_hy_migration
     )
-    treasury_migration = "\n".join(module._MIGRATIONS[-6])
+    treasury_migration = "\n".join(module._MIGRATIONS[-7])
     assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in treasury_migration
     assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration
     assert treasury_migration.count("ADD COLUMN IF NOT EXISTS") == 2
-    cutover_migration = "\n".join(module._MIGRATIONS[-5])
+    cutover_migration = "\n".join(module._MIGRATIONS[-6])
     assert 'DROP TABLE "macro_loader"."macro_raw"' in cutover_migration
     assert 'INSERT INTO "macro_loader"."macro_raw_euro_hy_oas"' in cutover_migration
     assert "macro_raw_vix" in cutover_migration and "macro_raw_usd_broad" in cutover_migration
     assert len(module.POSTGRES_RAW_TABLES) == 25
     assert not any(spec.name == "macro_raw" for spec in module._SCHEMA_SPECIFICATION)
-    extended_migration = "\n".join(module._MIGRATIONS[-4])
+    extended_migration = "\n".join(module._MIGRATIONS[-5])
     assert "macro_features_extended" in extended_migration
 
 

@@ -6,13 +6,16 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-The repository includes causal feature transformations and native OHLC values in the
-PostgreSQL serving-view contract. Retired Fed-policy runtime and serving code does not
-establish production database or installed host-crontab state.
-Production PostgreSQL migration 33 and canonical Gold synchronization completed on
-2026-10-27. All 25 `macro_raw_<feature>` tables and both materialized views are populated;
-the old wide `macro_raw` and orphaned Fed serving table are absent. Both public views reach
-`timestamp_m1=2026-10-27`, with availability through 2026-10-28. The sync checkpoint is
+The repository includes causal feature transformations and native OHLC values in
+PostgreSQL. Retired Fed-policy runtime and serving code does not establish production
+database or installed host-crontab state. Production migration 35 populated the raw-derived
+long transformation materialized view on 2026-10-27; migration 36 in PR-200 renames it to
+`macro_loader.macro_features` and retires the superseded views, and production application
+is pending. The production database currently contains the long view as
+`macro_feature_values` alongside the legacy wide/extended views. All 25
+`macro_raw_<feature>` tables are populated; the old wide `macro_raw` and orphaned Fed
+serving table are absent. The two legacy public views reach `timestamp_m1=2026-10-27`, with
+availability through 2026-10-28. The sync checkpoint is
 schema 11 / feature 6 with 16,805 consumer and digest rows. The daily cron contract is
 09:00 `Europe/Vienna` with a 60-calendar-day bounded source overlap. The installed daily
 wrapper and its independent PostgreSQL replay/conformance acceptance passed on
@@ -22,9 +25,9 @@ This document contains no Fed-specific operator commands or scheduling instructi
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
 
-The target PostgreSQL transformation layout publishes
-`macro_loader.macro_feature_values` as a sparse long-form materialized view over the primary
-and extended transformation catalogs. It exposes `timestamp_m1`, projected
+The PostgreSQL transformation layout publishes
+`macro_loader.macro_features` as the sole sparse long-form materialized view over the full
+transformation catalog. It exposes `timestamp_m1`, projected
 `available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`; a unique index on
 `(timestamp_m1, feature_name)` prevents duplicate observation/feature pairs, and a
 feature-first index supports time-series lookup. Boolean Donchian outputs map to `1.0`
@@ -42,20 +45,16 @@ The executable Gold contract is currently schema version **11** and feature vers
 `macro_loader.macro_raw_<feature>` table for each of the 25 registered source series,
 backfills them from the previous wide `macro_loader.macro_raw`, then drops that wide
 relation. It is a one-time migration source only: runtime sync and the materialized view
-do not read, write, or recreate it. The `macro_loader.macro_features` materialized view
-is rebuilt from a full-outer-join projection of the feature tables and then computes the
-closed-world causal feature catalog. It preserves all available timestamps, including
-pre-2010 rows, and exposes NULL where source data or causal warm-up is unavailable.
-Migration 32 leaves `macro_loader.macro_features` and its public query contract
-untouched. It adds a private materialized raw-key projection and private materialized
-transformations for the 12 additional positive-level series, then adds
-`macro_loader.macro_features_extended`, a separately versioned materialized view for
-their 792 catalogued transformation outputs. This keeps the existing 954-column,
-version-16 public contract stable and avoids PostgreSQL's 1,600-column per-relation limit;
-the extended view has 794 columns including `timestamp_m1` and `available_at_utc`. The
-private relations are not granted to consumer roles. Both public views expose the same
-temporal/availability keys, are covered by catalog fingerprints and schema conformance,
-and refresh in dependency order through the explicit PostgreSQL refresh routine.
+do not read, write, or recreate it. The current `macro_loader.macro_features`
+materialized view is sparse long-form output, directly derived from all 25 raw feature
+tables. Migration 32's former wide public view, extended public view, and private support
+materialized views are historical migration artifacts; migration 36 drops them after
+renaming the populated long view. The published relation has exactly four columns:
+`timestamp_m1`, `available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`, with
+unique `(timestamp_m1, feature_name)` and a feature-first index. It preserves sparse dates
+and omits NULL/warm-up values. The catalog fingerprint and independent conformance
+verifier enforce this contract and reject retired view objects. The explicit refresh
+function refreshes only this raw-derived materialized view after raw tables are updated.
 Loader-controlled PostgreSQL sessions and that SECURITY DEFINER refresh routine disable
 JIT because recursive CTE row estimates can otherwise cause compilation to dominate view
 execution. During schema upgrades, migration versions 24–30 defer repeated view rebuilds;
@@ -81,17 +80,18 @@ then registry-derived native OHLC fields in series-major order with `open`, `hig
 values; each scalar feature table stores nullable `indexvalue DOUBLE PRECISION`.
 Every table orders columns as `timestamp_m1 TIMESTAMPTZ(6)` primary key, generated
 non-null `available_at_utc TIMESTAMPTZ(6)`, then native values. `macro_features` exposes
-the rejoined raw values through its closed-world feature catalog.
-For each of the six OHLC series, the serving view also
-exposes six nullable decimal-fraction transformations: `(high-low)/close` and
+each catalogued transformation as a row with its catalog name in `feature_name`; raw
+values remain in their per-series tables and are not copied into the transformation view.
+For each of the six OHLC series, the transformation catalog includes six nullable
+decimal-fraction values: `(high-low)/close` and
 `(close-open)/open` for the current valid bar plus trailing-five-valid-metric means, and
 `(open[t]-close[previous valid source observation])/close[previous valid source
 observation]` plus its trailing-five-valid-gap mean. Five-observation outputs require a
 complete window; missing/non-finite operands and nonpositive denominators yield NULL.
 Overnight gaps pair each finite current open with the most recent preceding finite close in
 that series' observation history (the current bar's close is not an operand), so sparse
-calendar dates do not break the sequence. These derived values live only in
-`macro_features`, not in raw or canonical Gold.
+calendar dates do not break the sequence. These derived values live in the long-form
+`macro_features` relation, not in raw tables or canonical Gold.
 The same six series expose six nullable numeric stochastic outputs (`stoch_k_5`,
 `stoch_d_5_3`, `stoch_k_14`, `stoch_d_14_3`, `stoch_kd_spread_5`, `stoch_k_slope_3`)
 and two nullable BOOLEAN Donchian outputs (`donchian_breakout_up`,
@@ -590,7 +590,8 @@ for `PRICE_FEATURE_SERIES`. Signed/non-price levels such as `estr` remain raw in
 may receive source-unit delta/momentum features, but never silently enter a logarithmic
 or price-domain formula.
 
-The PostgreSQL `macro_features` view contract version 12 includes these observation
+The historical wide PostgreSQL `macro_features` view contract version 12 established
+these observation
 windows for every `PRICE_FEATURE_SERIES`: log returns `1/2/3/4/5/8/10/20`, geometric
 returns `4/5/8/10/16/20`, mean log returns `5/10/20`, sample log-return volatility
 `5/8/10/20/32/40/96`, SMA ratios `5/15`, `5/20`, `10/20`, and `10/40`, Wilder RSI
@@ -604,13 +605,14 @@ market-breadth, or dispersion features.
 
 #### PR-171 Composite and Statistical Features
 
-The version-12 PostgreSQL `macro_features` view contract adds the following nullable
-`DOUBLE PRECISION`, series-prefixed features to each `PRICE_FEATURE_SERIES`: positive-level
+The version-12 transformation catalog adds the following nullable `DOUBLE PRECISION`,
+series-prefixed feature values to each `PRICE_FEATURE_SERIES`: positive-level
 price series only; signed/non-price `estr` is excluded. Lag counts refer to non-NULL
 source-level observation rows, not elapsed calendar days. This describes the repository's
 view contract and does not assert that any production database has been migrated or
-populated. Derived values belong only to `macro_features`, not raw feature tables or canonical
-Gold.
+populated. In the current layout, each derived value is a row in `macro_features` with the
+listed name in `feature_name`, not a wide column; values are absent from raw feature tables
+and canonical Gold.
 
 For RSI-derived columns, Wilder RSI for period `n` uses gains
 `max(level(t)-level(t-1), 0)` and losses `max(level(t-1)-level(t), 0)` on positive adjacent
@@ -648,8 +650,8 @@ macro indicators.
 
 #### PR-172 EMA-Level Trend Features
 
-The version-12 PostgreSQL `macro_features` view adds six nullable
-`DOUBLE PRECISION`, series-prefixed EMA outputs for each of the twelve
+The version-12 transformation catalog adds six nullable `DOUBLE PRECISION`, series-prefixed
+EMA outputs for each of the twelve
 `PRICE_FEATURE_SERIES`; signed/non-price `estr` is excluded. EMA is private SQL
 intermediate state and is not itself exposed. For period `n`, alpha is `2/(n+1)`;
 the first EMA is the arithmetic mean of `n` consecutive valid positive levels, and
@@ -987,8 +989,10 @@ Required classes include:
 `macro-loader` intentionally uses daily source semantics, monthly Bronze/Silver partitions, strict delta-only normal execution, optional explicit source reconciliation, and a catalog-driven immutable Gold publication model.
 
 Feature numerics are single-sourced in the versioned PostgreSQL `macro_features`
-materialized view. Python retains only source-series policy metadata and canonical
-column naming. The authorized full-history and Daily-wrapper acceptance runners
+materialized view. In the transformation semantics below, a named output is the value of
+`feature_name` in one long-form row, not a wide SQL column. Python retains only
+source-series policy metadata and canonical feature naming. The authorized full-history
+and Daily-wrapper acceptance runners
 execute the documented commands in order and emit sanitized reports under
 `artifacts/acceptance/`; neither runner is part of the normal cron path.
 

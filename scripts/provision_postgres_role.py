@@ -22,11 +22,7 @@ POSTGRES_TABLES = (
     ("macro_loader_sync", "gold_row_hashes"),
     ("macro_loader_sync", "schema_migrations"),
 )
-POSTGRES_MATERIALIZED_VIEWS = (
-    ("macro_loader", "macro_features"),
-    ("macro_loader", "macro_features_extended"),
-    ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE),
-)
+POSTGRES_MATERIALIZED_VIEWS = (("macro_loader", POSTGRES_FEATURE_VALUES_TABLE),)
 
 
 def _identifier(value: str) -> str:
@@ -140,13 +136,6 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
         ]
     )
     view_grant = (
-        "IF to_regclass('macro_loader.macro_features') IS NOT NULL THEN\n"
-        f'    GRANT SELECT ON TABLE "macro_loader"."macro_features" TO {role_i}, {sync_role_i};\n'
-        "END IF;\n"
-        "IF to_regclass('macro_loader.macro_features_extended') IS NOT NULL THEN\n"
-        f'    GRANT SELECT ON TABLE "macro_loader"."macro_features_extended" '
-        f"TO {role_i}, {sync_role_i};\n"
-        "END IF;\n"
         f"IF to_regclass('macro_loader.{POSTGRES_FEATURE_VALUES_TABLE}') IS NOT NULL THEN\n"
         f'    GRANT SELECT ON TABLE "macro_loader"."{POSTGRES_FEATURE_VALUES_TABLE}" '
         f"TO {role_i}, {sync_role_i};\n"

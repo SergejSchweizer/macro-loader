@@ -690,7 +690,7 @@ def test_real_postgres_independent_conformance_verifier_passes(
     )
     with psycopg.connect(postgres_dsn) as connection:
         feature_value_row_count = connection.execute(
-            "SELECT count(*) FROM macro_loader.macro_feature_values"
+            "SELECT count(*) FROM macro_loader.macro_features"
         ).fetchone()[0]
 
     assert verifier.verify() == PostgresConformanceReport(
@@ -1449,15 +1449,15 @@ def test_real_postgres_long_feature_materialized_view_refreshes_from_raw_source(
             """SELECT classes.relkind FROM pg_class AS classes
                JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
                WHERE namespaces.nspname = 'macro_loader'
-                 AND classes.relname = 'macro_feature_values'"""
+                 AND classes.relname = 'macro_features'"""
         ).fetchone()
         definition = connection.execute(
-            """SELECT pg_get_viewdef('macro_loader.macro_feature_values'::regclass, true)"""
+            """SELECT pg_get_viewdef('macro_loader.macro_features'::regclass, true)"""
         ).fetchone()
         columns = connection.execute(
             """SELECT attname, format_type(atttypid, atttypmod)
                FROM pg_attribute
-               WHERE attrelid = 'macro_loader.macro_feature_values'::regclass
+               WHERE attrelid = 'macro_loader.macro_features'::regclass
                  AND attnum > 0 AND NOT attisdropped ORDER BY attnum"""
         ).fetchall()
         populated = connection.execute(
@@ -1465,11 +1465,11 @@ def test_real_postgres_long_feature_materialized_view_refreshes_from_raw_source(
             "count(DISTINCT (timestamp_m1, feature_name)), "
             "count(*) FILTER (WHERE value NOT IN (0.0, 1.0) "
             "AND feature_name LIKE '%donchian%') "
-            "FROM macro_loader.macro_feature_values"
+            "FROM macro_loader.macro_features"
         ).fetchone()
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         replay_count = connection.execute(
-            "SELECT count(*) FROM macro_loader.macro_feature_values"
+            "SELECT count(*) FROM macro_loader.macro_features"
         ).fetchone()
 
     assert populated is not None
@@ -1488,6 +1488,139 @@ def test_real_postgres_long_feature_materialized_view_refreshes_from_raw_source(
     assert populated[2] == populated[0]
     assert populated[3] == 0
     assert replay_count == (populated[0],)
+
+
+@pytest.mark.integration
+def test_real_postgres_migration_36_renames_populated_view_and_retires_legacy_chain(
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    migrator.migrate()
+    timestamp = datetime(2026, 1, 5, tzinfo=UTC)
+    series_values = {table.removeprefix("macro_raw_"): (100.0,) for table in POSTGRES_RAW_TABLES}
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        _clear_feature_tables(connection)
+        _insert_level_values(connection, (timestamp,), series_values)
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        before = connection.execute(
+            "SELECT classes.oid, count(feature_rows.feature_name) "
+            "FROM pg_class AS classes "
+            "JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace "
+            "CROSS JOIN macro_loader.macro_features AS feature_rows "
+            "WHERE namespaces.nspname = 'macro_loader' "
+            "AND classes.relname = 'macro_features' "
+            "GROUP BY classes.oid"
+        ).fetchone()
+        assert before is not None
+        connection.execute(
+            "ALTER MATERIALIZED VIEW macro_loader.macro_features RENAME TO macro_feature_values"
+        )
+        connection.execute(
+            "ALTER INDEX macro_loader.macro_features_timestamp_feature_uidx "
+            "RENAME TO macro_feature_values_timestamp_feature_uidx"
+        )
+        connection.execute(
+            "ALTER INDEX macro_loader.macro_features_feature_timestamp_idx "
+            "RENAME TO macro_feature_values_feature_timestamp_idx"
+        )
+        connection.execute(
+            "CREATE MATERIALIZED VIEW macro_loader.macro_features AS SELECT 1::integer AS legacy"
+        )
+        connection.execute(
+            "CREATE MATERIALIZED VIEW macro_loader.macro_features_extended "
+            "AS SELECT 1::integer AS legacy"
+        )
+        connection.execute(
+            "CREATE MATERIALIZED VIEW macro_loader.macro_feature_raw_projection "
+            "AS SELECT 1::integer AS legacy"
+        )
+        for series in postgres_module.EXTENDED_RAW_SERIES:
+            connection.execute(
+                f'CREATE MATERIALIZED VIEW macro_loader."macro_feature_transform_{series}" '
+                "AS SELECT 1::integer AS legacy"
+            )
+        connection.execute(
+            "DELETE FROM macro_loader_sync.schema_migrations WHERE version = %s",
+            (len(postgres_module._MIGRATIONS),),
+        )
+
+    migrator.migrate()
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        after = connection.execute(
+            "SELECT classes.oid, count(feature_rows.feature_name) "
+            "FROM pg_class AS classes "
+            "JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace "
+            "CROSS JOIN macro_loader.macro_features AS feature_rows "
+            "WHERE namespaces.nspname = 'macro_loader' "
+            "AND classes.relname = 'macro_features' "
+            "GROUP BY classes.oid"
+        ).fetchone()
+        remaining = connection.execute(
+            "SELECT relname FROM pg_class AS relations "
+            "JOIN pg_namespace AS namespaces ON namespaces.oid = relations.relnamespace "
+            "WHERE namespaces.nspname = 'macro_loader' AND relations.relkind = 'm' "
+            "AND (relations.relname = ANY(%s) OR relations.relname LIKE %s) "
+            "ORDER BY relname",
+            (
+                ["macro_features_extended", "macro_feature_raw_projection"],
+                "macro_feature_transform_%",
+            ),
+        ).fetchall()
+        indexes = connection.execute(
+            "SELECT indexname FROM pg_indexes WHERE schemaname = 'macro_loader' "
+            "AND tablename = 'macro_features' ORDER BY indexname"
+        ).fetchall()
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        after_refresh = connection.execute(
+            "SELECT count(*) FROM macro_loader.macro_features"
+        ).fetchone()
+
+    assert before is not None and after is not None and after_refresh is not None
+    assert after[0] == before[0]
+    assert after[1] == before[1] > 0
+    assert remaining == []
+    assert indexes == [
+        ("macro_features_feature_timestamp_idx",),
+        ("macro_features_timestamp_feature_uidx",),
+    ]
+    assert after_refresh == (after[1],)
+
+
+@pytest.mark.integration
+def test_real_postgres_long_view_returns_match_hand_calculated_reference(
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    migrator.migrate()
+    levels = [100.0, 105.0, 110.0, 115.0, 120.0, 125.0]
+    timestamps = [_timestamp(day) for day in range(1, len(levels) + 1)]
+    feature_names = (
+        "vix_log_return_1obs",
+        "vix_return_geom_5obs_pct",
+        "vix_return_mean_5obs",
+        "vix_volatility_5obs",
+    )
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        _clear_feature_tables(connection)
+        _insert_level_values(connection, timestamps, {"vix": levels})
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        rows = connection.execute(
+            "SELECT feature_name, value FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",
+            (timestamps[-1], list(feature_names)),
+        ).fetchall()
+
+    actual = dict(rows)
+    log_returns = [math.log(levels[index] / levels[index - 1]) for index in range(1, len(levels))]
+    expected = {
+        "vix_log_return_1obs": log_returns[-1],
+        "vix_return_geom_5obs_pct": levels[-1] / levels[0] - 1.0,
+        "vix_return_mean_5obs": sum(log_returns[-5:]) / 5.0,
+        "vix_volatility_5obs": stdev(log_returns[-5:]),
+    }
+    assert set(actual) == set(feature_names)
+    for name, value in expected.items():
+        assert math.isclose(actual[name], value, rel_tol=1e-10, abs_tol=1e-12)
 
 
 @pytest.mark.integration

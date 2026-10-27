@@ -10,11 +10,13 @@ The project is intentionally a **data product**, not a trading system. It does n
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-The repository includes native OHLC inputs and OHLC-derived transformations in the
-PostgreSQL serving-view contract. Production migration 33 and canonical Gold sync were
-completed on 2026-10-27. All 25 `macro_raw_<feature>` tables contain source rows; the wide
-`macro_raw` and orphaned retired Fed table are absent. Both public materialized views are
-current through `timestamp_m1=2026-10-27`, with `available_at_utc` through 2026-10-28.
+The repository includes native OHLC inputs and OHLC-derived transformations in PostgreSQL.
+Production migration 35 populated the raw-derived long transformation materialized view on
+2026-10-27. PR-200 adds migration 36 to rename it to `macro_loader.macro_features` and
+retire the superseded wide/extended feature views; production deployment of that migration
+is pending. All 25 `macro_raw_<feature>` tables contain source rows; the wide `macro_raw`
+and orphaned retired Fed table are absent. Before migration 36, production has the two
+legacy feature views plus the populated `macro_feature_values` materialized view.
 PostgreSQL sync state is schema 11 / feature 6, with 16,805 consumer rows and matching
 row digests. The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full
 acceptance on 2026-10-27: both wrapper runs succeeded, the explicit PostgreSQL replay
@@ -30,7 +32,12 @@ the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` a
 serving store to one `macro_loader.macro_raw_<feature>` table per registered source.
 The previous wide `macro_loader.macro_raw` is used only as the migration's historical
 backfill input, then dropped; runtime synchronization never writes to or recreates it.
-The `macro_loader.macro_features` materialized view is projected from the feature tables.
+After migration 36, `macro_loader.macro_features` is the long-form materialized view
+projected directly from the feature tables. Its columns are
+`timestamp_m1`, `available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`; the unique
+key is `(timestamp_m1, feature_name)`. The former wide `macro_features` and
+`macro_features_extended` materialized views and their private projection/transform views
+are retired. Raw feature tables and canonical Gold synchronization state are unchanged.
 
 Gold columns are ordered as `timestamp_m1`, every registered `<series>_level` in
 registry order, then native OHLC fields in OHLC-series registry order and field order
@@ -185,7 +192,7 @@ their exposed source periods are stated instead. Sparse source gaps remain absen
 The latest source observation and each lake's durable coverage can differ. A source that
 publishes a shorter history does not remove previously retained rows. After cutover,
 ordinary Gold synchronization writes these tables transactionally, including corrections
-and deletions, and refreshes `macro_features` from their joined projection.
+and deletions, and refreshes the long-form `macro_features` from those raw sources.
 
 ### STOXX term-structure raw features
 
@@ -451,57 +458,30 @@ microsecond-precision UTC. Exact provider identifiers, persisted/source-history 
 shape, and feature meaning are catalogued in the [raw-feature table catalogue](#postgresql-raw-feature-table-catalogue).
 Sync state and row digests stay in the separate `macro_loader_sync` schema.
 
-The PostgreSQL `macro_features` materialized view (feature-view contract version 16)
-reconstructs the ordered Gold source projection by full-outer-joining the 25 feature
-tables on `timestamp_m1`. Private materialized support relations hold that shared raw
-projection used by the companion view and the added series' catalog-defined
-transformations; the existing public view continues to compute its unchanged closed-world
-catalog directly from feature tables. These relations preserve sparse dates and NULLs,
-including pre-2010 observations; they do not carry values across dates. The core view,
-raw projection, private added-series transformations, and companion view refresh in
-dependency order in the same PostgreSQL transaction as a successful raw-table delta. This
-code and local validation do not assert that migration 31 has run in production.
-Historical Fed acceptance artifacts remain available for audit.
+Migration 36 publishes the populated long-form view as the sole public transformation
+relation, `macro_loader.macro_features`, and drops the superseded wide
+`macro_features`/`macro_features_extended` views and their private projection/transform
+materialized views. The rename preserves the already populated long view and avoids another
+full-history recomputation. The four columns are `timestamp_m1`, projected
+`available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`. Its unique index is
+`(timestamp_m1, feature_name)` and a feature-first index supports time-series lookup.
+Boolean Donchian outputs are encoded as `1.0` (true) and `0.0` (false); SQL NULLs,
+including causal warm-up values, have no row. Raw OHLC passthrough fields are excluded.
+The materialized-view definition calculates all catalogued transformations directly from
+the 25 `macro_raw_<feature>` tables. Consumer and sync roles may SELECT but cannot write.
+After Gold sync updates raw tables, the explicit refresh routine fully recomputes this
+materialized view. Manual raw-table writes require the explicit refresh routine and do not
+fire a trigger. The catalog fingerprint and independent PostgreSQL conformance check
+detect schema, type, source, index, obsolete-view, and population drift. Full-history
+refresh and independent source comparison use the bounded 15-minute feature-query timeout.
 
-PostgreSQL migration 32 also publishes `macro_loader.macro_features_extended` (view
-contract version 1) for the 12 additional positive-level scalar sources
-`vstoxx1m`, `vstoxx2m`, `vstoxx3m`, `ciss_money`, `ciss_bonds`, `ciss_equity`,
-`ciss_financials`, `euro_hy_yield`, `euro_hy_ytw`, `euro_hy_total_return`, `us_3m`, and
-`us_5y`. It exposes all 792 catalog-defined causal transformation columns for those
-series plus `timestamp_m1` and `available_at_utc`. Signed `estr` remains excluded from
-positive-level transformations. The existing 954-column `macro_features` contract is
-preserved. Together the two views provide transformations for all 24 applicable positive
-series without exceeding PostgreSQL's 1,600-column limit on a single relation. Join the
-views on `timestamp_m1`; both expose the same generated `available_at_utc` and are
-refreshed together by `macro_loader.refresh_macro_features_explicit()` in the sync
-transaction. Migration 32 leaves the existing `macro_features` materialized view
-untouched; its private raw-key and added-series support relations are not granted to
-consumer roles. This describes the code contract only; it does not assert that migration
-32 has run in production. Loader-controlled PostgreSQL sessions and the explicit refresh
-function disable JIT: recursive CTE cardinality estimates can otherwise trigger costly
-compilation for these large feature queries. Connection, lock, statement, and
-idle-transaction timeouts remain bounded.
-
-PostgreSQL migrations 34–35 publish `macro_loader.macro_feature_values` as a materialized
-view with one sparse row per non-NULL transformation result, keyed by the unique index
-`(timestamp_m1, feature_name)`. Its four columns are `timestamp_m1`, projected
-`available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`. Boolean Donchian outputs
-are encoded as `1.0` (true) and `0.0` (false); SQL NULLs, including causal warm-up values,
-have no row. Raw OHLC passthrough fields are excluded. The materialized-view definition
-inlines the catalogued primary and extended feature queries over the 25
-`macro_raw_<feature>` tables; it does not read either public feature materialized view. A
-feature-first index supports reads. Consumer and sync roles may SELECT but cannot write.
-After Gold sync updates raw tables and refreshes the serving views, the explicit refresh
-routine fully recomputes this materialized view from the raw tables. This is not incremental;
-manual raw-table writes require the explicit refresh routine and do not fire a trigger. The
-catalog fingerprint and independent PostgreSQL conformance check detect schema, type, source,
-index, or population drift. A full-history refresh remains subject to the configured
-statement timeout and must be verified in production before claiming availability.
+In the transformation definitions below, each named output is stored as a `feature_name`
+row in this long-form view, not as a wide SQL column.
 
 #### PR-171: Composite and Statistical Feature Semantics
 
-The version-12 PostgreSQL `macro_features` view adds the following series-prefixed,
-nullable `DOUBLE PRECISION` columns for every `PRICE_FEATURE_SERIES` (all positive-level
+The version-12 transformation catalog defines the following series-prefixed, nullable
+`DOUBLE PRECISION` feature values for every `PRICE_FEATURE_SERIES` (all positive-level
 price series; signed/non-price `estr` is excluded). These are serving-view transformations
 only: they do not add columns to the raw feature tables or canonical Gold. Every lag/window is measured
 on the source series' non-null observation rows, not calendar days.

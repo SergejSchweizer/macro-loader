@@ -15,6 +15,7 @@ from ingestion.postgres_gold_repository import (
     _FEATURE_VALUE_POPULATION_SQL,
     _SCHEMA_SPECIFICATION,
     POSTGRES_APPLICATION_NAME,
+    POSTGRES_FEATURE_REFRESH_TIMEOUT_MS,
     ConnectionFactory,
     ConnectionPort,
     CursorPort,
@@ -165,13 +166,25 @@ class PostgresLiveDatabaseConformanceInspector:
         }
         if actual_keys != expected_keys:
             raise ValueError("owned keys differ")
-        PostgresGoldSyncRepository._assert_features_view_contract(cursor)
         PostgresGoldSyncRepository._assert_feature_values_table_contract(cursor)
+        PostgresGoldSyncRepository._assert_retired_feature_views_absent(cursor)
 
     @staticmethod
     def _assert_feature_values_population(cursor: CursorPort) -> int:
-        cursor.execute(_FEATURE_VALUE_POPULATION_SQL)
-        row = cursor.fetchone()
+        cursor.execute("SHOW statement_timeout")
+        prior_timeout = cursor.fetchone()
+        cursor.execute(
+            "SELECT set_config('statement_timeout', %s, true)",
+            (f"{POSTGRES_FEATURE_REFRESH_TIMEOUT_MS}ms",),
+        )
+        try:
+            cursor.execute(_FEATURE_VALUE_POPULATION_SQL)
+            row = cursor.fetchone()
+        finally:
+            if prior_timeout is not None and isinstance(prior_timeout[0], str):
+                cursor.execute(
+                    "SELECT set_config('statement_timeout', %s, true)", (prior_timeout[0],)
+                )
         if row is None or len(row) != 7 or not all(isinstance(value, int) for value in row):
             raise ValueError("long-form feature population query returned unexpected shape")
         (
