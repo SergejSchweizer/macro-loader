@@ -12,14 +12,14 @@ Last reviewed: 2026-10-27
 ### PR-200: Retire Wide Feature Views And Publish Long View As `macro_features`
 
 PR name: `rename-long-feature-materialized-view`
-Status: In progress — PR branch; production rename/removal pending local QA
+Status: Implementation complete — local quality gate and disposable PostgreSQL acceptance pass; production deployment pending
 Updated: 2026-10-27
 Git branch: `pr-200/rename-long-feature-materialized-view`
 PR: not opened
-Git status: in-progress
+Git status: local-checks-passed
 Agent lane: make the raw-derived long transformation materialized view the sole public feature view
 Depends on: PR-199 (merged to `origin/main`)
-Commit: pending
+Commit: `f66df93 feat(pr-200): rename long feature view and retire legacy views`
 Design patterns: Versioned Migration, Materialized View, Catalog Conformance.
 
 Description:
@@ -51,6 +51,13 @@ Acceptance:
 - A4 production migration preserves all existing long-view rows, removes only the
   explicitly retired materialized views, passes independent conformance, and a canonical
   `postgres-sync` replay reports zero inserted/updated/deleted Gold rows.
+
+Local A1/A3 evidence on 2026-10-27: a populated disposable PostgreSQL view retained its
+OID and rows through migration 36, all simulated legacy views were removed, refresh replay
+preserved the values, and an upgrade from simulated schema 23 completed. A separate
+hand-calculated return/mean/volatility parity test passed against the long view.
+`make quality-gate` passed (518 unit tests, 37 offline integration tests, 89.56% coverage);
+no GitHub Actions were used. Production migration and replay remain pending.
 
 ### PR-199: Publish Long Transformations As A Raw-Derived Materialized View
 

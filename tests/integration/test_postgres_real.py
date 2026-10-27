@@ -1587,6 +1587,43 @@ def test_real_postgres_migration_36_renames_populated_view_and_retires_legacy_ch
 
 
 @pytest.mark.integration
+def test_real_postgres_long_view_returns_match_hand_calculated_reference(
+    migrator: PostgresGoldSchemaMigrator,
+    postgres_dsn: str,
+) -> None:
+    migrator.migrate()
+    levels = [100.0, 105.0, 110.0, 115.0, 120.0, 125.0]
+    timestamps = [_timestamp(day) for day in range(1, len(levels) + 1)]
+    feature_names = (
+        "vix_log_return_1obs",
+        "vix_return_geom_5obs_pct",
+        "vix_return_mean_5obs",
+        "vix_volatility_5obs",
+    )
+    with psycopg.connect(postgres_dsn, autocommit=True) as connection:
+        _clear_feature_tables(connection)
+        _insert_level_values(connection, timestamps, {"vix": levels})
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        rows = connection.execute(
+            "SELECT feature_name, value FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",
+            (timestamps[-1], list(feature_names)),
+        ).fetchall()
+
+    actual = dict(rows)
+    log_returns = [math.log(levels[index] / levels[index - 1]) for index in range(1, len(levels))]
+    expected = {
+        "vix_log_return_1obs": log_returns[-1],
+        "vix_return_geom_5obs_pct": levels[-1] / levels[0] - 1.0,
+        "vix_return_mean_5obs": sum(log_returns[-5:]) / 5.0,
+        "vix_volatility_5obs": stdev(log_returns[-5:]),
+    }
+    assert set(actual) == set(feature_names)
+    for name, value in expected.items():
+        assert math.isclose(actual[name], value, rel_tol=1e-10, abs_tol=1e-12)
+
+
+@pytest.mark.integration
 def test_real_postgres_xetra_view_contract_is_closed_world(
     repository: PostgresGoldSyncRepository,
     migrator: PostgresGoldSchemaMigrator,
