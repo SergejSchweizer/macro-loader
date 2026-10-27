@@ -200,7 +200,7 @@ independent verification, and a zero-mutation replay. Only after every assertion
 remove the maintenance marker. Private backup and restore material never crosses the adapter
 boundary into a committed artifact; the sole source-controlled evidence is its deterministic,
 sanitized PASS report.
-## Initial Series Registry
+## Canonical Series Registry
 
 Exactly these canonical series are in MVP:
 
@@ -211,6 +211,9 @@ vix3m
 vix6m
 vix1y
 vstoxx
+vstoxx1m
+vstoxx2m
+vstoxx3m
 move
 ciss
 estr
@@ -224,11 +227,18 @@ Provider ownership:
 
 ```text
 CBOE   -> vix, vix9d, vix3m, vix6m, vix1y
-STOXX  -> vstoxx
+STOXX  -> vstoxx, vstoxx1m, vstoxx2m, vstoxx3m
 Yahoo  -> move
 ECB    -> ciss, estr
 FRED   -> euro_hy_oas, us_2y, us_10y, usd_broad
 ```
+
+The STOXX term-structure scalar series use official daily full-history files:
+`V6I1` (`vstoxx1m`), `V6I2` (`vstoxx2m`), and `V6I3` (`vstoxx3m`). Their source
+rows have `Date;Symbol;Indexvalue`; the canonical value is the published index value in
+index points. At verification on 2026-10-27, all three files exposed observations from
+1999-01-04 through 2026-10-26. Bootstrap retains the full exposed file; normal updates
+download the source file and restrict persistence to the exact logical delta window.
 
 Every registry entry declares canonical ID, provider, source ID/file, unit, native shape (`ohlc|scalar`), frequency, bootstrap policy, and fetch capability (`date_range|full_file`).
 
