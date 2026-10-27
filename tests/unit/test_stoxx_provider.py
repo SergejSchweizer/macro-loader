@@ -14,6 +14,7 @@ from ingestion.stoxx_provider import STOXX_SOURCES, StoxxProvider
 NOW = datetime(2026, 8, 19, 2, tzinfo=UTC)
 PAYLOAD = b"DATE;V2TX\n2026-08-10;18.0\n2026-08-11;19.0\n2026-08-19;20.0\n"
 LIVE_PAYLOAD = b"Date;Symbol;Indexvalue\n2026-08-10;V2TX;18.0\n2026-08-19;V2TX;20.0\n"
+MISSING_VALUE_PAYLOAD = b"Date;Symbol;Indexvalue\n21.06.2006;V6I1;\n22.06.2006;V6I1;14.25\n"
 
 
 class FakeTransport:
@@ -67,6 +68,17 @@ def test_live_stoxx_indexvalue_column_is_accepted() -> None:
 
     assert frame.get_column("observation_date").to_list() == [date(2026, 8, 10), date(2026, 8, 19)]
     assert frame.get_column("value").to_list() == [18.0, 20.0]
+
+
+def test_blank_official_indexvalue_is_omitted_without_fabricating_an_observation() -> None:
+    provider = StoxxProvider(
+        FakeTransport(HttpResponse(200, MISSING_VALUE_PAYLOAD, {})), clock=lambda: NOW
+    )
+
+    frame = provider.fetch(series_contract("vstoxx1m"), request("bootstrap"))
+
+    assert frame.get_column("observation_date").to_list() == [date(2006, 6, 22)]
+    assert frame.get_column("value").to_list() == [14.25]
 
 
 @pytest.mark.parametrize(

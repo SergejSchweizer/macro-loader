@@ -9,17 +9,45 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
-### PR-187: Record Availability QA Merge And Verify GOALS Wave Closure
+### PR-188: Skip Empty Official STOXX Values During Full-History Reconciliation
 
-PR name: `record-availability-qa-merge`
+PR name: `skip-empty-stoxx-source-values`
 Status: In Progress
 Updated: 2026-10-27
 PR: not created; implementation active
+Git branch: `pr-188/skip-empty-stoxx-source-values`
+Git status: active-dirty: source-missing-value fix and live reconciliation retry
+Agent lane: ingest documented missing STOXX values without fabricating observations
+Depends on: PR-187 (merged to `origin/main`)
+Commit: pending
+Design patterns: Adapter, Source Contract Test.
+
+Description:
+- R1: Treat blank official STOXX `Indexvalue` cells as absent source observations;
+  continue rejecting malformed non-empty values and invalid dates.
+- R2: Document source-missing behavior and verify the fix against the live full-history
+  file before resuming authorized full-run reconciliation.
+
+Acceptance:
+- A1 verifies the historical blank value in official `h_v6i1.txt` is omitted, numeric
+  observations are retained, malformed non-empty values remain errors, and unit tests pass.
+- A2 verifies docs and the local quality gate. No GitHub Actions.
+- A3 verifies all registered source reconciliations, Silver/Gold publication, and all
+  PostgreSQL migration/sync/replay checks against disposable or production systems only
+  under explicit authorization; production PostgreSQL currently requires credential
+  repair before those stages can complete.
+
+### PR-187: Record Availability QA Merge And Verify GOALS Wave Closure
+
+PR name: `record-availability-qa-merge`
+Status: Merged
+Updated: 2026-10-27
+PR: [#187](https://github.com/SergejSchweizer/macro-loader/pull/187) (merged)
 Git branch: `pr-187/record-availability-qa-merge`
-Git status: active-dirty: post-merge documentation closeout
+Git status: merged
 Agent lane: keep backlog merge metadata synchronized and audit the requested local scope
 Depends on: PR-186 (merged to `origin/main`)
-Commit: pending
+Commit: `158e6e6 docs(pr-187): record availability QA merge and audit goals` (GitHub squash merge)
 Design patterns: Architectural baseline only.
 
 Description:
@@ -464,7 +492,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-186 are merged; PR-187 is in progress. No production migration or
+PR-176 through PR-187 are merged; PR-188 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
