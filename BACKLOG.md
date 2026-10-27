@@ -18,7 +18,8 @@ Git branch: `pr-196/macro-feature-values-long-table`
 Git status: in-progress
 Agent lane: expose the complete PostgreSQL transformation catalog in a row-oriented relation
 Depends on: PR-195 (merged to `origin/main`)
-Commit: `feat(pr-196): publish long-form macro feature values`
+Commit: `feat(pr-196): store long-form values as doubles`; `refactor(pr-196): derive long
+  feature values directly from raw tables`
 Design patterns: Repository, Unit of Work, explicit feature-catalog projection.
 
 Description:
@@ -27,9 +28,10 @@ Description:
   `feature_name`, and `value DOUBLE PRECISION`; boolean Donchian flags map to `1.0`/`0.0`.
 - R2: Publish every current primary and extended catalog transformation, excluding raw
   OHLC passthrough columns; absent rows represent the existing SQL NULL/warm-up semantics.
-- R3: Rebuild the table transactionally after both feature materialized views refresh, with
-  a primary key on `(timestamp_m1, feature_name)`, a feature-first lookup index, owner-only
-  writes, and read access for the consumer and sync roles.
+- R3: Calculate directly from the 25 `macro_raw_<feature>` tables, independently of both
+  public materialized views; rebuild transactionally with raw table changes. Use a primary
+  key on `(timestamp_m1, feature_name)`, a feature-first lookup index, owner-only writes,
+  and read access for consumer and sync roles.
 - R4: Include the table in migrations, schema conformance, independent QA, operator docs,
   and populate it in the authorized production database.
 
@@ -39,9 +41,9 @@ Acceptance:
 - A2 verifies exact feature-name/type coverage against both catalogs, numeric and
   boolean-to-`1.0`/`0.0` encoding, omission of SQL NULLs, generated UTC availability,
   unique key, and grants.
-- A3 proves refresh is transactionally ordered after both source views and that insert,
-  update, deletion, and replay leave the long table equal to the source views; local
-  `make quality-gate` passes. No GitHub Actions.
+- A3 proves the generated source SQL reads raw feature tables and references neither public
+  view; insert, update, deletion, and replay leave the long table equal to the catalogued
+  raw-derived calculations. Local `make quality-gate` passes. No GitHub Actions.
 - A4 migrates and populates production only after local QA; independent read-only checks
   reconcile row counts and sampled values to both views, including boolean outputs and
   NULL/warm-up absence, then confirm the cron sync refreshes the table.

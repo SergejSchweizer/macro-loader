@@ -425,6 +425,28 @@ def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _materialized_view_query_body(ddl: str) -> str:
+    """Return the SELECT query from generated CREATE MATERIALIZED VIEW SQL."""
+    _declaration, separator, query = ddl.partition(" AS ")
+    if not separator or not query:
+        raise ValueError("materialized-view SQL is missing its query body")
+    return query
+
+
+def _raw_derived_extended_view_query() -> str:
+    """Inline extended transformation queries so they read only feature raw tables."""
+    query = _materialized_view_query_body(_EXTENDED_FEATURES_VIEW_DDL)
+    query = query.replace(_FEATURE_RAW_PROJECTION_VIEW, _RAW_PROJECTION)
+    for series, relation in _EXTENDED_FEATURE_SERIES_RELATIONS.items():
+        series_query = _materialized_view_query_body(
+            _EXTENDED_FEATURE_SERIES_DDLS[EXTENDED_RAW_SERIES.index(series)]
+        )
+        query = query.replace(relation, f"({series_query})")
+    if _FEATURES_VIEW in query or _EXTENDED_FEATURES_VIEW in query:
+        raise ValueError("long-form feature source must not depend on public feature views")
+    return query
+
+
 def _feature_value_select_sql(
     relation: str, feature_names: tuple[str, ...], *, supported_types_only: bool = True
 ) -> str:
@@ -466,25 +488,6 @@ def _feature_value_select_sql(
     )
 
 
-_FEATURE_VALUE_SOURCE_SQL = " UNION ALL ".join(
-    (
-        _feature_value_select_sql(_FEATURES_VIEW, FEATURE_VALUE_PRIMARY_NAMES),
-        _feature_value_select_sql(_EXTENDED_FEATURES_VIEW, FEATURE_VALUE_EXTENDED_NAMES),
-    )
-)
-_FEATURE_VALUE_ALL_SOURCE_SQL = " UNION ALL ".join(
-    (
-        _feature_value_select_sql(
-            _FEATURES_VIEW, FEATURE_VALUE_PRIMARY_NAMES, supported_types_only=False
-        ),
-        _feature_value_select_sql(
-            _EXTENDED_FEATURES_VIEW, FEATURE_VALUE_EXTENDED_NAMES, supported_types_only=False
-        ),
-    )
-)
-_FEATURE_VALUE_INSERT_SQL = (
-    f"INSERT INTO {_FEATURE_VALUES} (timestamp_m1, feature_name, value) {_FEATURE_VALUE_SOURCE_SQL}"
-)
 _FEATURE_VALUE_BOOLEAN_NAMES = tuple(
     spec.name for spec in FEATURE_VALUE_CATALOG if spec.postgres_type == "boolean"
 )
@@ -505,86 +508,6 @@ _FEATURE_VALUE_TYPE_MATCH_SQL = (
     "('NaN'::double precision, 'Infinity'::double precision, "
     "'-Infinity'::double precision))"
 )
-_FEATURE_VALUE_INVALID_SOURCE_SQL = (
-    "SELECT count(*) FROM ("
-    + _FEATURE_VALUE_ALL_SOURCE_SQL
-    + ") AS source_feature_values WHERE value <> 'null'::jsonb AND NOT (("
-    + f"feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY}) "
-    + "AND jsonb_typeof(value) = 'boolean') OR ("
-    + f"feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY}) "
-    + "AND jsonb_typeof(value) = 'number'))"
-)
-_FEATURE_VALUE_POPULATION_SQL = f"""WITH actual AS (
-    SELECT count(*) AS row_count,
-           count(DISTINCT feature_name) AS feature_count,
-           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
-    FROM {_FEATURE_VALUES}
-), expected AS (
-    SELECT count(*) AS row_count,
-           count(DISTINCT feature_name) AS feature_count,
-           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
-    FROM ({_FEATURE_VALUE_SOURCE_SQL}) AS expected_feature_values
-), invalid_source AS ({_FEATURE_VALUE_INVALID_SOURCE_SQL})
-SELECT actual.row_count, expected.row_count, actual.feature_count,
-       expected.feature_count, actual.invalid_typed_rows,
-       expected.invalid_typed_rows, invalid_source.count
-FROM actual CROSS JOIN expected CROSS JOIN invalid_source"""
-_FEATURE_VALUE_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
-macro_loader.refresh_macro_feature_values()
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, macro_loader
-SET jit = off
-AS $$
-BEGIN
-    IF ({_FEATURE_VALUE_INVALID_SOURCE_SQL}) > 0 THEN
-        RAISE EXCEPTION 'macro feature values contain unsupported catalog types';
-    END IF;
-    TRUNCATE TABLE {_FEATURE_VALUES};
-    {_FEATURE_VALUE_INSERT_SQL};
-END
-$$"""
-_FEATURE_VALUE_REFRESH_CALL = "SELECT macro_loader.refresh_macro_feature_values()"
-_EXTENDED_TRANSFORM_REFRESH_SQL = "".join(
-    f"REFRESH MATERIALIZED VIEW {_quote(POSTGRES_CONSUMER_SCHEMA)}."
-    f"{_quote(f'macro_feature_transform_{series}')}; "
-    for series in EXTENDED_RAW_SERIES
-)
-_FEATURE_VALUE_REFRESH_FUNCTION_OWNER = (
-    "ALTER FUNCTION macro_loader.refresh_macro_feature_values() "
-    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
-)
-_FEATURE_VALUE_REFRESH_FUNCTION_PRIVILEGES = (
-    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_feature_values() FROM PUBLIC",
-)
-_FEATURE_VALUES_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
-macro_loader.refresh_macro_features_explicit()
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = pg_catalog, macro_loader
-SET join_collapse_limit = 1
-SET jit = off
-AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW {_FEATURES_VIEW};
-    REFRESH MATERIALIZED VIEW {_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_feature_raw_projection";
-    {_EXTENDED_TRANSFORM_REFRESH_SQL}
-    REFRESH MATERIALIZED VIEW {_EXTENDED_FEATURES_VIEW};
-    PERFORM macro_loader.refresh_macro_feature_values();
-END
-$$"""
-_FEATURE_VALUES_REFRESH_FUNCTION_OWNER = (
-    "ALTER FUNCTION macro_loader.refresh_macro_features_explicit() "
-    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
-)
-_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS = (
-    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
-    "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
-    f"TO {_quote(POSTGRES_SYNC_USER)}",
-)
-
 _FEATURE_VALUES_DDL = f"""CREATE TABLE IF NOT EXISTS {_FEATURE_VALUES} (
     timestamp_m1 TIMESTAMPTZ(6) NOT NULL,
     {_AVAILABLE_AT_COLUMN_DDL},
@@ -603,23 +526,6 @@ _FEATURE_VALUES_COMMENT = (
 _FEATURE_VALUES_INDEX = (
     f"CREATE INDEX IF NOT EXISTS macro_feature_values_feature_timestamp_idx "
     f"ON {_FEATURE_VALUES} (feature_name, timestamp_m1)"
-)
-_FEATURE_VALUES_MIGRATION = (
-    _FEATURE_VALUES_DDL,
-    f"ALTER TABLE {_FEATURE_VALUES} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
-    _FEATURE_VALUES_INDEX,
-    _FEATURE_VALUES_COMMENT,
-    f"REVOKE ALL ON {_FEATURE_VALUES} FROM PUBLIC",
-    f"GRANT SELECT ON {_FEATURE_VALUES} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
-    f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {_FEATURE_VALUES} "
-    f"FROM {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
-    _FEATURE_VALUE_REFRESH_FUNCTION,
-    _FEATURE_VALUE_REFRESH_FUNCTION_OWNER,
-    *_FEATURE_VALUE_REFRESH_FUNCTION_PRIVILEGES,
-    _FEATURE_VALUES_REFRESH_FUNCTION,
-    _FEATURE_VALUES_REFRESH_FUNCTION_OWNER,
-    *_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS,
-    _FEATURE_VALUE_REFRESH_CALL,
 )
 
 
@@ -1759,6 +1665,127 @@ _EXTENDED_FEATURES_VIEW_DDL = _assembled_features_view_query(
     raw_series=EXTENDED_RAW_SERIES,
     feature_columns=_EXTENDED_FEATURES_VIEW_COLUMNS,
     relations=_EXTENDED_FEATURE_SERIES_RELATIONS,
+)
+_FEATURE_VALUE_PRIMARY_SOURCE = f"({_materialized_view_query_body(_FEATURES_VIEW_DDL)})"
+_FEATURE_VALUE_EXTENDED_SOURCE = f"({_raw_derived_extended_view_query()})"
+_FEATURE_VALUE_SOURCE_SQL = " UNION ALL ".join(
+    (
+        _feature_value_select_sql(_FEATURE_VALUE_PRIMARY_SOURCE, FEATURE_VALUE_PRIMARY_NAMES),
+        _feature_value_select_sql(_FEATURE_VALUE_EXTENDED_SOURCE, FEATURE_VALUE_EXTENDED_NAMES),
+    )
+)
+_FEATURE_VALUE_ALL_SOURCE_SQL = " UNION ALL ".join(
+    (
+        _feature_value_select_sql(
+            _FEATURE_VALUE_PRIMARY_SOURCE,
+            FEATURE_VALUE_PRIMARY_NAMES,
+            supported_types_only=False,
+        ),
+        _feature_value_select_sql(
+            _FEATURE_VALUE_EXTENDED_SOURCE,
+            FEATURE_VALUE_EXTENDED_NAMES,
+            supported_types_only=False,
+        ),
+    )
+)
+_FEATURE_VALUE_INSERT_SQL = (
+    f"INSERT INTO {_FEATURE_VALUES} (timestamp_m1, feature_name, value) {_FEATURE_VALUE_SOURCE_SQL}"
+)
+_FEATURE_VALUE_INVALID_SOURCE_SQL = (
+    "SELECT count(*) FROM ("
+    + _FEATURE_VALUE_ALL_SOURCE_SQL
+    + ") AS source_feature_values WHERE value <> 'null'::jsonb AND NOT (("
+    + f"feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY}) "
+    + "AND jsonb_typeof(value) = 'boolean') OR ("
+    + f"feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY}) "
+    + "AND jsonb_typeof(value) = 'number'))"
+)
+_FEATURE_VALUE_POPULATION_SQL = f"""WITH actual AS (
+    SELECT count(*) AS row_count,
+           count(DISTINCT feature_name) AS feature_count,
+           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
+    FROM {_FEATURE_VALUES}
+), expected AS (
+    SELECT count(*) AS row_count,
+           count(DISTINCT feature_name) AS feature_count,
+           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
+    FROM ({_FEATURE_VALUE_SOURCE_SQL}) AS expected_feature_values
+), invalid_source AS ({_FEATURE_VALUE_INVALID_SOURCE_SQL})
+SELECT actual.row_count, expected.row_count, actual.feature_count,
+       expected.feature_count, actual.invalid_typed_rows,
+       expected.invalid_typed_rows, invalid_source.count
+FROM actual CROSS JOIN expected CROSS JOIN invalid_source"""
+_FEATURE_VALUE_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
+macro_loader.refresh_macro_feature_values()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, macro_loader
+SET jit = off
+AS $$
+BEGIN
+    IF ({_FEATURE_VALUE_INVALID_SOURCE_SQL}) > 0 THEN
+        RAISE EXCEPTION 'macro feature values contain unsupported catalog types';
+    END IF;
+    TRUNCATE TABLE {_FEATURE_VALUES};
+    {_FEATURE_VALUE_INSERT_SQL};
+END
+$$"""
+_FEATURE_VALUE_REFRESH_CALL = "SELECT macro_loader.refresh_macro_feature_values()"
+_EXTENDED_TRANSFORM_REFRESH_SQL = "".join(
+    f"REFRESH MATERIALIZED VIEW {_quote(POSTGRES_CONSUMER_SCHEMA)}."
+    f"{_quote(f'macro_feature_transform_{series}')}; "
+    for series in EXTENDED_RAW_SERIES
+)
+_FEATURE_VALUE_REFRESH_FUNCTION_OWNER = (
+    "ALTER FUNCTION macro_loader.refresh_macro_feature_values() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
+)
+_FEATURE_VALUE_REFRESH_FUNCTION_PRIVILEGES = (
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_feature_values() FROM PUBLIC",
+)
+_FEATURE_VALUES_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
+macro_loader.refresh_macro_features_explicit()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, macro_loader
+SET join_collapse_limit = 1
+SET jit = off
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW {_FEATURES_VIEW};
+    REFRESH MATERIALIZED VIEW {_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_feature_raw_projection";
+    {_EXTENDED_TRANSFORM_REFRESH_SQL}
+    REFRESH MATERIALIZED VIEW {_EXTENDED_FEATURES_VIEW};
+    PERFORM macro_loader.refresh_macro_feature_values();
+END
+$$"""
+_FEATURE_VALUES_REFRESH_FUNCTION_OWNER = (
+    "ALTER FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
+)
+_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS = (
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
+    "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
+_FEATURE_VALUES_MIGRATION = (
+    _FEATURE_VALUES_DDL,
+    f"ALTER TABLE {_FEATURE_VALUES} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    _FEATURE_VALUES_INDEX,
+    _FEATURE_VALUES_COMMENT,
+    f"REVOKE ALL ON {_FEATURE_VALUES} FROM PUBLIC",
+    f"GRANT SELECT ON {_FEATURE_VALUES} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {_FEATURE_VALUES} "
+    f"FROM {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    _FEATURE_VALUE_REFRESH_FUNCTION,
+    _FEATURE_VALUE_REFRESH_FUNCTION_OWNER,
+    *_FEATURE_VALUE_REFRESH_FUNCTION_PRIVILEGES,
+    _FEATURE_VALUES_REFRESH_FUNCTION,
+    _FEATURE_VALUES_REFRESH_FUNCTION_OWNER,
+    *_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS,
+    _FEATURE_VALUE_REFRESH_CALL,
 )
 _FEATURES_VIEW_MIGRATION = (
     _macro_features_view_query(_CONSUMER),

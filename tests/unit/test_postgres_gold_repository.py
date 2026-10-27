@@ -609,6 +609,12 @@ def test_long_feature_values_projection_preserves_types_and_omits_nulls() -> Non
     assert "value DOUBLE PRECISION NOT NULL" in module._FEATURE_VALUES_DDL
     assert "WHEN 'true' THEN 1.0::double precision" in module._FEATURE_VALUE_SOURCE_SQL
     assert "WHEN 'false' THEN 0.0::double precision" in module._FEATURE_VALUE_SOURCE_SQL
+    assert module._FEATURES_VIEW not in module._FEATURE_VALUE_SOURCE_SQL
+    assert module._EXTENDED_FEATURES_VIEW not in module._FEATURE_VALUE_SOURCE_SQL
+    assert "macro_feature_raw_projection" not in module._FEATURE_VALUE_SOURCE_SQL
+    assert "macro_feature_transform_" not in module._FEATURE_VALUE_SOURCE_SQL
+    assert '"macro_loader"."macro_raw_vix"' in module._FEATURE_VALUE_SOURCE_SQL
+    assert '"macro_loader"."macro_raw_us_5y"' in module._FEATURE_VALUE_SOURCE_SQL
     assert "jsonb_typeof(fields.value) = 'boolean'" in module._FEATURE_VALUE_SOURCE_SQL
     assert "jsonb_typeof(fields.value) = 'number'" in module._FEATURE_VALUE_SOURCE_SQL
     assert "raw_ohlc" not in module._FEATURE_VALUE_SOURCE_SQL
