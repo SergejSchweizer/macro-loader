@@ -14,14 +14,19 @@ from psycopg.conninfo import conninfo_to_dict
 
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_frame import GOLD_COLUMNS
-from application.macro_feature_catalog import MACRO_FEATURE_VIEW_FINGERPRINT
+from application.macro_feature_catalog import (
+    MACRO_FEATURE_VIEW_FINGERPRINT,
+    MACRO_FEATURE_VIEW_VERSION,
+)
+from application.postgres_sync import POSTGRES_RAW_TABLES
 from ingestion.postgres_gold_repository import (
     PostgresAdminConfig,
     PostgresGoldSchemaMigrator,
 )
 
-# Frozen independently from application registries/catalogs: `estr` is the only
-# registered source whose level may not enter the positive-price EMA family.
+# Frozen independently from application registries/catalogs: only these series
+# currently have the EMA transformation family in the public view. The remaining
+# raw series are asserted separately through the feature-table registry contract.
 _QA_PRICE_SERIES = (
     "vix",
     "vix9d",
@@ -196,47 +201,45 @@ def _view_columns(connection: psycopg.Connection[object]) -> tuple[tuple[str, st
     return tuple((row[0], row[1], row[2]) for row in rows)
 
 
-def _expected_schema_after_ema(
-    migration_22_columns: Sequence[tuple[str, str, bool]],
-) -> tuple[str, ...]:
-    additions_after: dict[str, tuple[str, ...]] = {
-        f"{series}_drawdown_96obs": tuple(f"{series}_{suffix}" for suffix in _QA_EMA_SUFFIXES)
-        for series in _QA_PRICE_SERIES
-    }
-    result: list[str] = []
-    for column, _postgres_type, _not_null in migration_22_columns:
-        result.append(column)
-        result.extend(additions_after.get(column, ()))
-    assert all(
-        marker in {column for column, _, _ in migration_22_columns} for marker in additions_after
-    )
-    return tuple(result)
-
-
 def _assert_ema_schema(
     connection: psycopg.Connection[object],
-    baseline: Sequence[tuple[str, str, bool]],
 ) -> None:
+    assert len(POSTGRES_RAW_TABLES) == 25
     actual = _view_columns(connection)
-    expected_names = _expected_schema_after_ema(baseline)
     actual_names = tuple(column for column, _type, _not_null in actual)
     expected_outputs = {
         f"{series}_{suffix}" for series in _QA_PRICE_SERIES for suffix in _QA_EMA_SUFFIXES
     }
-    assert len(expected_names) == len(set(expected_names))
-    assert actual_names == expected_names
-    assert {column for column in actual_names if "ema" in column} == expected_outputs
+    assert len(actual_names) == len(set(actual_names))
+    assert expected_outputs <= set(actual_names)
+    actual_ema_names = {
+        column
+        for column in actual_names
+        if any(column.startswith(f"{series}_ema") for series in (*_QA_PRICE_SERIES, "estr"))
+    }
+    assert actual_ema_names == expected_outputs
     actual_by_name = {
         column: (postgres_type, not_null) for column, postgres_type, not_null in actual
     }
     assert all(actual_by_name[column] == ("double precision", False) for column in expected_outputs)
     assert all(f"estr_{suffix}" not in actual_names for suffix in _QA_EMA_SUFFIXES)
 
+    raw_tables = {
+        row[0]
+        for row in connection.execute(
+            """SELECT table_name FROM information_schema.tables
+               WHERE table_schema = 'macro_loader' AND table_name = ANY(%s)""",
+            (list(POSTGRES_RAW_TABLES),),
+        ).fetchall()
+    }
+    assert raw_tables == set(POSTGRES_RAW_TABLES)
+    assert connection.execute("SELECT to_regclass('macro_loader.macro_raw')").fetchone() == (None,)
     raw_columns = {
         row[0]
         for row in connection.execute(
             """SELECT column_name FROM information_schema.columns
-               WHERE table_schema = 'macro_loader' AND table_name = 'macro_raw'"""
+               WHERE table_schema = 'macro_loader' AND table_name = ANY(%s)""",
+            (list(POSTGRES_RAW_TABLES),),
         ).fetchall()
     }
     assert not any("ema" in column for column in raw_columns)
@@ -246,7 +249,11 @@ def _assert_ema_schema(
         "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
     ).fetchone()
     assert comment is not None
-    match = re.fullmatch(r"macro feature view version=12; fingerprint=([0-9a-f]{64})", comment[0])
+    match = re.fullmatch(
+        rf"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        r"fingerprint=([0-9a-f]{64})",
+        comment[0],
+    )
     assert match is not None
     assert match.group(1) == MACRO_FEATURE_VIEW_FINGERPRINT
 
@@ -266,6 +273,11 @@ def test_ema_view_migration_22_upgrade_and_clean_create_have_exact_schema(
     assert old_comment is not None and old_comment[0].startswith(
         "macro feature view version=11; fingerprint="
     )
+    baseline_names = {column for column, _type, _not_null in baseline}
+    assert (
+        not {f"{series}_{suffix}" for series in _QA_PRICE_SERIES for suffix in _QA_EMA_SUFFIXES}
+        & baseline_names
+    )
 
     # Exercise the public migration runner for the v22 -> v23 upgrade.
     migrator.migrate()
@@ -273,20 +285,20 @@ def test_ema_view_migration_22_upgrade_and_clean_create_have_exact_schema(
         ledger = connection.execute(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
-        assert ledger == [(version,) for version in range(1, 24)]
-        _assert_ema_schema(connection, baseline)
+        assert ledger == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
+        _assert_ema_schema(connection)
 
     # Repeat from blank disposable schemas to cover the clean-create path too.
     _reset_disposable_schemas(dsn)
     migrator.migrate()
     with psycopg.connect(dsn) as connection:
-        clean_columns = _view_columns(connection)
         clean_ledger = connection.execute(
             "SELECT version FROM macro_loader_sync.schema_migrations ORDER BY version"
         ).fetchall()
-        assert clean_ledger == [(version,) for version in range(1, 24)]
-        clean_baseline = tuple(row for row in clean_columns if "ema" not in row[0])
-        _assert_ema_schema(connection, clean_baseline)
+        assert clean_ledger == [
+            (version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)
+        ]
+        _assert_ema_schema(connection)
 
 
 @pytest.mark.integration
@@ -314,7 +326,7 @@ def test_ema_view_matches_independent_reference_for_seed_reset_crosses_and_causa
     start = datetime(2025, 1, 1, tzinfo=UTC)
     timestamps = [start + timedelta(days=index) for index in range(len(levels))]
     columns = ", ".join(f'"vix_{suffix}"' for suffix in _QA_EMA_SUFFIXES)
-    insert = 'INSERT INTO macro_loader.macro_raw ("timestamp_m1", "vix_level") VALUES (%s, %s)'
+    insert = 'INSERT INTO macro_loader.macro_raw_vix ("timestamp_m1", "close") VALUES (%s, %s)'
 
     with psycopg.connect(dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
@@ -353,7 +365,7 @@ def test_ema_view_matches_independent_reference_for_seed_reset_crosses_and_causa
         target_timestamp = timestamps[-3]
         before_truncation = actual_rows[-1]
         connection.execute(
-            "DELETE FROM macro_loader.macro_raw WHERE timestamp_m1 > %s", (target_timestamp,)
+            "DELETE FROM macro_loader.macro_raw_vix WHERE timestamp_m1 > %s", (target_timestamp,)
         )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         after_truncation = connection.execute(
