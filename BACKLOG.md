@@ -19,7 +19,7 @@ Git branch: `pr-194/allow-schema-version-sync-jumps`
 Git status: in-progress
 Agent lane: reconcile the current canonical Gold build into the newly cut-over serving tables
 Depends on: PR-193 (merged to `origin/main`)
-Commit: pending
+Commit: `2c0d353 fix(pr-194): coalesce schema-only sync upgrades`
 Design patterns: Explicit Compatibility Policy, Unit of Work.
 
 Description:
