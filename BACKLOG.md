@@ -4,9 +4,64 @@ This backlog is the implementation source of truth for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-10-26
+Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
+
+### PR-175: Add OHLC Bar Range, Intraday Return, And Overnight Gap Features
+
+PR name: `add-ohlc-bar-features`
+Status: In Progress
+Updated: 2026-10-27
+PR: pending
+Git branch: `pr-175/add-ohlc-bar-features`
+Git status: not-pushed
+Agent lane: OHLC SQL/catalog implementation and independent mathematical/PostgreSQL QA; two agents
+Depends on: PR-174
+Commit: pending
+Design patterns: Registry-driven Projection, Pure Transformation, Materialized View.
+
+Description:
+- R1: Add six outputs for every registry-derived native OHLC series: `high_low_range_1obs`,
+  `high_low_range_5obs`, `intraday_return_1obs`, `intraday_return_5obs`,
+  `overnight_gap_1obs`, and `overnight_gap_5obs`. Prefix each output with its canonical
+  series ID. The current eligible set is `vix`, `vix9d`, `vix3m`, `vix6m`, `vix1y`, and
+  `move`; scalar series receive none.
+- R2: Define range as `(high-low)/close` when close is positive; intraday return as
+  `(close-open)/open` when open is positive; and overnight gap as
+  `(open[t]-close[previous valid source observation])/close[previous valid source
+  observation]` when the previous close is positive. Values are decimal fractions, not
+  percent-scaled numbers. A valid input metric requires its OHLC operands to be present
+  and finite. A missing/invalid operand or nonpositive denominator yields NULL.
+- R3: For the 1-observation feature, expose the current valid metric. For each 5-observation
+  feature, compute the arithmetic mean over the trailing five valid metric observations;
+  for overnight gap, pair each finite current open with the most recent preceding finite
+  close in that series' observation history (the current bar's close is not an operand).
+  Require a complete five-value window and a valid current metric; otherwise return NULL.
+  Never fill or fabricate observations, and preserve timestamp causality.
+- R4: Add the fields only to the closed-world PostgreSQL `macro_features` view. Update the
+  ordered feature catalog, SQL projection, fingerprint, and view version to 15; append
+  migration 26. Do not alter `macro_raw`, canonical Gold, ingestion, or existing features.
+- R5: Correct the stale PR-174 status in this backlog and README/ARCHITECTURE: PR-174 is
+  merged to `origin/main`; document this PR's OHLC-derived formulas, decimal units,
+  complete-window/null rules, and exact eligible series without implying a production
+  migration or cron run.
+
+Acceptance:
+- A1 (verifies R1/R4): Exactly 36 new nullable `DOUBLE PRECISION` columns exist once in
+  deterministic catalog order: six named suffixes for each of the six `OHLC_SERIES`.
+  No OHLC-derived columns appear for scalar series, `macro_raw`, or canonical Gold.
+- A2 (verifies R2/R3): Independent hand-computable reference fixtures prove all three
+  formulas, decimal rather than percent scale, positive denominator rules, missing and
+  non-finite input handling, valid-source-observation alignment, complete 5-value warm-up,
+  averaging over the latest five valid metrics, overnight gap pairing across sparse
+  calendar dates and a current bar with a missing close, and truncation/causality invariance.
+- A3 (verifies R4): Unit/catalog and disposable PostgreSQL parity tests cover every OHLC
+  series and verify exact ordered columns/types, clean-create, migration 25-to-26, view
+  version 15/fingerprint, formula outputs, and unchanged raw/Gold schemas.
+- A4 (verifies R5): Backlog, README, and ARCHITECTURE state PR-174's merged status and
+  accurately describe the new contract; local `make quality-gate` passes. No production
+  DB writes, cron execution, GitHub Actions, or remote quality gates.
 
 ### PR-173: Add Relative MACD Trend Features
 
@@ -58,14 +113,14 @@ Acceptance:
 ### PR-174: Preserve OHLC Inputs Through Gold And PostgreSQL
 
 PR name: `preserve-ohlc-fields`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-26
 PR: #174
 Git branch: `pr-174/preserve-ohlc-fields`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: canonical OHLC propagation implementation and independent Gold/PostgreSQL schema/data QA; two agents
 Depends on: PR-173
-Commit: `a428c67` (OHLC implementation), `e77edd1` (migration and PostgreSQL QA), `dbe6f5b` (acceptance metadata)
+Commit: `9a10c47` (PR #174 squash merge; implementation commits `a428c67`, `e77edd1`, `dbe6f5b`)
 Design patterns: Registry-driven Projection, Repository, Versioned Migration.
 
 Description:

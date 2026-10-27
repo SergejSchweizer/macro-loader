@@ -6,16 +6,16 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-As of 2026-10-26, PR-173 is merged to `origin/main` as GitHub PR #173, following PR-172.
+As of 2026-10-27, PR-174 is merged to `origin/main` as GitHub PR #174, following PR-173.
 PR-173 adds relative MACD features; PR-172 adds EMA-level trend features; PR-171 adds
 level-only composite/statistical features;
 PR-170 completes the scalar-level return/trend windows; PR-169 adds the bounded daily-pipeline
 core budget. PR-168 retires Fed-policy
 acquisition/runtime paths and removes those features from the serving contract, but it
 does not establish production database or installed host-crontab state.
-PR-174 is the active backlog implementation to preserve native OHLC inputs through Gold
-and PostgreSQL. Its implementation branch includes the fields described below; the change
-is pending merge to `main` and does not establish the production database schema.
+PR-174 preserves native OHLC inputs through Gold and PostgreSQL. PR-175 adds OHLC-derived
+bar range, intraday return, and overnight gap transformations to the serving view; neither
+merge establishes that a production database migration has been applied.
 No production migration or host-crontab change has been performed as part of this work.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
@@ -36,7 +36,16 @@ then registry-derived native OHLC fields in series-major order with `open`, `hig
 `move_close`). PostgreSQL `macro_raw` stores the same 24 nullable `DOUBLE PRECISION`
 values after its generated `available_at_utc` column; `macro_features` exposes these
 raw values through its closed-world feature catalog. Scalar series have no OHLC fields.
-These are inputs only; OHLC-derived indicators remain separate transformations.
+Scalar series have no OHLC fields. For each of the six OHLC series, the serving view also
+exposes six nullable decimal-fraction transformations: `(high-low)/close` and
+`(close-open)/open` for the current valid bar plus trailing-five-valid-metric means, and
+`(open[t]-close[previous valid source observation])/close[previous valid source
+observation]` plus its trailing-five-valid-gap mean. Five-observation outputs require a
+complete window; missing/non-finite operands and nonpositive denominators yield NULL.
+Overnight gaps pair each finite current open with the most recent preceding finite close in
+that series' observation history (the current bar's close is not an operand), so sparse
+calendar dates do not break the sequence. These derived values live only in
+`macro_features`, not in raw or canonical Gold.
 
 ## System Purpose
 

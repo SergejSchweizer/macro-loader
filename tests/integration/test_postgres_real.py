@@ -154,8 +154,8 @@ _QA_RAW_SERIES = (
     "usd_broad",
 )
 _QA_PRICE_SERIES = tuple(series for series in _QA_RAW_SERIES if series != "estr")
-# Frozen in catalog order (series, then open/high/low/close); intentionally
-# independent of the production registry/catalog.
+# Frozen in catalog order; intentionally independent of the production
+# registry/catalog.
 _QA_OHLC_COLUMNS = (
     "vix_open",
     "vix_high",
@@ -190,6 +190,14 @@ _QA_SMA_RATIOS = ((5, 15), (5, 20), (10, 20), (10, 40))
 _QA_RSI_WINDOWS = (3, 5, 7, 14)
 _QA_ROC_WINDOWS = (1, 2, 3, 4, 5, 8, 10, 20)
 _QA_DRAWDOWN_WINDOWS = (20, 32, 60, 96)
+_QA_OHLC_BAR_SUFFIXES = (
+    "high_low_range_1obs",
+    "high_low_range_5obs",
+    "intraday_return_1obs",
+    "intraday_return_5obs",
+    "overnight_gap_1obs",
+    "overnight_gap_5obs",
+)
 
 
 def _qa_expected_view_columns() -> tuple[str, ...]:
@@ -197,6 +205,11 @@ def _qa_expected_view_columns() -> tuple[str, ...]:
     columns = ["timestamp_m1", "available_at_utc"]
     columns.extend(f"{series}_log_level" for series in _QA_PRICE_SERIES)
     columns.extend(_QA_OHLC_COLUMNS)
+    columns.extend(
+        f"{series}_{suffix}"
+        for series in ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
+        for suffix in _QA_OHLC_BAR_SUFFIXES
+    )
     for series in _QA_RAW_SERIES[:7]:
         columns.extend(f"{series}_delta_{lag}obs" for lag in (1, 5, 20))
         columns.append(f"{series}_zscore_60obs")

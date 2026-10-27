@@ -16,6 +16,7 @@ from application.macro_feature_catalog import (
     FEATURE_COLUMNS,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
+    OHLC_BAR_WINDOWS,
     PRICE_FEATURE_SERIES,
     RAW_SERIES,
 )
@@ -805,6 +806,126 @@ def _macro_features_view_query() -> str:
         )
         helper_joins: list[str] = []
         helper_selects: list[str] = []
+        if series in OHLC_SERIES:
+            rolling_window = max(OHLC_BAR_WINDOWS)
+            open_column = _quote(f"{series}_open")
+            high_column = _quote(f"{series}_high")
+            low_column = _quote(f"{series}_low")
+            close_column = _quote(f"{series}_close")
+            finite = "{} > '-Infinity'::double precision AND {} < 'Infinity'::double precision"
+            metric_definitions = (
+                (
+                    "high_low_range",
+                    f"({high_column} - {low_column}) / {close_column}",
+                    (high_column, low_column, close_column),
+                    close_column,
+                ),
+                (
+                    "intraday_return",
+                    f"({close_column} - {open_column}) / {open_column}",
+                    (close_column, open_column),
+                    open_column,
+                ),
+            )
+            for family, formula, operands, denominator in metric_definitions:
+                metric = _quote(f"{series}_{family}_metric")
+                valid_metric = _quote(f"{series}_{family}_valid")
+                rolling = _quote(f"{series}_{family}_rolling")
+                finite_operands = " AND ".join(finite.format(value, value) for value in operands)
+                source_ctes.append(
+                    f"{metric} AS MATERIALIZED (SELECT timestamp_m1, CASE WHEN "
+                    f"{finite_operands} AND {denominator} > 0.0 THEN {formula} END AS value "
+                    f"FROM {_CONSUMER})"
+                )
+                source_ctes.append(
+                    f"{valid_metric} AS MATERIALIZED (SELECT timestamp_m1, value, "
+                    f"row_number() OVER (ORDER BY timestamp_m1) AS valid_number FROM {metric} "
+                    "WHERE value IS NOT NULL AND value > '-Infinity'::double precision "
+                    "AND value < 'Infinity'::double precision)"
+                )
+                source_ctes.append(
+                    f"{rolling} AS MATERIALIZED (SELECT timestamp_m1, "
+                    f"CASE WHEN count(*) OVER w = {rolling_window} "
+                    f"AND avg(value) OVER w > '-Infinity'::double precision "
+                    f"AND avg(value) OVER w < 'Infinity'::double precision "
+                    "THEN avg(value) OVER w END AS mean_5 "
+                    f"FROM {valid_metric} WINDOW w AS (ORDER BY valid_number ROWS BETWEEN "
+                    f"{rolling_window - 1} PRECEDING AND CURRENT ROW))"
+                )
+                helper_joins.extend(
+                    [
+                        f"LEFT JOIN {valid_metric} AS {family}_current "
+                        f"ON {family}_current.timestamp_m1 = base.timestamp_m1",
+                        f"LEFT JOIN {rolling} AS {family}_rolling "
+                        f"ON {family}_rolling.timestamp_m1 = base.timestamp_m1",
+                    ]
+                )
+                helper_selects.extend(
+                    [
+                        f"{family}_current.value AS {_quote(f'{series}_{family}_1obs')}",
+                        f"{family}_rolling.mean_5 AS {_quote(f'{series}_{family}_5obs')}",
+                    ]
+                )
+
+            gap_source = _quote(f"{series}_overnight_source")
+            gap_metric = _quote(f"{series}_overnight_metric")
+            gap_valid = _quote(f"{series}_overnight_valid")
+            gap_rolling = _quote(f"{series}_overnight_rolling")
+            source_close = f"source_bar.{close_column}"
+            current_open = f"current_bar.{open_column}"
+            source_ctes.append(
+                f"{gap_source} AS MATERIALIZED (SELECT current_bar.timestamp_m1, "
+                f"current_bar.{open_column} AS open, previous_bar.close AS previous_close "
+                f"FROM {_CONSUMER} AS current_bar LEFT JOIN LATERAL ("
+                f"SELECT source_bar.{close_column} AS close FROM {_CONSUMER} AS source_bar "
+                "WHERE source_bar.timestamp_m1 < current_bar.timestamp_m1 AND "
+                f"{finite.format(source_close, source_close)} "
+                "ORDER BY source_bar.timestamp_m1 DESC LIMIT 1) AS previous_bar ON TRUE "
+                f"WHERE {finite.format(current_open, current_open)})"
+            )
+            source_ctes.append(
+                f"{gap_metric} AS MATERIALIZED (SELECT timestamp_m1, open, previous_close "
+                f"FROM {gap_source})"
+            )
+            source_ctes.append(
+                f"{gap_valid} AS MATERIALIZED (SELECT timestamp_m1, "
+                "(open - previous_close) / previous_close AS value, "
+                f"row_number() OVER (ORDER BY timestamp_m1) AS valid_number FROM {gap_metric} "
+                "WHERE previous_close > 0.0 AND open > '-Infinity'::double precision "
+                "AND open < 'Infinity'::double precision)"
+            )
+            # Non-finite arithmetic results are not valid metrics and therefore do
+            # not advance the rolling valid-gap sequence.
+            gap_finite = _quote(f"{series}_overnight_finite")
+            source_ctes.append(
+                f"{gap_finite} AS MATERIALIZED (SELECT timestamp_m1, value, "
+                f"row_number() OVER (ORDER BY timestamp_m1) AS valid_number FROM {gap_valid} "
+                "WHERE value IS NOT NULL AND value > '-Infinity'::double precision "
+                "AND value < 'Infinity'::double precision)"
+            )
+            source_ctes.append(
+                f"{gap_rolling} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"CASE WHEN count(*) OVER w = {rolling_window} "
+                f"AND avg(value) OVER w > '-Infinity'::double precision "
+                f"AND avg(value) OVER w < 'Infinity'::double precision "
+                "THEN avg(value) OVER w END AS mean_5 "
+                f"FROM {gap_finite} WINDOW w AS (ORDER BY valid_number ROWS BETWEEN "
+                f"{rolling_window - 1} PRECEDING AND CURRENT ROW))"
+            )
+            helper_joins.extend(
+                [
+                    f"LEFT JOIN {gap_finite} AS overnight_current "
+                    "ON overnight_current.timestamp_m1 = base.timestamp_m1",
+                    f"LEFT JOIN {gap_rolling} AS overnight_rolling "
+                    "ON overnight_rolling.timestamp_m1 = base.timestamp_m1",
+                ]
+            )
+            helper_selects.extend(
+                [
+                    f"overnight_current.value AS {_quote(f'{series}_overnight_gap_1obs')}",
+                    f"overnight_rolling.mean_5 AS {_quote(f'{series}_overnight_gap_5obs')}",
+                ]
+            )
         if series in PRICE_FEATURE_SERIES:
             rsi5_valid = _quote(f"{series}_rsi5_observations")
             rsi5_history = _quote(f"{series}_rsi5_history")
@@ -1059,6 +1180,9 @@ def _macro_features_view_query() -> str:
                 or column.startswith(f"{series}_drawdown_")
                 or column.startswith(f"{series}_ema")
                 or column.startswith(f"{series}_macd_")
+                or column.startswith(f"{series}_high_low_range_")
+                or column.startswith(f"{series}_intraday_return_")
+                or column.startswith(f"{series}_overnight_gap_")
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
@@ -1452,6 +1576,8 @@ _MIGRATIONS = (
     _FEATURES_VIEW_REBUILD_MIGRATION,
     # Preserve native OHLC fields without dropping or rewriting existing raw rows.
     _OHLC_COLUMN_MIGRATION + _FEATURES_VIEW_REBUILD_MIGRATION,
+    # Publish PR-175's OHLC bar range, intraday return, and overnight gap features.
+    _FEATURES_VIEW_REBUILD_MIGRATION,
 )
 _OWNED_TABLES_SQL = """SELECT table_schema, table_name
 FROM information_schema.tables

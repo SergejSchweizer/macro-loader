@@ -404,10 +404,13 @@ def test_retirement_migration_archives_fed_data_before_removing_active_columns()
     )
     assert 'DROP COLUMN IF EXISTS "available_at_utc"' not in sql
     assert module._FEATURES_VIEW_DDL in migration
-    feature_migration = "\n".join(module._MIGRATIONS[-1])
+    feature_migration = "\n".join(module._MIGRATIONS[24])
     assert module._FEATURES_VIEW_DDL in feature_migration
-    assert f"version={module.MACRO_FEATURE_VIEW_VERSION}" in feature_migration
-    assert module.MACRO_FEATURE_VIEW_FINGERPRINT in feature_migration
+
+    ohlc_feature_migration = "\n".join(module._MIGRATIONS[25])
+    assert module._FEATURES_VIEW_DDL in ohlc_feature_migration
+    assert f"version={module.MACRO_FEATURE_VIEW_VERSION}" in ohlc_feature_migration
+    assert module.MACRO_FEATURE_VIEW_FINGERPRINT in ohlc_feature_migration
     legacy_migration = "\n".join(module._FED_POLICY_RENAME_MIGRATION)
     assert (
         'CREATE TABLE IF NOT EXISTS "macro_loader_retired"."fed_legacy_raw_columns"'
@@ -425,15 +428,17 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
         for index, migration in enumerate(module._MIGRATIONS)
         if any(module._AVAILABLE_AT_COLUMN_MIGRATION[0] in statement for statement in migration)
     )
-    retirement_migration_index = len(module._MIGRATIONS) - 1
     availability_sql = "\n".join(module._MIGRATIONS[availability_migration_index])
-    retirement_sql = "\n".join(module._MIGRATIONS[retirement_migration_index])
 
     assert '"available_at_utc"' in availability_sql
     assert "GENERATED ALWAYS AS" in availability_sql
     assert "TIMESTAMPTZ(6)" in availability_sql
-    assert module._FEATURES_VIEW_DDL in retirement_sql
-    assert availability_migration_index < retirement_migration_index
+    final_migration_index = len(module._MIGRATIONS) - 1
+    final_migration = "\n".join(module._MIGRATIONS[final_migration_index])
+    assert availability_migration_index < final_migration_index
+    assert module._FEATURES_VIEW_DDL in final_migration
+    assert "version=15" in final_migration
+    assert module.MACRO_FEATURE_VIEW_FINGERPRINT in final_migration
 
 
 def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_order() -> None:
@@ -463,7 +468,9 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    assert f"version={module.MACRO_FEATURE_VIEW_VERSION}" in migration
+    final_migration = "\n".join(module._MIGRATIONS[25])
+    assert "ADD COLUMN IF NOT EXISTS" not in final_migration
+    assert "version=15" in final_migration
 
 
 @pytest.mark.parametrize(
