@@ -482,6 +482,22 @@ function disable JIT: recursive CTE cardinality estimates can otherwise trigger 
 compilation for these large feature queries. Connection, lock, statement, and
 idle-transaction timeouts remain bounded.
 
+PostgreSQL migration 34 adds `macro_loader.macro_feature_values`, a shared long-form
+projection of the primary and extended transformation catalogs. Each non-NULL
+transformation result is one row keyed by `(timestamp_m1, feature_name)` with generated
+`available_at_utc`, `feature_name`, and `value DOUBLE PRECISION`. Boolean Donchian outputs
+are encoded as `1.0` (true) and `0.0` (false); SQL NULLs (including causal warm-up values)
+have no row. Raw OHLC passthrough fields are deliberately excluded: this relation is for
+transformations, not another copy of raw input. Its refresh SQL inlines the catalogued
+primary and extended feature queries over `macro_raw_<feature>` tables; it does not read
+either public feature materialized view. The `(feature_name, timestamp_m1)` index supports
+feature-first time-series reads. Consumer and sync roles may SELECT but cannot write. The
+refresh routine rebuilds the table transactionally in the same sync transaction as raw
+table changes. The catalog fingerprint and independent PostgreSQL conformance check detect
+schema, type, or population drift. This describes the code contract; production
+availability is confirmed only after migration 34 has been applied and independently
+verified.
+
 #### PR-171: Composite and Statistical Feature Semantics
 
 The version-12 PostgreSQL `macro_features` view adds the following series-prefixed,

@@ -20,6 +20,12 @@ from application.macro_feature_catalog import (
     EXTENDED_RAW_SERIES,
     FEATURE_COLUMNS,
     FEATURE_POSTGRES_TYPES,
+    FEATURE_VALUE_CATALOG,
+    FEATURE_VALUE_CATALOG_FINGERPRINT,
+    FEATURE_VALUE_EXTENDED_NAMES,
+    FEATURE_VALUE_NAMES,
+    FEATURE_VALUE_PRIMARY_NAMES,
+    FEATURE_VALUE_SCHEMA_VERSION,
     MACRO_FEATURE_VIEW_FINGERPRINT,
     MACRO_FEATURE_VIEW_VERSION,
     OHLC_BAR_WINDOWS,
@@ -33,6 +39,7 @@ from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
     POSTGRES_CONSUMER_TABLE,
     POSTGRES_DATASET_ID,
+    POSTGRES_FEATURE_VALUES_TABLE,
     POSTGRES_LEVEL_COLUMNS,
     POSTGRES_OHLC_COLUMNS,
     POSTGRES_RAW_COLUMNS,
@@ -390,12 +397,136 @@ _RETIRED_LEGACY_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_legacy_raw_co
 _LEGACY_CONSUMER = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_daily"'
 _FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features"'
 _EXTENDED_FEATURES_VIEW = f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_features_extended"'
+_FEATURE_VALUES = f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(POSTGRES_FEATURE_VALUES_TABLE)}"
+_AVAILABLE_AT_EXPRESSION = """(
+    (
+        ("timestamp_m1" AT TIME ZONE 'UTC')::date
+        + CASE EXTRACT(ISODOW FROM "timestamp_m1" AT TIME ZONE 'UTC')::integer
+            WHEN 5 THEN 3
+            WHEN 6 THEN 2
+            WHEN 7 THEN 1
+            ELSE 1
+          END
+    )::timestamp AT TIME ZONE 'UTC'
+)"""
+_AVAILABLE_AT_COLUMN_DDL = (
+    f"{_quote('available_at_utc')} TIMESTAMPTZ(6) "
+    f"GENERATED ALWAYS AS ({_AVAILABLE_AT_EXPRESSION}) STORED NOT NULL"
+)
 _FEATURES_VIEW_COLUMNS = FEATURE_COLUMNS[1:]
 _EXTENDED_FEATURES_VIEW_COLUMNS = EXTENDED_FEATURE_COLUMNS[1:]
 _RAW_TABLE_BY_SERIES = {
     series: f"{_quote(POSTGRES_CONSUMER_SCHEMA)}.{_quote(f'macro_raw_{series}')}"
     for series in GOLD_SOURCE_SERIES
 }
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _materialized_view_query_body(ddl: str) -> str:
+    """Return the SELECT query from generated CREATE MATERIALIZED VIEW SQL."""
+    _declaration, separator, query = ddl.partition(" AS ")
+    if not separator or not query:
+        raise ValueError("materialized-view SQL is missing its query body")
+    return query
+
+
+def _raw_derived_extended_view_query() -> str:
+    """Inline extended transformation queries so they read only feature raw tables."""
+    query = _materialized_view_query_body(_EXTENDED_FEATURES_VIEW_DDL)
+    query = query.replace(_FEATURE_RAW_PROJECTION_VIEW, _RAW_PROJECTION)
+    for series, relation in _EXTENDED_FEATURE_SERIES_RELATIONS.items():
+        series_query = _materialized_view_query_body(
+            _EXTENDED_FEATURE_SERIES_DDLS[EXTENDED_RAW_SERIES.index(series)]
+        )
+        query = query.replace(relation, f"({series_query})")
+    if _FEATURES_VIEW in query or _EXTENDED_FEATURES_VIEW in query:
+        raise ValueError("long-form feature source must not depend on public feature views")
+    return query
+
+
+def _feature_value_select_sql(
+    relation: str, feature_names: tuple[str, ...], *, supported_types_only: bool = True
+) -> str:
+    if not feature_names:
+        raise ValueError("feature value projection cannot be empty")
+    allowed_names = ", ".join(_sql_literal(name) for name in feature_names)
+    feature_types = {spec.name: spec.postgres_type for spec in FEATURE_VALUE_CATALOG}
+    boolean_names = tuple(name for name in feature_names if feature_types[name] == "boolean")
+    numeric_names = tuple(
+        name for name in feature_names if feature_types[name] == "double precision"
+    )
+    if supported_types_only:
+        boolean_array = ", ".join(_sql_literal(name) for name in boolean_names)
+        numeric_array = ", ".join(_sql_literal(name) for name in numeric_names)
+        type_filter = (
+            "AND ((fields.key = ANY(ARRAY["
+            + boolean_array
+            + "]::text[]) AND jsonb_typeof(fields.value) = 'boolean') OR "
+            "(fields.key = ANY(ARRAY["
+            + numeric_array
+            + "]::text[]) AND jsonb_typeof(fields.value) = 'number'))"
+        )
+    else:
+        type_filter = ""
+    value_expression = (
+        "CASE WHEN fields.key = ANY(ARRAY["
+        + ", ".join(_sql_literal(name) for name in boolean_names)
+        + "]::text[]) THEN CASE fields.value::text "
+        "WHEN 'true' THEN 1.0::double precision "
+        "WHEN 'false' THEN 0.0::double precision ELSE NULL END "
+        "ELSE (fields.value #>> '{}')::double precision END"
+    )
+    return (
+        f"SELECT source.timestamp_m1, fields.key AS feature_name, {value_expression} AS value "
+        f"FROM {relation} AS source "
+        "CROSS JOIN LATERAL jsonb_each(to_jsonb(source)) AS fields(key, value) "
+        f"WHERE fields.key = ANY(ARRAY[{allowed_names}]::text[]) "
+        f"{type_filter}"
+    )
+
+
+_FEATURE_VALUE_BOOLEAN_NAMES = tuple(
+    spec.name for spec in FEATURE_VALUE_CATALOG if spec.postgres_type == "boolean"
+)
+_FEATURE_VALUE_NUMERIC_NAMES = tuple(
+    spec.name for spec in FEATURE_VALUE_CATALOG if spec.postgres_type == "double precision"
+)
+_FEATURE_VALUE_NAMES_ARRAY = (
+    "ARRAY[" + ", ".join(_sql_literal(name) for name in FEATURE_VALUE_NAMES) + "]::text[]"
+)
+_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY = (
+    "ARRAY[" + ", ".join(_sql_literal(name) for name in _FEATURE_VALUE_BOOLEAN_NAMES) + "]::text[]"
+)
+_FEATURE_VALUE_NUMERIC_NAMES_ARRAY = (
+    "ARRAY[" + ", ".join(_sql_literal(name) for name in _FEATURE_VALUE_NUMERIC_NAMES) + "]::text[]"
+)
+_FEATURE_VALUE_TYPE_MATCH_SQL = (
+    f"(feature_name = ANY({_FEATURE_VALUE_NAMES_ARRAY}) AND value NOT IN "
+    "('NaN'::double precision, 'Infinity'::double precision, "
+    "'-Infinity'::double precision))"
+)
+_FEATURE_VALUES_DDL = f"""CREATE TABLE IF NOT EXISTS {_FEATURE_VALUES} (
+    timestamp_m1 TIMESTAMPTZ(6) NOT NULL,
+    {_AVAILABLE_AT_COLUMN_DDL},
+    feature_name TEXT NOT NULL,
+    value DOUBLE PRECISION NOT NULL CHECK (
+        value NOT IN ('NaN'::double precision, 'Infinity'::double precision,
+                      '-Infinity'::double precision)
+    ),
+    PRIMARY KEY (timestamp_m1, feature_name)
+)"""
+_FEATURE_VALUES_COMMENT = (
+    f"COMMENT ON TABLE {_FEATURE_VALUES} IS "
+    f"'macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
+    f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}'"
+)
+_FEATURE_VALUES_INDEX = (
+    f"CREATE INDEX IF NOT EXISTS macro_feature_values_feature_timestamp_idx "
+    f"ON {_FEATURE_VALUES} (feature_name, timestamp_m1)"
+)
 
 
 def _raw_feature_projection(raw_series: tuple[str, ...] = GOLD_SOURCE_SERIES) -> str:
@@ -430,21 +561,6 @@ def _raw_feature_projection(raw_series: tuple[str, ...] = GOLD_SOURCE_SERIES) ->
 
 
 _RAW_PROJECTION = _raw_feature_projection()
-_AVAILABLE_AT_EXPRESSION = """(
-    (
-        ("timestamp_m1" AT TIME ZONE 'UTC')::date
-        + CASE EXTRACT(ISODOW FROM "timestamp_m1" AT TIME ZONE 'UTC')::integer
-            WHEN 5 THEN 3
-            WHEN 6 THEN 2
-            WHEN 7 THEN 1
-            ELSE 1
-          END
-    )::timestamp AT TIME ZONE 'UTC'
-)"""
-_AVAILABLE_AT_COLUMN_DDL = (
-    f"{_quote('available_at_utc')} TIMESTAMPTZ(6) "
-    f"GENERATED ALWAYS AS ({_AVAILABLE_AT_EXPRESSION}) STORED NOT NULL"
-)
 _ADDED_LEVEL_COLUMNS_V28 = tuple(
     f"{series}_level"
     for series in (
@@ -547,6 +663,7 @@ _OWNERSHIP_MIGRATIONS = tuple(
     for schema, table in (
         (POSTGRES_CONSUMER_SCHEMA, POSTGRES_CONSUMER_TABLE),
         *((POSTGRES_CONSUMER_SCHEMA, table) for table in POSTGRES_RAW_TABLES),
+        (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_SYNC_STATE_TABLE),
         (POSTGRES_SYNC_SCHEMA, POSTGRES_ROW_HASH_TABLE),
         (POSTGRES_SYNC_SCHEMA, _MIGRATION_LEDGER_TABLE),
@@ -1549,6 +1666,127 @@ _EXTENDED_FEATURES_VIEW_DDL = _assembled_features_view_query(
     feature_columns=_EXTENDED_FEATURES_VIEW_COLUMNS,
     relations=_EXTENDED_FEATURE_SERIES_RELATIONS,
 )
+_FEATURE_VALUE_PRIMARY_SOURCE = f"({_materialized_view_query_body(_FEATURES_VIEW_DDL)})"
+_FEATURE_VALUE_EXTENDED_SOURCE = f"({_raw_derived_extended_view_query()})"
+_FEATURE_VALUE_SOURCE_SQL = " UNION ALL ".join(
+    (
+        _feature_value_select_sql(_FEATURE_VALUE_PRIMARY_SOURCE, FEATURE_VALUE_PRIMARY_NAMES),
+        _feature_value_select_sql(_FEATURE_VALUE_EXTENDED_SOURCE, FEATURE_VALUE_EXTENDED_NAMES),
+    )
+)
+_FEATURE_VALUE_ALL_SOURCE_SQL = " UNION ALL ".join(
+    (
+        _feature_value_select_sql(
+            _FEATURE_VALUE_PRIMARY_SOURCE,
+            FEATURE_VALUE_PRIMARY_NAMES,
+            supported_types_only=False,
+        ),
+        _feature_value_select_sql(
+            _FEATURE_VALUE_EXTENDED_SOURCE,
+            FEATURE_VALUE_EXTENDED_NAMES,
+            supported_types_only=False,
+        ),
+    )
+)
+_FEATURE_VALUE_INSERT_SQL = (
+    f"INSERT INTO {_FEATURE_VALUES} (timestamp_m1, feature_name, value) {_FEATURE_VALUE_SOURCE_SQL}"
+)
+_FEATURE_VALUE_INVALID_SOURCE_SQL = (
+    "SELECT count(*) FROM ("
+    + _FEATURE_VALUE_ALL_SOURCE_SQL
+    + ") AS source_feature_values WHERE value <> 'null'::jsonb AND NOT (("
+    + f"feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY}) "
+    + "AND jsonb_typeof(value) = 'boolean') OR ("
+    + f"feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY}) "
+    + "AND jsonb_typeof(value) = 'number'))"
+)
+_FEATURE_VALUE_POPULATION_SQL = f"""WITH actual AS (
+    SELECT count(*) AS row_count,
+           count(DISTINCT feature_name) AS feature_count,
+           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
+    FROM {_FEATURE_VALUES}
+), expected AS (
+    SELECT count(*) AS row_count,
+           count(DISTINCT feature_name) AS feature_count,
+           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
+    FROM ({_FEATURE_VALUE_SOURCE_SQL}) AS expected_feature_values
+), invalid_source AS ({_FEATURE_VALUE_INVALID_SOURCE_SQL})
+SELECT actual.row_count, expected.row_count, actual.feature_count,
+       expected.feature_count, actual.invalid_typed_rows,
+       expected.invalid_typed_rows, invalid_source.count
+FROM actual CROSS JOIN expected CROSS JOIN invalid_source"""
+_FEATURE_VALUE_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
+macro_loader.refresh_macro_feature_values()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, macro_loader
+SET jit = off
+AS $$
+BEGIN
+    IF ({_FEATURE_VALUE_INVALID_SOURCE_SQL}) > 0 THEN
+        RAISE EXCEPTION 'macro feature values contain unsupported catalog types';
+    END IF;
+    TRUNCATE TABLE {_FEATURE_VALUES};
+    {_FEATURE_VALUE_INSERT_SQL};
+END
+$$"""
+_FEATURE_VALUE_REFRESH_CALL = "SELECT macro_loader.refresh_macro_feature_values()"
+_EXTENDED_TRANSFORM_REFRESH_SQL = "".join(
+    f"REFRESH MATERIALIZED VIEW {_quote(POSTGRES_CONSUMER_SCHEMA)}."
+    f"{_quote(f'macro_feature_transform_{series}')}; "
+    for series in EXTENDED_RAW_SERIES
+)
+_FEATURE_VALUE_REFRESH_FUNCTION_OWNER = (
+    "ALTER FUNCTION macro_loader.refresh_macro_feature_values() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
+)
+_FEATURE_VALUE_REFRESH_FUNCTION_PRIVILEGES = (
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_feature_values() FROM PUBLIC",
+)
+_FEATURE_VALUES_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
+macro_loader.refresh_macro_features_explicit()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, macro_loader
+SET join_collapse_limit = 1
+SET jit = off
+AS $$
+BEGIN
+    REFRESH MATERIALIZED VIEW {_FEATURES_VIEW};
+    REFRESH MATERIALIZED VIEW {_quote(POSTGRES_CONSUMER_SCHEMA)}."macro_feature_raw_projection";
+    {_EXTENDED_TRANSFORM_REFRESH_SQL}
+    REFRESH MATERIALIZED VIEW {_EXTENDED_FEATURES_VIEW};
+    PERFORM macro_loader.refresh_macro_feature_values();
+END
+$$"""
+_FEATURE_VALUES_REFRESH_FUNCTION_OWNER = (
+    "ALTER FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}"
+)
+_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS = (
+    "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
+    "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
+    f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
+_FEATURE_VALUES_MIGRATION = (
+    _FEATURE_VALUES_DDL,
+    f"ALTER TABLE {_FEATURE_VALUES} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    _FEATURE_VALUES_INDEX,
+    _FEATURE_VALUES_COMMENT,
+    f"REVOKE ALL ON {_FEATURE_VALUES} FROM PUBLIC",
+    f"GRANT SELECT ON {_FEATURE_VALUES} TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {_FEATURE_VALUES} "
+    f"FROM {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    _FEATURE_VALUE_REFRESH_FUNCTION,
+    _FEATURE_VALUE_REFRESH_FUNCTION_OWNER,
+    *_FEATURE_VALUE_REFRESH_FUNCTION_PRIVILEGES,
+    _FEATURE_VALUES_REFRESH_FUNCTION,
+    _FEATURE_VALUES_REFRESH_FUNCTION_OWNER,
+    *_FEATURE_VALUES_REFRESH_FUNCTION_GRANTS,
+    _FEATURE_VALUE_REFRESH_CALL,
+)
 _FEATURES_VIEW_MIGRATION = (
     _macro_features_view_query(_CONSUMER),
     f"COMMENT ON MATERIALIZED VIEW {_FEATURES_VIEW} IS "
@@ -1861,7 +2099,7 @@ def _normalize_view_definition(value: str) -> str:
 
 
 def _assert_generated_availability(cursor: CursorPort) -> None:
-    for table in POSTGRES_RAW_TABLES:
+    for table in (*POSTGRES_RAW_TABLES, POSTGRES_FEATURE_VALUES_TABLE):
         cursor.execute(
             _GENERATED_AVAILABILITY_SQL,
             (POSTGRES_CONSUMER_SCHEMA, table),
@@ -1938,6 +2176,17 @@ _TIMESTAMPTZ6_NOT_NULL = PostgresColumnSpecification(
     "timestamp_m1", "timestamp with time zone", 6, False
 )
 _SCHEMA_SPECIFICATION = (
+    PostgresTableSpecification(
+        POSTGRES_CONSUMER_SCHEMA,
+        POSTGRES_FEATURE_VALUES_TABLE,
+        (
+            _TIMESTAMPTZ6_NOT_NULL,
+            PostgresColumnSpecification("available_at_utc", "timestamp with time zone", 6, False),
+            PostgresColumnSpecification("feature_name", "text", None, False),
+            PostgresColumnSpecification("value", "double precision", None, False),
+        ),
+        ("timestamp_m1", "feature_name"),
+    ),
     *(
         PostgresTableSpecification(
             POSTGRES_CONSUMER_SCHEMA,
@@ -2052,6 +2301,8 @@ _MIGRATIONS = (
     # Repair installations whose migration ledger retired Fed storage but left its
     # active sync table behind; archive it before strict schema conformance.
     _RETIRED_FED_DRIFT_CLEANUP_MIGRATION,
+    # Publish the catalogued transformations in one transactional, typed long-form table.
+    _FEATURE_VALUES_MIGRATION,
 )
 _FEATURE_VIEW_PUBLICATION_VERSION = max(
     version
@@ -2713,6 +2964,68 @@ class PostgresGoldSyncRepository:
                 if cursor.fetchone() != (expected,):
                     raise ValueError(f"PostgreSQL raw table grants differ for {role}")
         PostgresGoldSyncRepository._assert_features_view_contract(cursor)
+        PostgresGoldSyncRepository._assert_feature_values_table_contract(cursor)
+
+    @staticmethod
+    def _assert_feature_values_table_contract(cursor: CursorPort) -> None:
+        cursor.execute(
+            """SELECT classes.relkind, roles.rolname,
+                      obj_description(classes.oid, 'pg_class')
+               FROM pg_class AS classes
+               JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+               JOIN pg_roles AS roles ON roles.oid = classes.relowner
+              WHERE namespaces.nspname = %s AND classes.relname = %s""",
+            (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
+        )
+        row = cursor.fetchone()
+        expected_comment = (
+            f"macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
+            f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}"
+        )
+        if (
+            row is None
+            or len(row) != 3
+            or row[0] != "r"
+            or row[1] != _POSTGRES_OWNER_ROLE
+            or row[2] != expected_comment
+        ):
+            raise ValueError("PostgreSQL long-form feature table contract differs")
+
+        cursor.execute(
+            """SELECT indexdef FROM pg_indexes
+               WHERE schemaname = %s AND tablename = %s
+                 AND indexname = 'macro_feature_values_feature_timestamp_idx'""",
+            (POSTGRES_CONSUMER_SCHEMA, POSTGRES_FEATURE_VALUES_TABLE),
+        )
+        index_row = cursor.fetchone()
+        index_definition = index_row[0] if index_row is not None else None
+        if not isinstance(index_definition, str) or not all(
+            marker in index_definition.lower() for marker in ("(feature_name, timestamp_m1)",)
+        ):
+            raise ValueError("PostgreSQL long-form feature lookup index differs")
+
+        qualified = f"{POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_FEATURE_VALUES_TABLE}"
+        for role, select_expected in (
+            (POSTGRES_USER, True),
+            (POSTGRES_SYNC_USER, True),
+            ("public", False),
+        ):
+            cursor.execute(
+                "SELECT has_table_privilege(%s, %s, 'SELECT')",
+                (role, qualified),
+            )
+            if cursor.fetchone() != (select_expected,):
+                raise ValueError(f"PostgreSQL long-form feature SELECT grant differs for {role}")
+        for role in (POSTGRES_USER, POSTGRES_SYNC_USER, "public"):
+            cursor.execute(
+                "SELECT has_table_privilege(%s, %s, 'INSERT') "
+                "OR has_table_privilege(%s, %s, 'UPDATE') "
+                "OR has_table_privilege(%s, %s, 'DELETE') "
+                "OR has_table_privilege(%s, %s, 'TRUNCATE')",
+                (role, qualified, role, qualified, role, qualified, role, qualified),
+            )
+            if cursor.fetchone() != (False,):
+                raise ValueError(f"PostgreSQL long-form feature write grant differs for {role}")
 
     @staticmethod
     def _assert_features_view_contract(cursor: CursorPort) -> None:

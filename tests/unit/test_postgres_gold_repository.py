@@ -126,7 +126,15 @@ class FakeCursor:
                 for specification in module._SCHEMA_SPECIFICATION
             ]
         elif "FROM pg_class AS classes" in query:
-            if isinstance(params, tuple) and params[1] == "macro_features_extended":
+            if isinstance(params, tuple) and params[1] == module.POSTGRES_FEATURE_VALUES_TABLE:
+                self.one = (
+                    "r",
+                    module._POSTGRES_OWNER_ROLE,
+                    "macro feature values schema "
+                    f"version={module.FEATURE_VALUE_SCHEMA_VERSION}; "
+                    f"fingerprint={module.FEATURE_VALUE_CATALOG_FINGERPRINT}",
+                )
+            elif isinstance(params, tuple) and params[1] == "macro_features_extended":
                 self.one = (
                     "m",
                     module._POSTGRES_OWNER_ROLE,
@@ -142,10 +150,39 @@ class FakeCursor:
                     f"fingerprint={module.MACRO_FEATURE_VIEW_FINGERPRINT}",
                     module._FEATURES_VIEW_DEFINITION,
                 )
+        elif "FROM pg_indexes" in query:
+            self.one = (
+                "CREATE INDEX macro_feature_values_feature_timestamp_idx "
+                "ON macro_loader.macro_feature_values USING btree "
+                "(feature_name, timestamp_m1)",
+            )
         elif "FROM pg_attribute AS attributes" in query:
             extended_view = isinstance(params, tuple) and str(params[0]).endswith(
                 ".macro_features_extended"
             )
+            feature_values_table = isinstance(params, tuple) and str(params[0]).endswith(
+                ".macro_feature_values"
+            )
+            if feature_values_table:
+                specification = next(
+                    item
+                    for item in module._SCHEMA_SPECIFICATION
+                    if item.name == module.POSTGRES_FEATURE_VALUES_TABLE
+                )
+                self.many = [
+                    (
+                        ordinal,
+                        column.name,
+                        (
+                            "timestamp(6) with time zone"
+                            if column.data_type == "timestamp with time zone"
+                            else column.data_type
+                        ),
+                        False,
+                    )
+                    for ordinal, column in enumerate(specification.columns, start=1)
+                ]
+                return self
             expected_names = (
                 module._EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED
                 if extended_view
@@ -171,7 +208,10 @@ class FakeCursor:
                 else expected_columns
             )
         elif "has_table_privilege" in query:
-            self.one = (params[0] != "public",) if isinstance(params, tuple) else (True,)
+            if "'SELECT'" in query:
+                self.one = (params[0] != "public",) if isinstance(params, tuple) else (True,)
+            else:
+                self.one = (False,)
         elif query.startswith("SELECT dataset_id"):
             self.one = self.connection.state_row
         elif query.startswith("SELECT timestamp_m1, row_sha256"):
@@ -440,7 +480,8 @@ def test_admin_schema_migrations_are_gold_only_timestamptz_and_idempotent() -> N
     assert queries.count(module._SYNC_STATE_DDL) == 1
     assert queries.count(module._ROW_HASH_DDL) == 1
     assert queries.count(module._FEATURES_VIEW_DDL) == 1
-    assert "TRUNCATE" not in ddl
+    assert ddl.count("TRUNCATE TABLE") == 1
+    assert "TRUNCATE TABLE" in module._FEATURE_VALUE_REFRESH_FUNCTION
     assert 'DROP TABLE IF EXISTS "macro_loader"."macro_raw"' in ddl
     assert "to_regclass('macro_loader.macro_features_daily')" in ddl
     assert 'ALTER TABLE "macro_loader"."macro_features_daily" RENAME TO "macro_raw"' in ddl
@@ -541,9 +582,10 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert '"available_at_utc"' in availability_sql
     assert "GENERATED ALWAYS AS" in availability_sql
     assert "TIMESTAMPTZ(6)" in availability_sql
-    feature_views_migration_index = len(module._MIGRATIONS) - 2
+    feature_views_migration_index = len(module._MIGRATIONS) - 3
     feature_views_migration = "\n".join(module._MIGRATIONS[feature_views_migration_index])
-    drift_cleanup = "\n".join(module._MIGRATIONS[-1])
+    drift_cleanup = "\n".join(module._MIGRATIONS[-2])
+    feature_values_migration = "\n".join(module._MIGRATIONS[-1])
     assert availability_migration_index < feature_views_migration_index
     assert module._FEATURES_VIEW_DDL in feature_views_migration
     assert "version=16" in feature_views_migration
@@ -555,6 +597,34 @@ def test_latest_migrations_add_generated_availability_before_rebuilding_the_view
     assert 'INSERT INTO "macro_loader_retired"."fed_policy_features_daily"' in drift_cleanup
     assert 'DROP TABLE IF EXISTS "macro_loader_sync"."fed_policy_features_daily"' in drift_cleanup
     assert module._FEATURES_VIEW_DDL not in drift_cleanup
+    assert module._FEATURE_VALUES_DDL in feature_values_migration
+    assert "refresh_macro_feature_values" in feature_values_migration
+    assert module._FEATURE_VALUE_REFRESH_CALL in feature_values_migration
+
+
+def test_long_feature_values_projection_preserves_types_and_omits_nulls() -> None:
+    statements = "\n".join(module._FEATURE_VALUES_MIGRATION)
+    assert len(module.FEATURE_VALUE_NAMES) == 1720
+    assert "PRIMARY KEY (timestamp_m1, feature_name)" in module._FEATURE_VALUES_DDL
+    assert "value DOUBLE PRECISION NOT NULL" in module._FEATURE_VALUES_DDL
+    assert "WHEN 'true' THEN 1.0::double precision" in module._FEATURE_VALUE_SOURCE_SQL
+    assert "WHEN 'false' THEN 0.0::double precision" in module._FEATURE_VALUE_SOURCE_SQL
+    assert module._FEATURES_VIEW not in module._FEATURE_VALUE_SOURCE_SQL
+    assert module._EXTENDED_FEATURES_VIEW not in module._FEATURE_VALUE_SOURCE_SQL
+    assert "macro_feature_raw_projection" not in module._FEATURE_VALUE_SOURCE_SQL
+    assert "macro_feature_transform_" not in module._FEATURE_VALUE_SOURCE_SQL
+    assert '"macro_loader"."macro_raw_vix"' in module._FEATURE_VALUE_SOURCE_SQL
+    assert '"macro_loader"."macro_raw_us_5y"' in module._FEATURE_VALUE_SOURCE_SQL
+    assert "jsonb_typeof(fields.value) = 'boolean'" in module._FEATURE_VALUE_SOURCE_SQL
+    assert "jsonb_typeof(fields.value) = 'number'" in module._FEATURE_VALUE_SOURCE_SQL
+    assert "raw_ohlc" not in module._FEATURE_VALUE_SOURCE_SQL
+    assert "(feature_name, timestamp_m1)" in module._FEATURE_VALUES_INDEX
+    assert "TRUNCATE TABLE" in module._FEATURE_VALUE_REFRESH_FUNCTION
+    assert "PERFORM macro_loader.refresh_macro_feature_values()" in (
+        module._FEATURE_VALUES_REFRESH_FUNCTION
+    )
+    assert "GRANT SELECT ON" in statements
+    assert "REVOKE INSERT, UPDATE, DELETE, TRUNCATE" in statements
 
 
 def test_feature_table_cutover_migration_backfills_all_registered_series_and_drops_wide_table() -> (
@@ -567,9 +637,11 @@ def test_feature_table_cutover_migration_backfills_all_registered_series_and_dro
     backfills = tuple(statement for statement in statements if statement.startswith("INSERT INTO"))
 
     assert len(module.POSTGRES_RAW_TABLES) == 25
-    assert tuple(spec.name for spec in module._SCHEMA_SPECIFICATION[:25]) == tuple(
-        module.POSTGRES_RAW_TABLES
-    )
+    assert tuple(
+        spec.name
+        for spec in module._SCHEMA_SPECIFICATION
+        if spec.schema == module.POSTGRES_CONSUMER_SCHEMA and spec.name.startswith("macro_raw_")
+    ) == tuple(module.POSTGRES_RAW_TABLES)
     assert len(table_creates) == len(module.POSTGRES_RAW_TABLES)
     assert len(backfills) == len(module.POSTGRES_RAW_TABLES)
     assert all("TIMESTAMPTZ(6) NOT NULL PRIMARY KEY" in statement for statement in table_creates)
@@ -650,24 +722,24 @@ def test_ohlc_migration_is_additive_and_schema_contract_preserves_available_at_o
     assert "DROP TABLE" not in migration
     assert "DELETE FROM" not in migration
     assert module._LEGACY_FEATURES_VIEW_DDL in module._MIGRATIONS[24]
-    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-5])
+    prior_euro_hy_migration = "\n".join(module._MIGRATIONS[-6])
     assert 'ADD COLUMN IF NOT EXISTS "vstoxx1m_level" DOUBLE PRECISION NULL' in (
-        "\n".join(module._MIGRATIONS[-6])
+        "\n".join(module._MIGRATIONS[-7])
     )
     assert 'ADD COLUMN IF NOT EXISTS "euro_hy_total_return_level" DOUBLE PRECISION NULL' in (
         prior_euro_hy_migration
     )
-    treasury_migration = "\n".join(module._MIGRATIONS[-4])
+    treasury_migration = "\n".join(module._MIGRATIONS[-5])
     assert 'ADD COLUMN IF NOT EXISTS "us_3m_level" DOUBLE PRECISION NULL' in treasury_migration
     assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration
     assert treasury_migration.count("ADD COLUMN IF NOT EXISTS") == 2
-    cutover_migration = "\n".join(module._MIGRATIONS[-3])
+    cutover_migration = "\n".join(module._MIGRATIONS[-4])
     assert 'DROP TABLE "macro_loader"."macro_raw"' in cutover_migration
     assert 'INSERT INTO "macro_loader"."macro_raw_euro_hy_oas"' in cutover_migration
     assert "macro_raw_vix" in cutover_migration and "macro_raw_usd_broad" in cutover_migration
     assert len(module.POSTGRES_RAW_TABLES) == 25
     assert not any(spec.name == "macro_raw" for spec in module._SCHEMA_SPECIFICATION)
-    extended_migration = "\n".join(module._MIGRATIONS[-2])
+    extended_migration = "\n".join(module._MIGRATIONS[-3])
     assert "macro_features_extended" in extended_migration
 
 
@@ -686,7 +758,10 @@ def test_generated_availability_contract_fails_closed(
         def execute(self, query: str, params: object = None) -> None:
             assert query == module._GENERATED_AVAILABILITY_SQL
             assert params is not None and params[0] == "macro_loader"
-            assert params[1] in module.POSTGRES_RAW_TABLES
+            assert params[1] in (
+                *module.POSTGRES_RAW_TABLES,
+                module.POSTGRES_FEATURE_VALUES_TABLE,
+            )
 
         def fetchone(self) -> tuple[str, str] | None:
             return metadata
@@ -707,7 +782,10 @@ def test_generated_availability_accepts_postgres_at_time_zone_deparser() -> None
         def execute(self, query: str, params: object = None) -> None:
             assert query == module._GENERATED_AVAILABILITY_SQL
             assert params is not None and params[0] == "macro_loader"
-            assert params[1] in module.POSTGRES_RAW_TABLES
+            assert params[1] in (
+                *module.POSTGRES_RAW_TABLES,
+                module.POSTGRES_FEATURE_VALUES_TABLE,
+            )
 
         def fetchone(self) -> tuple[str, str]:
             return ("ALWAYS", expression)
@@ -947,7 +1025,7 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     assert "SELECT macro_loader.refresh_macro_features_explicit()" in queries
     refresh_index = queries.index("SELECT macro_loader.refresh_macro_features_explicit()")
     assert queries[refresh_index - 1] == "SET LOCAL statement_timeout = '900000ms'"
-    assert "TRUNCATE" not in "\n".join(queries)
+    assert not any(query.startswith("TRUNCATE TABLE") for query in queries)
     assert ("commit", None, None) in connection.events
     assert ("rollback", None, None) not in connection.events
 
@@ -996,7 +1074,9 @@ def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() ->
     assert sum(query.startswith('INSERT INTO "macro_loader"."macro_raw_') for query in queries) == (
         2 * len(module.POSTGRES_RAW_TABLES)
     )
-    assert all("TRUNCATE" not in query and "DROP TABLE" not in query for query in queries)
+    assert all(
+        not query.startswith("TRUNCATE TABLE") and "DROP TABLE" not in query for query in queries
+    )
 
 
 def test_transaction_failure_rolls_back_and_error_is_sanitized() -> None:

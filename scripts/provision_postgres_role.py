@@ -8,7 +8,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from application.postgres_sync import POSTGRES_RAW_TABLES
+from application.postgres_sync import POSTGRES_FEATURE_VALUES_TABLE, POSTGRES_RAW_TABLES
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
@@ -18,6 +18,7 @@ POSTGRES_OWNER_ROLE = "macro-loader-owner"
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
     *(("macro_loader", table) for table in POSTGRES_RAW_TABLES),
+    ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE),
     ("macro_loader_sync", "gold_sync_state"),
     ("macro_loader_sync", "gold_row_hashes"),
     ("macro_loader_sync", "schema_migrations"),
@@ -39,7 +40,11 @@ def _table_identifier(schema: str, table: str) -> str:
 
 
 def _conditional_table_grant(schema: str, table: str, role: str) -> str:
-    privileges = "SELECT" if table == "schema_migrations" else "SELECT, INSERT, UPDATE, DELETE"
+    privileges = (
+        "SELECT"
+        if table in {"schema_migrations", POSTGRES_FEATURE_VALUES_TABLE}
+        else "SELECT, INSERT, UPDATE, DELETE"
+    )
     return (
         f"IF to_regclass({_literal(f'{schema}.{table}')}) IS NOT NULL THEN\n"
         f"    GRANT {privileges} ON TABLE {_table_identifier(schema, table)} TO {role};\n"
@@ -132,6 +137,12 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
         f"TO {role_i}, {sync_role_i};\n"
         "END IF;"
     )
+    feature_value_grant = (
+        f"IF to_regclass('macro_loader.{POSTGRES_FEATURE_VALUES_TABLE}') IS NOT NULL THEN\n"
+        f"    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE "
+        f'"macro_loader"."{POSTGRES_FEATURE_VALUES_TABLE}" FROM {role_i}, {sync_role_i};\n'
+        "END IF;"
+    )
     default_privileges = "\n".join(
         f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner_i} IN SCHEMA {_identifier(schema)} "
         f"GRANT SELECT ON TABLES TO {role_i};\n"
@@ -187,6 +198,7 @@ REVOKE GRANT OPTION FOR SELECT ON ALL TABLES IN SCHEMA "macro_loader_sync" FROM 
 DO $grants$
 BEGIN
 {table_grants}
+{feature_value_grant}
 {view_grant}
 END
 $grants$;

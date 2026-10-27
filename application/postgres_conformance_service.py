@@ -94,6 +94,7 @@ class GoldPostgresConformanceVerifier:
             (
                 "consumer",
                 "digest_index",
+                "feature_values",
                 "roles",
                 "schema",
                 "session",

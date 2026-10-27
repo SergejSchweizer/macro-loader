@@ -5,6 +5,8 @@ import pytest
 from application.macro_feature_catalog import (
     EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
     EXTENDED_MACRO_FEATURE_VIEW_VERSION,
+    FEATURE_VALUE_CATALOG_FINGERPRINT,
+    FEATURE_VALUE_SCHEMA_VERSION,
 )
 from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
@@ -13,6 +15,7 @@ from ingestion.postgres_gold_repository import (
     _EXTENDED_FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
     _EXTENDED_FEATURES_VIEW_COLUMNS_EXPECTED,
     _EXTENDED_FEATURES_VIEW_DEFINITION,
+    _FEATURE_VALUE_POPULATION_SQL,
     _FEATURES_VIEW_COLUMN_TYPES_EXPECTED,
     _FEATURES_VIEW_COLUMNS_EXPECTED,
     _FEATURES_VIEW_DEFINITION,
@@ -95,6 +98,16 @@ class FakeCursor:
                 f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}",
                 _EXTENDED_FEATURES_VIEW_DEFINITION,
             )
+        elif "obj_description(classes.oid" in query and params == (
+            POSTGRES_CONSUMER_SCHEMA,
+            "macro_feature_values",
+        ):
+            self._one = (
+                "r",
+                _POSTGRES_OWNER_ROLE,
+                f"macro feature values schema version={FEATURE_VALUE_SCHEMA_VERSION}; "
+                f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
+            )
         elif "obj_description(classes.oid" in query:
             self._one = (
                 "m",
@@ -125,6 +138,14 @@ class FakeCursor:
                 )
                 for ordinal, name in enumerate(_FEATURES_VIEW_COLUMNS_EXPECTED, start=1)
             ]
+        elif "FROM pg_indexes" in query:
+            self._one = (
+                "CREATE INDEX macro_feature_values_feature_timestamp_idx "
+                "ON macro_loader.macro_feature_values USING btree "
+                "(feature_name, timestamp_m1)",
+            )
+        elif query == _FEATURE_VALUE_POPULATION_SQL:
+            self._one = (100, 100, 20, 20, 0, 0, 0)
         elif "FROM pg_class AS classes" in query:
             self._many = [
                 (table.schema, table.name, POSTGRES_OWNER_ROLE)
@@ -136,10 +157,17 @@ class FakeCursor:
             self._one = (True, False)
         elif "has_table_privilege" in query:
             assert params is not None
+            if "macro_feature_values" in str(params) and "'SELECT')" not in query:
+                self._one = (False,)
+                return self
             if "'SELECT')" in query and "'INSERT')" not in query:
                 self._one = (params[0] != "public",)
                 return self
-            has_dml = params[0] == POSTGRES_SYNC_ROLE and "schema_migrations" not in str(params[1])
+            has_dml = (
+                params[0] == POSTGRES_SYNC_ROLE
+                and "schema_migrations" not in str(params[1])
+                and "macro_feature_values" not in str(params[1])
+            )
             self._one = (True, has_dml)
             self._one = (self._one[0], self._one[1], self._one[1], self._one[1])
         elif query == "SHOW TIME ZONE":
@@ -198,7 +226,7 @@ def test_live_inspector_independently_checks_schema_roles_session_and_temporal_p
         _config(), connection_factory=lambda _: connection
     )
 
-    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(28, 3, 2)
+    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(29, 3, 2, 100)
     assert connection.rollbacks == 1
     assert connection.closed
     assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2

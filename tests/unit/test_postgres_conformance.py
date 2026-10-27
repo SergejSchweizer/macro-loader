@@ -150,7 +150,7 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
 
     class Inspector:
         def inspect(self) -> PostgresDatabaseConformanceEvidence:
-            return PostgresDatabaseConformanceEvidence(28, 2, 2)
+            return PostgresDatabaseConformanceEvidence(29, 2, 2, 0)
 
     assert GoldPostgresConformanceVerifier(
         catalog=Catalog(), source=Source(), repository=Repository(), inspector=Inspector()
@@ -159,6 +159,7 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
         (
             "consumer",
             "digest_index",
+            "feature_values",
             "roles",
             "schema",
             "session",
@@ -170,8 +171,9 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
         {
             "consumer_row_count": 1,
             "digest_row_count": 1,
+            "feature_value_row_count": 0,
             "role_count": 2,
-            "schema_table_count": 28,
+            "schema_table_count": 29,
             "temporal_probe_count": 2,
         },
     )
