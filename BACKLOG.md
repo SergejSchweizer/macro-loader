@@ -9,6 +9,37 @@ Last reviewed: 2026-10-27
 
 ## GOALS.md Implementation Wave
 
+### PR-187: Record Availability QA Merge And Verify GOALS Wave Closure
+
+PR name: `record-availability-qa-merge`
+Status: In Progress
+Updated: 2026-10-27
+PR: not created; implementation active
+Git branch: `pr-187/record-availability-qa-merge`
+Git status: active-dirty: post-merge documentation closeout
+Agent lane: keep backlog merge metadata synchronized and audit the requested local scope
+Depends on: PR-186 (merged to `origin/main`)
+Commit: pending
+Design patterns: Architectural baseline only.
+
+Description:
+- R1: Record PR-186's confirmed squash merge in this backlog and update current delivery
+  metadata. Do not alter implementation behavior or assert production state.
+- R2: Audit the tracked implementation against the ignored GOALS.md: migrations 31/32
+  provide per-series raw tables, availability, feature-table projection, and the extended
+  transformation view; migration/runtime contracts retire Fed-policy ingestion; registry
+  feature definitions and PostgreSQL projection cover the specified causal transforms;
+  README/ARCHITECTURE document schemas, formulas, windows, and source-availability limits;
+  `--cores` defaults to six and computation uses vectorized Polars. Local quality-gate and
+  disposable PostgreSQL tests are evidence; production population/cron state remains
+  unverified and outside this PR.
+
+Acceptance:
+- A1 verifies R1 against GitHub's merged PR #186 and the fetched `origin/main` history.
+- A2 verifies GOALS.md implementation scope against migration/catalog code, README,
+  ARCHITECTURE, and local quality-gate evidence. No production DB, cron, or GitHub Actions.
+
+
 ### PR-184: Extend PostgreSQL Transformations To All Registered Positive-Level Series
 
 PR name: `extend-transformations-to-registered-series`
@@ -99,14 +130,14 @@ Acceptance:
 ### PR-186: Use The Managed Refresh Path In Availability Integration QA
 
 PR name: `use-explicit-postgres-refresh-in-availability-qa`
-Status: In Progress — PR open
+Status: Merged
 Updated: 2026-10-27
-PR: [#186](https://github.com/SergejSchweizer/macro-loader/pull/186) (open)
+PR: [#186](https://github.com/SergejSchweizer/macro-loader/pull/186) (merged)
 Git branch: `pr-186/use-explicit-postgres-refresh-in-availability-qa`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: validate generated availability through the published PostgreSQL refresh boundary
 Depends on: PR-185 (merged to `origin/main`)
-Commit: `7dc9fa1 test(pr-186): use managed refresh in availability QA`
+Commit: `462bb94 test(pr-186): use managed refresh in availability QA` (GitHub squash merge)
 Design patterns: Command Boundary, Integration Contract Test.
 
 Description:
@@ -433,7 +464,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-185 are merged; PR-186 is in progress. No production migration or
+PR-176 through PR-186 are merged; PR-187 is in progress. No production migration or
 installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
