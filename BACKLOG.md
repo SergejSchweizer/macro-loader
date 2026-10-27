@@ -14,12 +14,12 @@ Last reviewed: 2026-10-27
 PR name: `update-feature-table-parity-qa`
 Status: In Progress
 Updated: 2026-10-27
-PR: not created; implementation active
+PR: [#183](https://github.com/SergejSchweizer/macro-loader/pull/183) (open)
 Git branch: `pr-183/update-feature-table-parity-qa`
-Git status: active-dirty: PostgreSQL EMA/MACD integration QA and backlog
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL serving transformation parity QA after raw-table cutover
 Depends on: PR-182 (merged to `origin/main`)
-Commit: pending
+Commit: `0fc34e7 test(pr-183): update ema macd parity for feature tables`
 Design patterns: Independent Reference, Migration/Schema Contract Testing.
 
 Description:
