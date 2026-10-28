@@ -784,6 +784,8 @@ Bounded parallel maps log item counts and worker limits/width without logging in
 callables, or exception messages.
 Macro-feature catalog validation records source-series/feature counts and the OHLC-scope flag;
 it excludes formulas, feature values, fingerprints, dates, and exception text.
+The complete-state PostgreSQL delta planner records source/target row counts and insert/update/
+delete/unchanged totals without writing timestamps, values, or row digests to debug logs.
 Inventory text/JSON rendering logs the selected output format and record count, plus exception
 class on formatting failure; inventory rows and exception messages remain excluded.
 

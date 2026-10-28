@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 import polars as pl
@@ -139,6 +140,56 @@ def test_noop_plan_has_no_mutations() -> None:
     plan = plan_gold_delta(frame, digests, _state(frame))
     assert (plan.inserts, plan.updates, plan.deletes) == ((), (), ())
     assert plan.unchanged == (_ts(1), _ts(2), _ts(3))
+
+
+def test_delta_lifecycle_logs_only_counts_and_operation_status(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    frame = _frame((1, 2, 3))
+    _, source = source_rows_and_digests(frame)
+    target = (
+        source[0],
+        GoldRowDigest(_ts(2), "f" * 64),
+        GoldRowDigest(_ts(4), "e" * 64),
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="application.postgres_delta"):
+        rows, digests = source_rows_and_digests(frame)
+        plan = plan_gold_delta(frame, target, _state(frame))
+
+    assert "postgres delta source digest preparation started row_count=3" in caplog.text
+    assert "postgres delta source digest preparation completed row_count=3 digest_count=3" in (
+        caplog.text
+    )
+    assert "postgres delta planning started source_row_count=3 target_digest_count=3" in (
+        caplog.text
+    )
+    assert "postgres delta planning completed inserted=1 updated=1 deleted=1 unchanged=1" in (
+        caplog.text
+    )
+    assert len(rows) == len(digests) == 3
+    assert len(plan.inserts) == len(plan.updates) == len(plan.deletes) == 1
+    assert all(digest.row_sha256 not in caplog.text for digest in digests)
+    assert "2026-08-01" not in caplog.text
+    assert "2.0" not in caplog.text
+
+
+def test_delta_failure_logs_exception_class_without_error_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    frame = _frame((1,))
+    _, source = source_rows_and_digests(frame)
+    duplicate_target = (source[0], source[0])
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.postgres_delta"),
+        pytest.raises(ValueError, match="duplicate timestamp_m1"),
+    ):
+        plan_gold_delta(frame, duplicate_target, _state(frame))
+
+    assert "postgres delta planning failed error_type=ValueError" in caplog.text
+    assert "duplicate timestamp_m1" not in caplog.text
+    assert all(digest.row_sha256 not in caplog.text for digest in duplicate_target)
 
 
 def test_missed_runs_and_historical_revision_are_not_hidden_by_time() -> None:
