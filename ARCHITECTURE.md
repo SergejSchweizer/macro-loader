@@ -948,6 +948,8 @@ when catalog metadata is requested; formulas, values, fingerprints, and exceptio
 remain outside debug records.
 The inventory CLI serializer records only text/JSON format, record count, and exception class;
 the rendered inventory payload and error text remain in their existing user-facing channels.
+The PostgreSQL delta planner records source/target and mutation counts; canonical hashes,
+timestamps, source values, and exception messages are excluded.
 The PostgreSQL conformance and reconstruction application use cases record their start,
 stage/result counts, canonical build identity, safe stage names, statuses, and exception
 classes. They do not log report payloads, hashes, paths, secrets, or exception messages.

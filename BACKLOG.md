@@ -9,16 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-218: Add Debug Telemetry To PostgreSQL Delta Planning
+
+PR name: `postgres-delta-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-218/postgres-delta-debug-logs`
+Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/postgres_delta.py, tests/unit/test_postgres_delta.py
+Agent lane: complete-state Gold digest preparation and serving-delta classification
+Commit: `feat(pr-218): instrument PostgreSQL delta planning`
+Design patterns: Logging Adapter; retain deterministic complete-state delta planning.
+Depends on: PR-217 (merged to `origin/main`)
+
+Description:
+- R1: Log source-row/digest preparation and PostgreSQL delta-plan start, completion, and
+  failure lifecycle through the standard `.logs` handler.
+- R2: Log only row/digest/mutation counts, sync-state presence, and exception class; never log
+  timestamps, feature values, row digests, hashes, or exception text.
+- R3: Preserve complete-state comparison, canonical hashing, source validation, and exact
+  insert/update/delete/unchanged classification.
+
+Acceptance:
+- A1 caplog tests assert accurate safe counts for bootstrap, mixed mutation, and no-op plans.
+- A2 tests prove dates, values, hashes, and exception messages are absent from debug output.
+- A3 existing tests continue to prove deterministic digests, complete historical comparison,
+  and fail-closed schema/state validation.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-217: Add Debug Telemetry To Inventory Rendering
 
 PR name: `inventory-cli-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#217](https://github.com/SergejSchweizer/macro-loader/pull/217) (open)
+PR: [#217](https://github.com/SergejSchweizer/macro-loader/pull/217) (merged)
 Git branch: `pr-217/inventory-cli-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: inventory text/JSON serialization in the read-only CLI adapter
 Commit: `feat(pr-217): instrument inventory rendering`
+Merge commit: `9be54b188ac66bcd6f81f70769ec0816181eb838`
 Design patterns: Logging Adapter; preserve the read-only CLI adapter boundary.
 Depends on: PR-216 (merged to `origin/main`)
 

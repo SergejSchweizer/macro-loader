@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import struct
 from datetime import UTC, datetime
@@ -16,6 +17,8 @@ from application.postgres_sync import (
     GoldRowPayload,
     GoldSyncState,
 )
+
+logger = logging.getLogger(__name__)
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 _DIGEST_PREFIX = b"macro-loader:gold-row:v1\x00"
@@ -71,7 +74,7 @@ def _validate_source_frame(frame: pl.DataFrame) -> None:
             raise TypeError(f"PostgreSQL delta source feature {column} must be Float64")
 
 
-def source_rows_and_digests(
+def _source_rows_and_digests(
     frame: pl.DataFrame,
 ) -> tuple[tuple[GoldRowPayload, ...], tuple[GoldRowDigest, ...]]:
     """Convert the complete current Gold frame to deterministic rows and digests."""
@@ -96,6 +99,30 @@ def source_rows_and_digests(
     return tuple(rows), tuple(digests)
 
 
+def source_rows_and_digests(
+    frame: pl.DataFrame,
+) -> tuple[tuple[GoldRowPayload, ...], tuple[GoldRowDigest, ...]]:
+    """Convert a Gold frame to complete-state rows and log only safe counts."""
+    logger.debug(
+        "postgres delta source digest preparation started row_count=%d column_count=%d",
+        frame.height,
+        frame.width,
+    )
+    try:
+        rows, digests = _source_rows_and_digests(frame)
+    except Exception as exc:
+        logger.debug(
+            "postgres delta source digest preparation failed error_type=%s", type(exc).__name__
+        )
+        raise
+    logger.debug(
+        "postgres delta source digest preparation completed row_count=%d digest_count=%d",
+        len(rows),
+        len(digests),
+    )
+    return rows, digests
+
+
 def _target_digest_map(target_digests: tuple[GoldRowDigest, ...]) -> dict[datetime, str]:
     result: dict[datetime, str] = {}
     for digest in target_digests:
@@ -105,7 +132,7 @@ def _target_digest_map(target_digests: tuple[GoldRowDigest, ...]) -> dict[dateti
     return result
 
 
-def plan_gold_delta(
+def _plan_gold_delta(
     frame: pl.DataFrame,
     target_digests: tuple[GoldRowDigest, ...],
     sync_state: GoldSyncState | None,
@@ -139,3 +166,31 @@ def plan_gold_delta(
         unchanged=tuple(unchanged),
         source_digests=source_digests,
     )
+
+
+def plan_gold_delta(
+    frame: pl.DataFrame,
+    target_digests: tuple[GoldRowDigest, ...],
+    sync_state: GoldSyncState | None,
+) -> GoldDeltaPlan:
+    """Build the complete-state delta with count-only lifecycle logging."""
+    logger.debug(
+        "postgres delta planning started source_row_count=%d target_digest_count=%d "
+        "sync_state_present=%s",
+        frame.height,
+        len(target_digests),
+        sync_state is not None,
+    )
+    try:
+        plan = _plan_gold_delta(frame, target_digests, sync_state)
+    except Exception as exc:
+        logger.debug("postgres delta planning failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug(
+        "postgres delta planning completed inserted=%d updated=%d deleted=%d unchanged=%d",
+        len(plan.inserts),
+        len(plan.updates),
+        len(plan.deletes),
+        len(plan.unchanged),
+    )
+    return plan
