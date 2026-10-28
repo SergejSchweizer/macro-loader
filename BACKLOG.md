@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-222: Add Debug Telemetry To Guarded Acceptance Runners
 
 PR name: `acceptance-runner-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: pending
+PR: [#222](https://github.com/SergejSchweizer/macro-loader/pull/222) (open)
 Git branch: `pr-222/acceptance-runner-debug-logs`
-Git status: active-local-checks-pending
+Git status: pushed-local-checks-passed
 Agent lane: dry-run planning and explicitly gated full-run/daily-cron acceptance commands
 Commit: `feat(pr-222): instrument acceptance runners`
 Design patterns: Logging Adapter; preserve guarded Command boundary and sanitized reports.
