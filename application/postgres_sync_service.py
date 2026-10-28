@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from application.postgres_sync import (
     select_current_sync_record,
 )
 
+logger = logging.getLogger(__name__)
 Clock = Callable[[], datetime]
 
 
@@ -62,16 +64,45 @@ class GoldPostgresDeltaSync:
     clock: Clock
 
     def sync(self) -> GoldSyncResult:
-        record = select_current_sync_record(self.catalog.read())
-        self._validate_bundle(record)
-        self.repository.preflight_schema()
-        data_path = self._required_data_path(record)
-        data_sha256 = self.source.sha256_path(data_path)
-        self._validate_sha256(data_sha256)
-        desired_state = self._desired_state(record, data_sha256)
-        return self.repository.run_locked(
-            lambda transaction: self._sync_locked(transaction, record, data_path, desired_state)
+        logger.debug("postgres gold sync started dataset_id=%s", POSTGRES_DATASET_ID)
+        try:
+            record = select_current_sync_record(self.catalog.read())
+            logger.debug(
+                "postgres gold sync source selected build_id=%s row_count=%d "
+                "schema_version=%d feature_version=%d",
+                record.build_id,
+                record.row_count or 0,
+                record.schema_version,
+                record.feature_version,
+            )
+            self._validate_bundle(record)
+            logger.debug("postgres gold sync source bundle validated build_id=%s", record.build_id)
+            self.repository.preflight_schema()
+            logger.debug("postgres gold sync schema preflight passed")
+            data_path = self._required_data_path(record)
+            data_sha256 = self.source.sha256_path(data_path)
+            self._validate_sha256(data_sha256)
+            desired_state = self._desired_state(record, data_sha256)
+            result = self.repository.run_locked(
+                lambda transaction: self._sync_locked(transaction, record, data_path, desired_state)
+            )
+        except Exception as error:
+            logger.debug(
+                "postgres gold sync failed dataset_id=%s error_type=%s",
+                POSTGRES_DATASET_ID,
+                type(error).__name__,
+            )
+            raise
+        logger.debug(
+            "postgres gold sync completed build_id=%s inserted=%d updated=%d "
+            "deleted=%d unchanged=%d",
+            result.source_build_id,
+            result.inserted,
+            result.updated,
+            result.deleted,
+            result.unchanged,
         )
+        return result
 
     def _sync_locked(
         self,
@@ -84,6 +115,13 @@ class GoldPostgresDeltaSync:
         self._require_state_compatible(prior_state, desired_state)
         target_digests = transaction.read_digests(POSTGRES_DATASET_ID)
         consumer_digests = transaction.read_consumer_digests(POSTGRES_DATASET_ID)
+        logger.debug(
+            "postgres gold sync target loaded prior_state=%s digest_count=%d "
+            "consumer_digest_count=%d",
+            prior_state is not None,
+            len(target_digests),
+            len(consumer_digests),
+        )
         if prior_state is None and target_digests:
             raise GoldSyncVerificationError(
                 "PostgreSQL Gold digests exist without authoritative sync state"
@@ -102,8 +140,18 @@ class GoldPostgresDeltaSync:
 
         frame = self.source.read_path(data_path)
         self._validate_frame_metadata(frame, record)
+        logger.debug("postgres gold sync source frame loaded row_count=%d", frame.height)
         plan = plan_gold_delta(
             frame.select(list(POSTGRES_RAW_COLUMNS)), target_digests, prior_state
+        )
+        logger.debug(
+            "postgres gold sync delta planned inserted=%d updated=%d deleted=%d "
+            "unchanged=%d schema_upgrade=%s",
+            plan.inserted,
+            plan.updated,
+            plan.deleted,
+            plan.unchanged_count,
+            is_schema_upgrade,
         )
         if prior_state is not None and self._same_data(prior_state, desired_state):
             self._require_matching_digests(plan.source_digests, target_digests, "digest index")
@@ -118,7 +166,9 @@ class GoldPostgresDeltaSync:
             raise GoldSyncVerificationError(
                 "PostgreSQL Gold sync state does not match canonical source"
             )
+        logger.debug("postgres gold sync delta application started")
         transaction.apply_delta(POSTGRES_DATASET_ID, plan, desired_state)
+        logger.debug("postgres gold sync delta application completed")
         return GoldSyncResult(
             dataset_id=POSTGRES_DATASET_ID,
             source_build_id=record.build_id,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -322,12 +323,13 @@ def _service(
     return service, source
 
 
-def test_first_sync_inserts_complete_current_gold() -> None:
+def test_first_sync_inserts_complete_current_gold(caplog: pytest.LogCaptureFixture) -> None:
     frame = _frame((0, 1, 2))
     repository = FakeRepository()
     service, source = _service(frame, repository)
 
-    result = service.sync()
+    with caplog.at_level(logging.DEBUG, logger="application.postgres_sync_service"):
+        result = service.sync()
 
     assert (result.inserted, result.updated, result.deleted, result.unchanged) == (3, 0, 0, 0)
     plan, state = repository.applied[0]
@@ -336,6 +338,11 @@ def test_first_sync_inserts_complete_current_gold() -> None:
     assert source.validated_records == [_record(frame)]
     assert source.hash_paths == [_PATH]
     assert source.read_paths == [_PATH]
+    assert "postgres gold sync started" in caplog.text
+    assert "delta planned inserted=3 updated=0 deleted=0 unchanged=0" in caplog.text
+    assert "postgres gold sync completed" in caplog.text
+    assert "2.0" not in caplog.text
+    assert "b" * 64 not in caplog.text
 
 
 def test_sync_plans_and_applies_inside_locked_transaction(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -370,30 +377,41 @@ def test_sync_plans_and_applies_inside_locked_transaction(monkeypatch: pytest.Mo
     ]
 
 
-def test_schema_preflight_fails_before_locked_row_mutation() -> None:
+def test_schema_preflight_fails_before_locked_row_mutation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     class FailingPreflightRepository(FakeRepository):
         def preflight_schema(self) -> None:
             self.events.append("preflight")
-            raise RuntimeError("missing migration")
+            raise RuntimeError("connection password must never be logged")
 
     frame = _frame((0,))
     repository = FailingPreflightRepository()
     service, _ = _service(frame, repository)
 
-    with pytest.raises(RuntimeError, match="missing migration"):
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.postgres_sync_service"),
+        pytest.raises(RuntimeError, match="connection password"),
+    ):
         service.sync()
 
     assert repository.events == ["preflight"]
     assert repository.applied == []
+    assert "postgres gold sync failed" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "connection password" not in caplog.text
 
 
-def test_same_data_verifies_complete_consumer_and_digest_state_before_checkpoint() -> None:
+def test_same_data_verifies_complete_consumer_and_digest_state_before_checkpoint(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     frame = _frame((0, 1, 2))
     _, digests = source_rows_and_digests(frame.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(state=_state(frame, data_sha256="b" * 64), digests=digests)
     service, source = _service(frame, repository, sha256="b" * 64)
 
-    result = service.sync()
+    with caplog.at_level(logging.DEBUG, logger="application.postgres_sync_service"):
+        result = service.sync()
 
     assert (result.inserted, result.updated, result.deleted, result.unchanged) == (0, 0, 0, 3)
     plan, state = repository.applied[0]
@@ -401,6 +419,7 @@ def test_same_data_verifies_complete_consumer_and_digest_state_before_checkpoint
     assert plan.source_digests == digests
     assert state.source_build_id == "20260822T100000Z"
     assert source.read_paths == [_PATH]
+    assert "delta planned inserted=0 updated=0 deleted=0 unchanged=3" in caplog.text
 
 
 def test_tampered_consumer_digest_fails_before_state_advance() -> None:
@@ -431,20 +450,24 @@ def test_stale_state_on_unchanged_rows_fails_before_state_advance() -> None:
     assert repository.applied == []
 
 
-def test_mixed_delta_is_exact_and_unchanged_rows_are_not_submitted() -> None:
+def test_mixed_delta_is_exact_and_unchanged_rows_are_not_submitted(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     current = _frame(tuple(range(103)))
     target = _change(_frame((*range(101), 200)), 100)
     _, target_digests = source_rows_and_digests(target.select(list(POSTGRES_RAW_COLUMNS)))
     repository = FakeRepository(state=_state(target), digests=target_digests)
     service, _ = _service(current, repository)
 
-    result = service.sync()
+    with caplog.at_level(logging.DEBUG, logger="application.postgres_sync_service"):
+        result = service.sync()
 
     assert (result.inserted, result.updated, result.deleted, result.unchanged) == (2, 1, 1, 100)
     plan, _ = repository.applied[0]
     assert [row.timestamp_m1 for row in plan.inserts] == [_ts(101), _ts(102)]
     assert [row.timestamp_m1 for row in plan.updates] == [_ts(100)]
     assert plan.deletes == (_ts(200),)
+    assert "delta planned inserted=2 updated=1 deleted=1 unchanged=100" in caplog.text
 
 
 def test_missed_runs_and_historical_revision_are_caught_up() -> None:
