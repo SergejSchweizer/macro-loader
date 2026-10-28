@@ -742,6 +742,8 @@ files already present at the destination. Its log is
 
 The daily runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
 that variable in the service environment to use a different positive concurrency limit.
+The shared execution policy logs each map's item count, configured worker limit, effective
+worker count, and completion/failure outcome; work-item values and exception text are omitted.
 
 Python module debug records and sanitized structured operational events are written to
 `${PROJECT_ROOT}/.logs/macro-loader-debug.log`. That file rotates at UTC midnight and
@@ -778,6 +780,8 @@ they omit hashes, paths, report payloads, secrets, and exception text.
 Canonical Gold frame assembly logs input-series count, output row/column counts, semantic
 versions, and exception classes; it never logs source values, observation dates, provenance
 hashes, or exception text.
+Bounded parallel maps log item counts and worker limits/width without logging inputs, outputs,
+callables, or exception messages.
 Macro-feature catalog validation records source-series/feature counts and the OHLC-scope flag;
 it excludes formulas, feature values, fingerprints, dates, and exception text.
 

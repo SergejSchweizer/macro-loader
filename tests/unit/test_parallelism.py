@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock
 
@@ -17,6 +18,39 @@ def test_policy_preserves_input_order_and_rejects_invalid_worker_count() -> None
     assert PolarsExecutionPolicy(3).map(lambda value: value * 2, (3, 1, 2)) == [6, 2, 4]
     with pytest.raises(ValueError, match="workers"):
         PolarsExecutionPolicy(0)
+
+
+def test_parallel_map_logs_safe_counts_for_empty_single_and_parallel_work(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    policy = PolarsExecutionPolicy(3)
+    with caplog.at_level(logging.DEBUG, logger="application.parallelism"):
+        assert policy.map(lambda value: value * 2, ()) == []
+        assert policy.map(lambda value: value * 2, (4,)) == [8]
+        assert policy.map(lambda value: value * 2, (1, 2, 3)) == [2, 4, 6]
+
+    assert "parallel map started item_count=0 worker_limit=3 effective_workers=0" in caplog.text
+    assert "parallel map completed item_count=1 worker_limit=3 effective_workers=1" in caplog.text
+    assert "parallel map completed item_count=3 worker_limit=3 effective_workers=3" in caplog.text
+    assert "value=4" not in caplog.text
+
+
+def test_parallel_map_failure_logs_type_without_payload_or_exception_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fail(value: str) -> str:
+        raise RuntimeError(f"private payload: {value}")
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.parallelism"),
+        pytest.raises(RuntimeError, match="private payload"),
+    ):
+        PolarsExecutionPolicy(2).map(fail, ("secret-item", "other-item"))
+
+    assert "parallel map failed item_count=2 error_type=RuntimeError" in caplog.text
+    assert "private payload" not in caplog.text
+    assert "secret-item" not in caplog.text
+    assert "other-item" not in caplog.text
 
 
 def test_policy_returns_input_order_when_tasks_finish_out_of_order() -> None:

@@ -941,6 +941,8 @@ text; logging does not authorize or execute reconstruction.
 Canonical Silver-to-Gold frame assembly records safe start/completion counts and logs only
 exception classes on failure; source values, observation dates, provenance hashes, and error
 messages remain outside debug records.
+The bounded Polars execution policy records map item counts, configured/effective worker
+counts, and exception classes, while retaining the shared semaphore and result-order contract.
 The macro transformation catalog records validation start/completion counts and error classes
 when catalog metadata is requested; formulas, values, fingerprints, and exception messages
 remain outside debug records.

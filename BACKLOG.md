@@ -9,16 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-216: Add Debug Telemetry To Bounded Parallelism
+
+PR name: `parallelism-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-216/parallelism-debug-logs`
+Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/parallelism.py, tests/unit/test_parallelism.py
+Agent lane: bounded concurrent execution of independent application work units
+Commit: `feat(pr-216): instrument bounded parallel execution`
+Design patterns: Logging Adapter; preserve the shared bounded concurrency policy.
+Depends on: PR-215 (merged to `origin/main`)
+
+Description:
+- R1: Log each bounded map operation's item count, configured worker limit, effective
+  execution width, and success/failure lifecycle through the standard `.logs` handler.
+- R2: Restrict records to counts and exception class; never log input/output items, callables,
+  exception text, or source values.
+- R3: Preserve input-order results, the shared semaphore budget across nested/concurrent maps,
+  and original exception propagation.
+
+Acceptance:
+- A1 caplog tests assert accurate lifecycle counts for empty, single-item, parallel success,
+  and failure paths.
+- A2 failure tests prove payloads, callables, and exception messages are absent from logs.
+- A3 existing tests continue to prove output ordering and concurrency budget bounds.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-215: Add Debug Telemetry To The Macro Feature Catalog
 
 PR name: `macro-feature-catalog-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#215](https://github.com/SergejSchweizer/macro-loader/pull/215) (open)
+PR: [#215](https://github.com/SergejSchweizer/macro-loader/pull/215) (merged)
 Git branch: `pr-215/macro-feature-catalog-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: closed-world transformation-catalog validation and payload generation
 Commit: `feat(pr-215): instrument macro feature catalog validation`
+Merge commit: `14fb82e8799fdfe1cbefc0b0a5fe80724eabdffe`
 Design patterns: Logging Adapter; retain the immutable catalog as the source of truth.
 Depends on: PR-214 (merged to `origin/main`)
 
