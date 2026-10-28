@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from typing import cast
 
@@ -31,6 +32,8 @@ from scripts.provision_postgres_role import (
     POSTGRES_ROLE,
     POSTGRES_SYNC_ROLE,
 )
+
+logger = logging.getLogger(__name__)
 
 _TEMPORAL_PROBES = (
     datetime(2026, 3, 29, 0, 59, 59, 123456, tzinfo=UTC),
@@ -87,6 +90,7 @@ class PostgresLiveDatabaseConformanceInspector:
         self._connection_factory = connection_factory
 
     def inspect(self) -> PostgresDatabaseConformanceEvidence:
+        logger.debug("postgres live conformance inspection started")
         connection: ConnectionPort | None = None
         try:
             connection = self._connection_factory(self._config)
@@ -103,21 +107,33 @@ class PostgresLiveDatabaseConformanceInspector:
             finally:
                 cursor.close()
             connection.rollback()
-        except Exception:
+        except Exception as exc:
             if connection is not None:
                 connection.rollback()
+            logger.debug(
+                "postgres live conformance inspection failed error_type=%s",
+                type(exc).__name__,
+            )
             raise PostgresGoldRepositoryError(
                 "PostgreSQL live conformance inspection failed"
             ) from None
         finally:
             if connection is not None:
                 connection.close()
-        return PostgresDatabaseConformanceEvidence(
+        evidence = PostgresDatabaseConformanceEvidence(
             schema_table_count=len(_SCHEMA_SPECIFICATION),
             role_count=3,
             temporal_probe_count=len(_TEMPORAL_PROBES),
             feature_value_row_count=feature_value_row_count,
         )
+        logger.debug(
+            "postgres live conformance inspection completed schema_table_count=%d "
+            "feature_value_row_count=%d temporal_probe_count=%d",
+            evidence.schema_table_count,
+            evidence.feature_value_row_count,
+            evidence.temporal_probe_count,
+        )
+        return evidence
 
     @staticmethod
     def _assert_schema(cursor: CursorPort) -> None:

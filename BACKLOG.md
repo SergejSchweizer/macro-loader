@@ -9,14 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-209: Add Debug Telemetry To PostgreSQL Verification Inputs
+
+PR name: `postgres-verifier-input-debug-logs`
+Status: In progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-209/postgres-verifier-input-debug-logs`
+Git status: local-changes
+Agent lane: PostgreSQL conformance inspection and catalog-selected Gold input adapters
+Commit: `feat(pr-209): instrument PostgreSQL verification inputs`
+Design patterns: Logging Adapter; existing read-only Repository/Adapter boundaries remain unchanged.
+Depends on: PR-208 (merged to `origin/main`)
+
+Description:
+- R1: Add safe lifecycle logs to the PostgreSQL live conformance inspector and
+  catalog-selected Gold filesystem source, including operation counts where available.
+- R2: Restrict fields to canonical build identity, row/schema/probe counts, and exception
+  class; never log paths, feature values, digests, credentials, or exception text.
+- R3: Preserve read-only database inspection, fail-closed verification, catalog-selected
+  immutable source resolution, and all existing rollback behavior.
+- R4: Require local quality gates only; do not run GitHub Actions or production operations.
+
+Acceptance:
+- A1 caplog tests verify successful and failed verification/source lifecycle events and
+  accurate evidence/frame counts.
+- A2 failure tests prove exception text, paths, digests, feature values, and credentials are
+  absent while exception classes and canonical build IDs remain diagnosable.
+- A3 existing tests continue to prove read-only PostgreSQL inspection, fail-closed behavior,
+  bundle/hash validation, and catalog-root path containment.
+- A4 `make quality-gate` passes locally; no GitHub Actions, production database, or cron runs.
+
 ### PR-208: Add Debug Telemetry To Lake Repositories
 
 PR name: `lake-repository-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#208](https://github.com/SergejSchweizer/macro-loader/pull/208) (open)
+PR: [#208](https://github.com/SergejSchweizer/macro-loader/pull/208) (merged)
 Git branch: `pr-208/lake-repository-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: monthly Parquet, Silver, state, inventory, and run-audit persistence
 Commit: `bd89072 feat(pr-208): instrument lake repositories`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.

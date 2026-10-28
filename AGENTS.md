@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#207 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#208 are merged to `origin/main`.
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
@@ -13,7 +13,9 @@ unchanged. PR-202 centralizes debug logs and cron-log retention; PR-203 adds sou
 telemetry; PR-204 covers core workflows; PR-205 and PR-206 add PostgreSQL sync telemetry;
 PR-207 adds safe debug lifecycle logs to Gold storage adapters. PR-208 adds debug telemetry
 to lake repositories. Per
-the user's instruction, GitHub Actions must remain disabled and must not be
+PR-208 adds safe telemetry to lake persistence repositories. PR-209 is in progress for safe
+telemetry on the live PostgreSQL conformance inspector and catalog-selected Gold input
+adapter. Per the user's instruction, GitHub Actions must remain disabled and must not be
 triggered, re-enabled, rerun, or newly added; perform checks locally only.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization.
