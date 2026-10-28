@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-207: Add Debug Telemetry To Gold Storage Adapters
 
 PR name: `gold-storage-adapter-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#207](https://github.com/SergejSchweizer/macro-loader/pull/207) (open)
 Git branch: `pr-207/gold-storage-adapter-debug-logs`
-Git status: active-clean
+Git status: pushed-local-checks-passed
 Agent lane: immutable Gold artifact, catalog, sidecar, materialized-view, and mirror persistence
 Commit: `cdbeece feat(pr-207): instrument Gold storage adapters`
 Design patterns: Logging Adapter; existing Repository, Materialized View, and Mark-and-Sweep boundaries remain unchanged.
