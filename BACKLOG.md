@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-206: Add Debug Telemetry To PostgreSQL Sync Adapter
 
 PR name: `postgres-adapter-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#206](https://github.com/SergejSchweizer/macro-loader/pull/206) (open)
 Git branch: `pr-206/postgres-adapter-debug-logs`
-Git status: active-clean
+Git status: pushed-local-checks-passed
 Agent lane: transactional PostgreSQL Repository Adapter and feature-view refresh
 Commit: `feat(pr-206): instrument postgres adapter debug logs`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
