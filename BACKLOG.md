@@ -12,9 +12,9 @@ Last reviewed: 2026-10-28
 ### PR-209: Add Debug Telemetry To PostgreSQL Verification Inputs
 
 PR name: `postgres-verifier-input-debug-logs`
-Status: In progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#209](https://github.com/SergejSchweizer/macro-loader/pull/209) (open)
 Git branch: `pr-209/postgres-verifier-input-debug-logs`
 Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL conformance inspection and catalog-selected Gold input adapters
