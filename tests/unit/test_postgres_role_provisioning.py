@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import logging
+import subprocess
+
+import pytest
+
 from application.postgres_sync import POSTGRES_FEATURE_VALUES_TABLE, POSTGRES_RAW_TABLES
 from scripts.provision_postgres_role import (
     POSTGRES_HOST,
@@ -13,6 +18,7 @@ from scripts.provision_postgres_role import (
     ProvisioningConfig,
     provision_sql,
     psql_command,
+    run,
     sanitized,
 )
 
@@ -146,3 +152,62 @@ def test_sanitizer_removes_both_credentials() -> None:
     assert "admin-secret" not in result
     assert "repo-secret" not in result
     assert result.count("***") == 2
+
+
+def test_run_logs_safe_provisioning_counts_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = ProvisioningConfig.from_env(_env())
+    monkeypatch.setattr(
+        "scripts.provision_postgres_role.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+    caplog.set_level(logging.DEBUG, logger="scripts.provision_postgres_role")
+
+    run(config)
+
+    assert "PostgreSQL role provisioning started" in caplog.text
+    assert "schema_count=2 table_count=28 materialized_view_count=1" in caplog.text
+    assert "admin-secret" not in caplog.text
+    assert "repo-secret" not in caplog.text
+    assert "LOGIN PASSWORD" not in caplog.text
+
+
+def test_run_failure_logs_only_error_class_and_no_psql_output(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = ProvisioningConfig.from_env(_env())
+    stderr = "admin-secret repo-secret failed on CREATE ROLE private-role"
+    monkeypatch.setattr(
+        "scripts.provision_postgres_role.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", stderr),
+    )
+    caplog.set_level(logging.DEBUG, logger="scripts.provision_postgres_role")
+
+    with pytest.raises(RuntimeError):
+        run(config)
+
+    assert "PostgreSQL role provisioning failed error_type=RuntimeError" in caplog.text
+    assert "admin-secret" not in caplog.text
+    assert "repo-secret" not in caplog.text
+    assert "CREATE ROLE" not in caplog.text
+    assert "private-role" not in caplog.text
+
+
+def test_main_logs_configuration_failure_class_only(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from scripts import provision_postgres_role
+
+    monkeypatch.setattr(provision_postgres_role, "configure_debug_logging", lambda _: None)
+    monkeypatch.setattr(provision_postgres_role.sys, "argv", ["provision_postgres_role"])
+    caplog.set_level(logging.DEBUG, logger="scripts.provision_postgres_role")
+
+    assert provision_postgres_role.main() == 2
+
+    assert "PostgreSQL role provisioning command started" in caplog.text
+    assert "command failed error_type=ValueError" in caplog.text
+    assert "MARKET_MACRO_POSTGRES_ADMIN_PASSWORD" not in caplog.text

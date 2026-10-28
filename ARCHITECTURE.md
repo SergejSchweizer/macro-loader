@@ -232,6 +232,10 @@ sync never creates, alters, drops, grants, or migrates PostgreSQL objects.
 migrations. It is composed with protected `MARKET_MACRO_POSTGRES_ADMIN_*` credentials,
 which are distinct from runtime `PG*` credentials. Normal cron export provides runtime
 configuration only and never exports administrator credentials.
+The role-provisioning command writes start/completion/failure lifecycle records to the shared
+debug handler, with schema/table/view counts on success and exception classes on failure.
+It never logs credentials, endpoint identity, generated SQL, subprocess output, or exception
+text; role DDL remains an explicit admin operation.
 
 `postgres-verify` is a separate read-mostly command using the runtime endpoint. Its application
 service compares the certified current Gold bundle with independently read consumer rows, digest

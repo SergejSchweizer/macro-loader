@@ -9,16 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-221: Add Debug Telemetry To PostgreSQL Role Provisioning
+
+PR name: `postgres-role-provisioning-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#221](https://github.com/SergejSchweizer/macro-loader/pull/221) (open)
+Git branch: `pr-221/postgres-role-provisioning-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: admin-only least-privilege PostgreSQL role provisioning command
+Commit: `feat(pr-221): instrument PostgreSQL role provisioning`
+Design patterns: Logging Adapter; preserve the explicit Admin Command boundary and secret redaction.
+Depends on: PR-220 (merged to `origin/main`)
+
+Description:
+- R1: Log provisioning command/run start, completion, and failure lifecycle through the
+  shared `.logs` handler.
+- R2: Log only fixed lifecycle events, schema/table/view counts, and exception class; never
+  log connection identity, endpoints, credentials, SQL, subprocess output, or exception text.
+- R3: Preserve admin/runtime credential separation, generated least-privilege DDL, and
+  sanitized command error behavior.
+
+Acceptance:
+- A1 mocked successful provisioning logs correct schema/table/view counts and no config values.
+- A2 mocked psql failure logs only its exception class; secrets, SQL, and subprocess stderr are
+  absent from debug records.
+- A3 existing tests continue to prove least-privilege DDL, endpoint validation, and credential
+  sanitization.
+- A4 `make quality-gate` passes locally; no PostgreSQL, production operation, or GitHub Actions run.
+
 ### PR-220: Add Debug Telemetry To Cron Support Utilities
 
 PR name: `cron-support-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#220](https://github.com/SergejSchweizer/macro-loader/pull/220) (open)
+PR: [#220](https://github.com/SergejSchweizer/macro-loader/pull/220) (merged)
 Git branch: `pr-220/cron-support-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: safe log-retention and cron-configuration helper lifecycle
 Commit: `feat(pr-220): instrument cron support utilities`
+Merge commit: `ca4b5c55d26cc1b977e3dae0b030bab8831aa342`
 Design patterns: Logging Adapter; preserve cron Command boundaries and secret-safe config export.
 Depends on: PR-219 (merged to `origin/main`)
 

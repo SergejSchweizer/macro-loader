@@ -703,6 +703,10 @@ not run the synchronization mutation path and does not create durable probe rows
 
 Schema migration is an explicit, separately authorized `postgres-migrate` operation. It requires the protected admin-only environment variables `MARKET_MACRO_POSTGRES_ADMIN_HOST`, `MARKET_MACRO_POSTGRES_ADMIN_PORT`, `MARKET_MACRO_POSTGRES_ADMIN_USER`, `MARKET_MACRO_POSTGRES_ADMIN_DATABASE`, and `MARKET_MACRO_POSTGRES_ADMIN_PASSWORD`. The admin user and password are distinct from the runtime role/credential and are never exported by the normal cron configuration.
 
+The explicit role-provisioning utility logs its lifecycle to `.logs/macro-loader-debug.log`.
+It records only fixed stage names, schema/table/view counts, and exception classes; credentials,
+endpoints, generated SQL, subprocess output, and exception text are excluded.
+
 The `macro-loader` runtime role is a non-owning LOGIN principal with schema `USAGE` and
 read-only access to the 25 loader-owned feature tables and sync tables; it cannot create
 schemas or objects, change grants, or access unrelated schemas. The dedicated
