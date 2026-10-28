@@ -16,9 +16,9 @@ Status: In Progress
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-208/lake-repository-debug-logs`
-Git status: active-dirty: AGENTS.md, ARCHITECTURE.md, BACKLOG.md, README.md, ingestion/parquet_repository.py, ingestion/silver_repository.py, ingestion/state_repository.py, ingestion/operational_repository.py, ingestion/inventory_refresh.py, tests/unit/test_parquet_repository.py, tests/unit/test_planner_state.py, tests/unit/test_operational_repository.py, tests/integration/test_silver_repository.py
+Git status: active-clean
 Agent lane: monthly Parquet, Silver, state, inventory, and run-audit persistence
-Commit: `feat(pr-208): instrument lake repositories`
+Commit: `bd89072 feat(pr-208): instrument lake repositories`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
 Depends on: PR-207 (merged to `origin/main`)
 
