@@ -9,14 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-211: Measure Daily Cron End-To-End Runtime
+
+PR name: `daily-cron-runtime-duration`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#211](https://github.com/SergejSchweizer/macro-loader/pull/211) (open)
+Git branch: `pr-211/daily-cron-runtime-duration`
+Git status: pushed-local-checks-passed
+Agent lane: daily cron wrapper total elapsed time and exit outcome
+Commit: `feat(pr-211): record daily cron total runtime`
+Design patterns: Operational Telemetry; preserve the existing Command/cron-wrapper boundary.
+Depends on: PR-210 (merged to `origin/main`)
+
+Description:
+- R1: Record total elapsed whole seconds and final exit code for each real daily cron-wrapper
+  execution, covering configuration, `run-daily`, and the dependent PostgreSQL Gold sync.
+- R2: Emit one stable machine-searchable completion record to the existing operator log after
+  redirection, and to stderr for failures before redirection; do not log environment values,
+  secrets, paths, or command output in the completion record.
+- R3: Preserve dry verification behavior, delta bounds, execution order, failure propagation,
+  and lock release semantics.
+- R4: Validate using isolated local wrapper fixtures only; do not run production cron or
+  GitHub Actions.
+
+Acceptance:
+- A1 wrapper success logs `exit_code=0` and a non-negative `elapsed_seconds` after both CLI
+  commands complete.
+- A2 injected `run-daily` and PostgreSQL-sync failures preserve their original nonzero exit
+  codes and log elapsed duration; a failed `run-daily` still skips PostgreSQL sync.
+- A3 dry verification remains data-operation-free and does not emit a real-job duration.
+- A4 `make quality-gate` passes locally; no production services or cron execute.
+
 ### PR-210: Add Debug Telemetry To Guarded Reconstruction Operations
 
 PR name: `reconstruction-operations-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#210](https://github.com/SergejSchweizer/macro-loader/pull/210) (open)
+PR: [#210](https://github.com/SergejSchweizer/macro-loader/pull/210) (merged)
 Git branch: `pr-210/reconstruction-operations-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: explicitly guarded production reconstruction orchestration adapter
 Commit: `feat(pr-210): instrument guarded reconstruction operations`
 Design patterns: Logging Adapter; existing guarded-operation state and lock ownership remain unchanged.

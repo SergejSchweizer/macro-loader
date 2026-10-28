@@ -1,5 +1,6 @@
 import fcntl
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timedelta
@@ -226,7 +227,9 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
         "#!/usr/bin/env bash\n"
         'printf \'%s|%s|%s\\n\' "$PWD" "$MACRO_LOADER_GIT_SHA" "$*" '
         '>> "$RUNNER_RECORD"\n'
-        'if [[ "${RUNNER_FAIL_DAILY:-}" == "true" && "$*" == *"run-daily" ]]; then exit 7; fi\n',
+        'if [[ "${RUNNER_FAIL_DAILY:-}" == "true" && "$*" == *"run-daily" ]]; then exit 7; fi\n'
+        'if [[ "${RUNNER_FAIL_POSTGRES:-}" == "true" && "$*" == '
+        '*"gold-sync-postgres" ]]; then exit 8; fi\n',
     )
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -275,6 +278,13 @@ def test_daily_runner_uses_repository_root_and_exports_one_git_identity(tmp_path
         "--lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
+    log = (log_directory / "macro-loader.log").read_text(encoding="utf-8")
+    assert re.search(r"\[daily-cron\] finished exit_code=0 elapsed_seconds=\d+", log)
+    assert (
+        log.index("Running delta-only daily pipeline")
+        < log.index("Synchronizing canonical Gold to PostgreSQL")
+        < log.index("[daily-cron] finished")
+    )
 
 
 def test_daily_runner_passes_environment_core_override_to_daily_command(
@@ -326,6 +336,7 @@ def test_daily_runner_stops_before_commands_when_git_identity_is_unavailable(
 
     assert completed.returncode == 2
     assert "Unable to resolve repository Git identity" in completed.stderr
+    assert re.search(r"\[daily-cron\] finished exit_code=2 elapsed_seconds=\d+", completed.stderr)
     assert not record_path.exists()
 
 
@@ -430,6 +441,7 @@ def test_daily_runner_dry_verification_reports_default_and_override_cores(
     assert "--cores 6" in default.stdout
     assert "--cores 3" in override.stdout
     assert "without data operations" in default.stdout + override.stdout
+    assert "[daily-cron]" not in default.stdout + override.stdout
     assert not record_path.exists()
     assert not (project_root / ".locks").exists()
     assert not (project_root / ".logs").exists()
@@ -473,6 +485,33 @@ def test_daily_runner_releases_lock_after_daily_failure_and_skips_postgres_sync(
         "--lake-root fixture-lake run-daily",
         f"{project_root}|fixture-sha|--lake-root fixture-lake gold-sync-postgres",
     ]
+    assert "[daily-cron] finished exit_code=7 elapsed_seconds=" in (
+        project_root / ".logs" / "macro-loader.log"
+    ).read_text(encoding="utf-8")
+
+
+def test_daily_runner_records_total_duration_when_postgres_sync_fails(tmp_path: Path) -> None:
+    project_root, bin_dir = _runner_fixture(tmp_path)
+    record_path = tmp_path / "runner-record"
+    completed = subprocess.run(
+        [str(project_root / "ops" / "run-macro-loader-daily.sh")],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "RUNNER_RECORD": str(record_path),
+            "RUNNER_FAIL_POSTGRES": "true",
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 8
+    assert "gold-sync-postgres" in record_path.read_text(encoding="utf-8")
+    assert "[daily-cron] finished exit_code=8 elapsed_seconds=" in (
+        project_root / ".logs" / "macro-loader.log"
+    ).read_text(encoding="utf-8")
 
 
 def test_daily_runner_fails_before_config_export_when_runtime_is_missing(tmp_path: Path) -> None:
@@ -490,4 +529,5 @@ def test_daily_runner_fails_before_config_export_when_runtime_is_missing(tmp_pat
 
     assert completed.returncode == 2
     assert "Required cron executable is missing or not executable" in completed.stderr
+    assert re.search(r"\[daily-cron\] finished exit_code=2 elapsed_seconds=\d+", completed.stderr)
     assert not (project_root / ".logs" / "macro-loader.log").exists()

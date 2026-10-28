@@ -517,7 +517,7 @@ This distinction is deliberate: the project guarantees **logical/persistence del
 
 `run-daily` and normal `update` must **never automatically choose `reconcile`** based on elapsed time, state age, or any hidden policy. If periodic reconciliation is desired, it is scheduled as a separate explicit command.
 
-The daily `run-daily -> gold-sync-postgres` chain is scheduled at `0 9 * * *` using the explicit `Europe/Vienna` IANA timezone. It retains 09:00 local wall-clock execution across daylight-saving changes and uses a 60-calendar-day update overlap to cover at least 30 normal weekday EOD observations. Source reconciliation remains a separate explicit operator command.
+The daily `run-daily -> gold-sync-postgres` chain is scheduled at `0 9 * * *` using the explicit `Europe/Vienna` IANA timezone. It retains 09:00 local wall-clock execution across daylight-saving changes and uses a 60-calendar-day update overlap to cover at least 30 normal weekday EOD observations. Source reconciliation remains a separate explicit operator command. The cron wrapper writes one total `elapsed_seconds` and final `exit_code` record to its operator log after the full pipeline and PostgreSQL sync finish (or on failure); failures before log redirection write the sanitized record to stderr. Verification-only mode is excluded.
 
 Reconciliation still obeys the rule that source omission is not deletion. Explicit deletion handling requires a separate source-mutation contract.
 
