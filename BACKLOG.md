@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-217: Add Debug Telemetry To Inventory Rendering
 
 PR name: `inventory-cli-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#217](https://github.com/SergejSchweizer/macro-loader/pull/217) (open)
 Git branch: `pr-217/inventory-cli-debug-logs`
-Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, api/inventory.py, tests/unit/test_inventory_cli.py
+Git status: pushed-local-checks-passed
 Agent lane: inventory text/JSON serialization in the read-only CLI adapter
 Commit: `feat(pr-217): instrument inventory rendering`
 Design patterns: Logging Adapter; preserve the read-only CLI adapter boundary.
