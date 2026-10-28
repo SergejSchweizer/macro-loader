@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-213: Record PR-212 Merge In Delivery Documentation
 
 PR name: `record-pr-212-merge`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#213](https://github.com/SergejSchweizer/macro-loader/pull/213) (open)
 Git branch: `pr-213/record-pr-212-merge`
-Git status: active-dirty: BACKLOG.md, AGENTS.md
+Git status: pushed-local-checks-passed
 Agent lane: post-merge backlog and agent-status synchronization
 Commit: `docs(pr-213): record application telemetry merge`
 Design patterns: Architectural baseline only.
