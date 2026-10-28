@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -902,11 +903,14 @@ def test_gold_sync_sql_contains_only_non_fed_raw_columns() -> None:
     assert '"vix_level" IS NOT NULL' in module._TARGET_SUMMARY_SQL
 
 
-def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:
+def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     connection = FakeConnection()
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
 
-    repository.preflight_schema()
+    with caplog.at_level(logging.DEBUG, logger="ingestion.postgres_gold_repository"):
+        repository.preflight_schema()
 
     queries = _execute_queries(connection)
     assert "SET TRANSACTION READ ONLY" in queries
@@ -914,6 +918,9 @@ def test_runtime_schema_preflight_is_read_only_and_contains_no_ddl() -> None:
     assert not any(query.startswith(prohibited) for query in queries)
     assert ("rollback", None, None) in connection.events
     assert ("commit", None, None) not in connection.events
+    assert "postgres schema preflight started" in caplog.text
+    assert "postgres schema preflight passed" in caplog.text
+    assert "repo-secret" not in caplog.text
 
 
 def test_read_state_round_trips_exact_sync_metadata() -> None:
@@ -1028,7 +1035,9 @@ def test_summary_rejects_non_utc_database_timestamp() -> None:
         repository.summary(POSTGRES_DATASET_ID)
 
 
-def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
+def test_apply_delta_is_locked_exact_and_state_is_last_before_commit(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     insert = _row(2, 2.0)
     update = _row(1, 10.0)
     delete = _ts(3)
@@ -1047,7 +1056,8 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
         summary_row=(2, _ts(1), _ts(2)),
     )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
-    repository.apply_delta(POSTGRES_DATASET_ID, plan, state)
+    with caplog.at_level(logging.DEBUG, logger="ingestion.postgres_gold_repository"):
+        repository.apply_delta(POSTGRES_DATASET_ID, plan, state)
 
     queries = _execute_queries(connection)
     lock_index = next(i for i, query in enumerate(queries) if "pg_advisory_xact_lock" in query)
@@ -1076,9 +1086,23 @@ def test_apply_delta_is_locked_exact_and_state_is_last_before_commit() -> None:
     assert not any(query.startswith("TRUNCATE TABLE") for query in queries)
     assert ("commit", None, None) in connection.events
     assert ("rollback", None, None) not in connection.events
+    assert (
+        "postgres delta transaction started dataset_id=macro_features_daily inserted=1 "
+        "updated=1 deleted=1" in caplog.text
+    )
+    assert (
+        "postgres feature materialized-view refresh completed view=macro_loader.macro_features"
+        in caplog.text
+    )
+    assert "postgres delta transaction committed" in caplog.text
+    assert "repo-secret" not in caplog.text
+    assert "10.0" not in caplog.text
+    assert module.gold_row_sha256(insert) not in caplog.text
 
 
-def test_locked_transaction_uses_deterministic_namespaced_key_before_reads() -> None:
+def test_locked_transaction_uses_deterministic_namespaced_key_before_reads(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     connection = FakeConnection()
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
     expected_key = module._advisory_lock_key(POSTGRES_DATASET_ID)
@@ -1086,7 +1110,8 @@ def test_locked_transaction_uses_deterministic_namespaced_key_before_reads() -> 
     def operation(transaction: GoldSyncTransaction) -> None:
         transaction.read_state(POSTGRES_DATASET_ID)
 
-    repository.run_locked(operation)
+    with caplog.at_level(logging.DEBUG, logger="ingestion.postgres_gold_repository"):
+        repository.run_locked(operation)
 
     queries = _execute_queries(connection)
     lock_index = next(i for i, query in enumerate(queries) if "pg_advisory_xact_lock" in query)
@@ -1102,6 +1127,9 @@ def test_locked_transaction_uses_deterministic_namespaced_key_before_reads() -> 
     assert lock_event[2] == (expected_key,)
     assert expected_key == module._advisory_lock_key(POSTGRES_DATASET_ID)
     assert "macro-loader" in module.POSTGRES_ADVISORY_LOCK_NAMESPACE
+    assert "postgres advisory lock acquired dataset_id=macro_features_daily" in caplog.text
+    assert "postgres locked transaction committed" in caplog.text
+    assert "repo-secret" not in caplog.text
 
 
 def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() -> None:
@@ -1127,7 +1155,9 @@ def test_first_bootstrap_can_insert_complete_source_without_full_reload_sql() ->
     )
 
 
-def test_transaction_failure_rolls_back_and_error_is_sanitized() -> None:
+def test_transaction_failure_rolls_back_and_error_is_sanitized(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     row = _row(1, 1.0)
     plan = GoldDeltaPlan(
         (),
@@ -1140,13 +1170,44 @@ def test_transaction_failure_rolls_back_and_error_is_sanitized() -> None:
         summary_row=(1, _ts(1), _ts(1)), fail_on='INSERT INTO "macro_loader"."macro_raw_vix"'
     )
     repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
-    with pytest.raises(PostgresGoldRepositoryError) as exc_info:
+    with (
+        caplog.at_level(logging.DEBUG, logger="ingestion.postgres_gold_repository"),
+        pytest.raises(PostgresGoldRepositoryError) as exc_info,
+    ):
         repository.apply_delta(
             POSTGRES_DATASET_ID,
             plan,
             _state(count=1, minimum=_ts(1), maximum=_ts(1)),
         )
     assert "repo-secret" not in str(exc_info.value)
+    assert "repo-secret" not in caplog.text
+    assert "database failure" not in caplog.text
+    assert ("rollback", None, None) in connection.events
+    assert ("commit", None, None) not in connection.events
+
+
+def test_locked_transaction_logs_commit_and_rolls_back_without_error_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    connection = FakeConnection()
+    repository = PostgresGoldSyncRepository(_config(), connection_factory=Factory(connection))
+
+    def fail_operation(transaction: GoldSyncTransaction) -> None:
+        del transaction
+        raise RuntimeError("dsn=postgresql://user:secret@db/password")
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="ingestion.postgres_gold_repository"),
+        pytest.raises(PostgresGoldRepositoryError),
+    ):
+        repository.run_locked(fail_operation)
+
+    assert "postgres locked transaction started" in caplog.text
+    assert "postgres locked transaction rolled back" in caplog.text
+    assert "error_type=RuntimeError" in caplog.text
+    assert "postgresql://" not in caplog.text
+    assert "secret" not in caplog.text
+    assert "password" not in caplog.text
     assert ("rollback", None, None) in connection.events
     assert ("commit", None, None) not in connection.events
 

@@ -9,16 +9,47 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-206: Add Debug Telemetry To PostgreSQL Sync Adapter
+
+PR name: `postgres-adapter-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-206/postgres-adapter-debug-logs`
+Git status: active-dirty: PostgreSQL adapter lifecycle logs and tests
+Agent lane: transactional PostgreSQL Repository Adapter and feature-view refresh
+Commit: `feat(pr-206): instrument postgres adapter debug logs`
+Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
+Depends on: PR-205 (merged to `origin/main`)
+
+Description:
+- R1: Log read-only schema preflight, advisory-lock transaction, row-delta application,
+  materialized-view refresh, verification, commit, and rollback lifecycle stages.
+- R2: Emit only canonical dataset/view identity, operation counts, and exception classes;
+  never log SQL parameters, source values, digests, connection configuration, or error text.
+- R3: Keep refresh and state writes inside their existing transaction and preserve rollback
+  and sanitized database-error behavior.
+- R4: Require local quality gates only; do not run GitHub Actions or production PostgreSQL/cron.
+
+Acceptance:
+- A1 caplog tests verify schema preflight, advisory-lock, feature-view refresh, and commit
+  records while preserving SQL ordering and one transaction boundary.
+- A2 failure tests prove credentials, SQL parameters, values, digests, and database error
+  text are absent from logs and public exceptions.
+- A3 existing adapter tests prove refresh occurs only for mutations, sync-state writes remain
+  last, and failures roll back without committing.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-205: Add Debug Telemetry To PostgreSQL Gold Sync Service
 
 PR name: `postgres-sync-debug-logs`
-Status: Open — PR #205 awaiting review
+Status: Merged
 Updated: 2026-10-28
-PR: [#205](https://github.com/SergejSchweizer/macro-loader/pull/205)
+PR: [#205](https://github.com/SergejSchweizer/macro-loader/pull/205) (merged)
 Git branch: `pr-205/postgres-sync-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: application PostgreSQL Gold delta-sync stages
-Commit: `feat(pr-205): instrument postgres sync debug logs`
+Commit: `34f66b6 feat(pr-205): instrument postgres sync debug logs` (GitHub squash merge)
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
 Depends on: PR-204 (merged to `origin/main`)
 

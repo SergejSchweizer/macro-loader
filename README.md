@@ -752,8 +752,9 @@ Debug records cover provider request windows and row counts, HTTP attempts/retri
 query-free safe path, Bronze diff/commit/rollback counts, daily pipeline and Silver stage
 counts, and Gold publication/retention state transitions. Failure records contain only the
 exception class. PostgreSQL Gold sync logs record the selected build, schema preflight,
-locked delta counts, and completion state. Raw observations, digests, response bodies, query
-parameters, credentials, and exception messages are intentionally excluded.
+locked delta counts, and completion state; the adapter records transaction, materialized-
+view refresh, commit, and rollback outcomes. Raw observations, digests, SQL parameters,
+connection configuration, credentials, and exception messages are intentionally excluded.
 
 Install it for the service account after reviewing the absolute project path:
 

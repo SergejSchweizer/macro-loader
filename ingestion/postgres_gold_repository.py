@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -79,6 +80,8 @@ from application.trend_features import (
     SMA_RATIO_WINDOWS,
 )
 from application.volatility_features import VOLATILITY_SERIES
+
+logger = logging.getLogger(__name__)
 
 _RETIRED_FED_DATASET_ID = "fed_policy_features_daily"
 _RETIRED_FED_ORIGIN_COLUMNS = (
@@ -2470,8 +2473,22 @@ def _defer_intermediate_feature_view_statement(version: int, statement: str) -> 
 
 def _refresh_feature_views(cursor: CursorPort) -> None:
     """Apply a bounded long-query allowance only to the dependent view refresh."""
+    logger.debug(
+        "postgres feature materialized-view refresh started view=macro_loader.macro_features"
+    )
     cursor.execute(f"SET LOCAL statement_timeout = '{POSTGRES_FEATURE_REFRESH_TIMEOUT_MS}ms'")
-    cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+    try:
+        cursor.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+    except Exception as error:
+        logger.debug(
+            "postgres feature materialized-view refresh failed "
+            "view=macro_loader.macro_features error_type=%s",
+            type(error).__name__,
+        )
+        raise
+    logger.debug(
+        "postgres feature materialized-view refresh completed view=macro_loader.macro_features"
+    )
 
 
 def _raise_sanitized_error(operation: str, error: Exception) -> NoReturn:
@@ -2670,6 +2687,14 @@ class _PostgresGoldSyncTransaction:
         PostgresGoldSyncRepository._require_dataset(dataset_id)
         if state.dataset_id != dataset_id:
             raise ValueError("Gold sync state dataset does not match requested dataset")
+        logger.debug(
+            "postgres locked delta application started dataset_id=%s inserted=%d "
+            "updated=%d deleted=%d",
+            dataset_id,
+            plan.inserted,
+            plan.updated,
+            plan.deleted,
+        )
         digests = PostgresGoldSyncRepository._source_digest_map(plan.source_digests)
         for row in (*plan.inserts, *plan.updates):
             if row.timestamp_m1 not in digests:
@@ -2697,6 +2722,7 @@ class _PostgresGoldSyncTransaction:
         if _digest_map(self.read_consumer_digests(dataset_id)) != _digest_map(plan.source_digests):
             raise ValueError("PostgreSQL Gold post-write consumer rows do not match source")
         self._cursor.execute(_UPSERT_STATE_SQL, _state_params(state))
+        logger.debug("postgres locked delta application completed dataset_id=%s", dataset_id)
 
     def _require_exactly_one_row(self, operation: str) -> None:
         if self._cursor.rowcount != 1:
@@ -2732,6 +2758,7 @@ class PostgresGoldSyncRepository:
             _raise_sanitized_error("connection initialization", exc)
 
     def preflight_schema(self) -> None:
+        logger.debug("postgres schema preflight started")
         connection = self._open()
         try:
             cursor = connection.cursor()
@@ -2741,11 +2768,14 @@ class PostgresGoldSyncRepository:
             finally:
                 cursor.close()
             connection.rollback()
+            logger.debug("postgres schema preflight passed")
         except PostgresGoldRepositoryError:
             connection.rollback()
+            logger.debug("postgres schema preflight failed error_type=PostgresGoldRepositoryError")
             raise
         except Exception as exc:
             connection.rollback()
+            logger.debug("postgres schema preflight failed error_type=%s", type(exc).__name__)
             _raise_sanitized_error("Gold schema preflight", exc)
         finally:
             connection.close()
@@ -2754,6 +2784,7 @@ class PostgresGoldSyncRepository:
         self,
         operation: Callable[[GoldSyncTransaction], TransactionResult],
     ) -> TransactionResult:
+        logger.debug("postgres locked transaction started dataset_id=%s", POSTGRES_DATASET_ID)
         connection = self._open()
         try:
             cursor = connection.cursor()
@@ -2762,13 +2793,20 @@ class PostgresGoldSyncRepository:
                     "SELECT pg_advisory_xact_lock(%s)",
                     (_advisory_lock_key(POSTGRES_DATASET_ID),),
                 )
+                logger.debug("postgres advisory lock acquired dataset_id=%s", POSTGRES_DATASET_ID)
                 result = operation(_PostgresGoldSyncTransaction(cursor))
             finally:
                 cursor.close()
             connection.commit()
+            logger.debug("postgres locked transaction committed dataset_id=%s", POSTGRES_DATASET_ID)
             return result
-        except Exception:
+        except Exception as error:
             connection.rollback()
+            logger.debug(
+                "postgres locked transaction rolled back dataset_id=%s error_type=%s",
+                POSTGRES_DATASET_ID,
+                type(error).__name__,
+            )
             raise PostgresGoldRepositoryError("PostgreSQL Gold locked transaction failed") from None
         finally:
             connection.close()
@@ -2871,6 +2909,13 @@ class PostgresGoldSyncRepository:
         self._require_dataset(dataset_id)
         if state.dataset_id != dataset_id:
             raise ValueError("Gold sync state dataset does not match requested dataset")
+        logger.debug(
+            "postgres delta transaction started dataset_id=%s inserted=%d updated=%d deleted=%d",
+            dataset_id,
+            plan.inserted,
+            plan.updated,
+            plan.deleted,
+        )
         digest_by_timestamp = self._source_digest_map(plan.source_digests)
         for row in (*plan.inserts, *plan.updates):
             if row.timestamp_m1 not in digest_by_timestamp:
@@ -2883,6 +2928,7 @@ class PostgresGoldSyncRepository:
                 cursor.execute(
                     "SELECT pg_advisory_xact_lock(%s)", (_advisory_lock_key(dataset_id),)
                 )
+                logger.debug("postgres advisory lock acquired dataset_id=%s", dataset_id)
                 self._assert_schema_contract(cursor)
                 for row in plan.inserts:
                     _apply_feature_row(cursor, row)
@@ -2927,11 +2973,22 @@ class PostgresGoldSyncRepository:
             finally:
                 cursor.close()
             connection.commit()
+            logger.debug("postgres delta transaction committed dataset_id=%s", dataset_id)
         except PostgresGoldRepositoryError:
             connection.rollback()
+            logger.debug(
+                "postgres delta transaction rolled back dataset_id=%s "
+                "error_type=PostgresGoldRepositoryError",
+                dataset_id,
+            )
             raise
         except Exception as exc:
             connection.rollback()
+            logger.debug(
+                "postgres delta transaction rolled back dataset_id=%s error_type=%s",
+                dataset_id,
+                type(exc).__name__,
+            )
             _raise_sanitized_error("Gold delta transaction", exc)
         finally:
             connection.close()
