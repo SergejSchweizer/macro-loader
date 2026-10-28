@@ -440,14 +440,18 @@ def _materialized_view_query_body(ddl: str) -> str:
     return query
 
 
-def _raw_derived_extended_view_query() -> str:
+def _raw_derived_extended_view_query(*, preserve_raw_nulls: bool = False) -> str:
     """Inline extended transformation queries so they read only feature raw tables."""
-    query = _materialized_view_query_body(_EXTENDED_FEATURES_VIEW_DDL)
+    assembly_ddl = (
+        _EXTENDED_FEATURE_VALUE_VIEW_DDL if preserve_raw_nulls else _EXTENDED_FEATURES_VIEW_DDL
+    )
+    query = _materialized_view_query_body(assembly_ddl)
     query = query.replace(_FEATURE_RAW_PROJECTION_VIEW, _RAW_PROJECTION)
+    series_ddls = (
+        _EXTENDED_FEATURE_VALUE_SERIES_DDLS if preserve_raw_nulls else _EXTENDED_FEATURE_SERIES_DDLS
+    )
     for series, relation in _EXTENDED_FEATURE_SERIES_RELATIONS.items():
-        series_query = _materialized_view_query_body(
-            _EXTENDED_FEATURE_SERIES_DDLS[EXTENDED_RAW_SERIES.index(series)]
-        )
+        series_query = _materialized_view_query_body(series_ddls[EXTENDED_RAW_SERIES.index(series)])
         query = query.replace(relation, f"({series_query})")
     if _FEATURES_VIEW in query or _EXTENDED_FEATURES_VIEW in query:
         raise ValueError("long-form feature source must not depend on public feature views")
@@ -778,6 +782,8 @@ def _macro_features_view_query(
     raw_series: tuple[str, ...] = RAW_SERIES,
     price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
     feature_columns: tuple[str, ...] = _FEATURES_VIEW_COLUMNS,
+    preserve_raw_nulls: bool = False,
+    safe_log_inputs: bool = False,
 ) -> str:
     """Build the closed-world SQL definition from the executable catalog."""
     source_projection = _quote("macro_feature_source_projection")
@@ -829,6 +835,14 @@ def _macro_features_view_query(
             f"FROM {source_projection} AS source_source WHERE {level} IS NOT NULL "
             "WINDOW ordered AS (ORDER BY timestamp_m1))"
         )
+        ema_source = source
+        if preserve_raw_nulls:
+            ema_source = _quote(f"{series}_ema_source")
+            raw_value = "close" if series in OHLC_SERIES else "indexvalue"
+            source_ctes.append(
+                f"{ema_source} AS MATERIALIZED (SELECT timestamp_m1, "
+                f"{_quote(raw_value)} AS level FROM {_RAW_TABLE_BY_SERIES[series]})"
+            )
         gain_loss_sql = (
             f"CASE WHEN level > 0 AND {_quote('lag_1')} > 0 "
             f"THEN greatest(level - {_quote('lag_1')}, 0.0) END AS gain, "
@@ -836,9 +850,19 @@ def _macro_features_view_query(
             f"THEN greatest({_quote('lag_1')} - level, 0.0) END AS loss"
         )
         log_return_sql = ", ".join(
-            f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
-            f"THEN ln(level / {_quote(f'lag_{window}')}) END AS "
-            f"{_quote(f'log_return_{window}')}"
+            (
+                (
+                    f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
+                    f"THEN ln(CASE WHEN level / {_quote(f'lag_{window}')} > 0 "
+                    f"THEN level / {_quote(f'lag_{window}')} END) END AS "
+                )
+                if safe_log_inputs
+                else (
+                    f"CASE WHEN level > 0 AND {_quote(f'lag_{window}')} > 0 "
+                    f"THEN ln(level / {_quote(f'lag_{window}')}) END AS "
+                )
+            )
+            + f"{_quote(f'log_return_{window}')}"
             for window in LOG_RETURN_WINDOWS
         )
         source_ctes.append(
@@ -1290,7 +1314,7 @@ def _macro_features_view_query(
 
             for period in MACD_PRICE_EMA_PERIODS:
                 source_ctes.append(
-                    _ema_state_cte(series, period, source_relation=source, value_column="level")
+                    _ema_state_cte(series, period, source_relation=ema_source, value_column="level")
                 )
             macd_input = _quote(f"{series}_macd_input")
             ema12_state = _quote(f"{series}_ema_12_state")
@@ -1299,7 +1323,7 @@ def _macro_features_view_query(
                 f"{macd_input} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"CASE WHEN ema12.ema IS NOT NULL AND ema26.ema IS NOT NULL "
                 f"THEN ema12.ema - ema26.ema END AS macd_line "
-                f"FROM {source} AS raw "
+                f"FROM {ema_source} AS raw "
                 f"LEFT JOIN {ema12_state} AS ema12 ON ema12.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema26_state} AS ema26 ON ema26.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1323,7 +1347,7 @@ def _macro_features_view_query(
                 f"{macd_base} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 "raw.level AS level, "
                 f"macd_input.macd_line, signal.ema AS macd_signal "
-                f"FROM {source} AS raw JOIN {macd_input} AS macd_input "
+                f"FROM {ema_source} AS raw JOIN {macd_input} AS macd_input "
                 f"ON macd_input.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {signal_state} AS signal ON signal.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1435,7 +1459,7 @@ def _macro_features_view_query(
 
             for period in EMA_PERIODS:
                 source_ctes.append(
-                    _ema_state_cte(series, period, source_relation=source, value_column="level")
+                    _ema_state_cte(series, period, source_relation=ema_source, value_column="level")
                 )
             ema_aligned = _quote(f"{series}_ema_aligned")
             ema_history = _quote(f"{series}_ema_history")
@@ -1526,6 +1550,16 @@ def _macro_features_view_query(
             ):
                 feature_select.append(f"{features}.{_quote(column)}")
 
+    log_ratio_expression = (
+        'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+        'THEN ln(CASE WHEN raw."vix9d_level" / raw."vix3m_level" > 0 '
+        'THEN raw."vix9d_level" / raw."vix3m_level" END) '
+        'END AS "vix9d_vix3m_log_ratio"'
+        if safe_log_inputs
+        else 'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+        'THEN ln(raw."vix9d_level" / raw."vix3m_level") '
+        'END AS "vix9d_vix3m_log_ratio"'
+    )
     cross_expressions = {
         "vix9d_vix_ratio": (
             'CASE WHEN raw."vix_level" > 0 THEN raw."vix9d_level" / raw."vix_level" '
@@ -1535,11 +1569,7 @@ def _macro_features_view_query(
             'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" '
             'END AS "vix_vix3m_ratio"'
         ),
-        "vix9d_vix3m_log_ratio": (
-            'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
-            'THEN ln(raw."vix9d_level" / raw."vix3m_level") '
-            'END AS "vix9d_vix3m_log_ratio"'
-        ),
+        "vix9d_vix3m_log_ratio": log_ratio_expression,
         "vix3m_minus_vix": 'raw."vix3m_level" - raw."vix_level" AS "vix3m_minus_vix"',
         "vix6m_minus_vix": 'raw."vix6m_level" - raw."vix_level" AS "vix6m_minus_vix"',
         "vix1y_minus_vix": 'raw."vix1y_level" - raw."vix_level" AS "vix1y_minus_vix"',
@@ -1566,8 +1596,16 @@ def _macro_features_view_query(
     if any(not expression for expression in ordered_features):
         raise ValueError("macro feature catalog contains an expression without SQL projection")
     raw_select = ", ".join(
-        f"CASE WHEN raw.{_quote(f'{series}_level')} > 0 "
-        f"THEN ln(raw.{_quote(f'{series}_level')}) END AS {_quote(f'{series}_log_level')}"
+        (
+            f"CASE WHEN raw.{_quote(f'{series}_level')} > 0 "
+            f"THEN ln(CASE WHEN raw.{_quote(f'{series}_level')} > 0 "
+            f"THEN raw.{_quote(f'{series}_level')} END) END AS {_quote(f'{series}_log_level')}"
+        )
+        if safe_log_inputs
+        else (
+            f"CASE WHEN raw.{_quote(f'{series}_level')} > 0 "
+            f"THEN ln(raw.{_quote(f'{series}_level')}) END AS {_quote(f'{series}_log_level')}"
+        )
         for series in price_feature_series
     )
     projected_features = ", ".join(
@@ -1605,6 +1643,20 @@ _EXTENDED_FEATURE_SERIES_DDLS = tuple(
     )
     for series in EXTENDED_RAW_SERIES
 )
+_EXTENDED_FEATURE_VALUE_SERIES_DDLS = tuple(
+    _macro_features_view_query(
+        raw_relation=_raw_feature_projection((series,)),
+        view_relation=_EXTENDED_FEATURE_SERIES_RELATIONS[series],
+        raw_series=(series,),
+        price_feature_series=(series,),
+        feature_columns=tuple(
+            column for column in _EXTENDED_FEATURES_VIEW_COLUMNS if column.startswith(f"{series}_")
+        ),
+        preserve_raw_nulls=True,
+        safe_log_inputs=True,
+    )
+    for series in EXTENDED_RAW_SERIES
+)
 
 
 def _assembled_features_view_query(
@@ -1613,12 +1665,21 @@ def _assembled_features_view_query(
     raw_series: tuple[str, ...],
     feature_columns: tuple[str, ...],
     relations: Mapping[str, str],
+    safe_log_inputs: bool = False,
 ) -> str:
     aliases = {series: f"transformed_{index}" for index, series in enumerate(raw_series)}
     joins = " ".join(
         f"LEFT JOIN {relations[series]} AS {aliases[series]} "
         f"ON {aliases[series]}.timestamp_m1 = raw.timestamp_m1"
         for series in raw_series
+    )
+    log_ratio_expression = (
+        'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+        'THEN ln(CASE WHEN raw."vix9d_level" / raw."vix3m_level" > 0 '
+        'THEN raw."vix9d_level" / raw."vix3m_level" END) END'
+        if safe_log_inputs
+        else 'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
+        'THEN ln(raw."vix9d_level" / raw."vix3m_level") END'
     )
     cross_expressions = {
         "vix9d_vix_ratio": (
@@ -1627,10 +1688,7 @@ def _assembled_features_view_query(
         "vix_vix3m_ratio": (
             'CASE WHEN raw."vix3m_level" > 0 THEN raw."vix_level" / raw."vix3m_level" END'
         ),
-        "vix9d_vix3m_log_ratio": (
-            'CASE WHEN raw."vix9d_level" > 0 AND raw."vix3m_level" > 0 '
-            'THEN ln(raw."vix9d_level" / raw."vix3m_level") END'
-        ),
+        "vix9d_vix3m_log_ratio": log_ratio_expression,
         "vix3m_minus_vix": 'raw."vix3m_level" - raw."vix_level"',
         "vix6m_minus_vix": 'raw."vix6m_level" - raw."vix_level"',
         "vix1y_minus_vix": 'raw."vix1y_level" - raw."vix_level"',
@@ -1662,6 +1720,13 @@ _EXTENDED_FEATURES_VIEW_DDL = _assembled_features_view_query(
     feature_columns=_EXTENDED_FEATURES_VIEW_COLUMNS,
     relations=_EXTENDED_FEATURE_SERIES_RELATIONS,
 )
+_EXTENDED_FEATURE_VALUE_VIEW_DDL = _assembled_features_view_query(
+    view_relation=_EXTENDED_FEATURES_VIEW,
+    raw_series=EXTENDED_RAW_SERIES,
+    feature_columns=_EXTENDED_FEATURES_VIEW_COLUMNS,
+    relations=_EXTENDED_FEATURE_SERIES_RELATIONS,
+    safe_log_inputs=True,
+)
 _FEATURE_VALUE_PRIMARY_SOURCE = f"({_materialized_view_query_body(_FEATURES_VIEW_DDL)})"
 _FEATURE_VALUE_EXTENDED_SOURCE = f"({_raw_derived_extended_view_query()})"
 _FEATURE_VALUE_SOURCE_SQL = " UNION ALL ".join(
@@ -1680,6 +1745,29 @@ WHERE source.value IS NOT NULL
   AND source.value NOT IN ('NaN'::double precision, 'Infinity'::double precision,
                            '-Infinity'::double precision)
 WITH NO DATA"""
+_FEATURE_VALUE_PRIMARY_SOURCE_NULL_RESET = (
+    "("
+    + _materialized_view_query_body(
+        _macro_features_view_query(preserve_raw_nulls=True, safe_log_inputs=True)
+    )
+    + ")"
+)
+_FEATURE_VALUE_EXTENDED_SOURCE_NULL_RESET = (
+    f"({_raw_derived_extended_view_query(preserve_raw_nulls=True)})"
+)
+_FEATURE_VALUE_SOURCE_SQL_NULL_RESET = " UNION ALL ".join(
+    (
+        _feature_value_select_sql(
+            _FEATURE_VALUE_PRIMARY_SOURCE_NULL_RESET, FEATURE_VALUE_PRIMARY_NAMES
+        ),
+        _feature_value_select_sql(
+            _FEATURE_VALUE_EXTENDED_SOURCE_NULL_RESET, FEATURE_VALUE_EXTENDED_NAMES
+        ),
+    )
+)
+_FEATURE_VALUES_NULL_RESET_DDL = _FEATURE_VALUES_DDL.replace(
+    _FEATURE_VALUE_SOURCE_SQL, _FEATURE_VALUE_SOURCE_SQL_NULL_RESET
+)
 _FEATURE_VALUE_CROSS_NAMES = tuple(
     spec.name for spec in FEATURE_VALUE_CATALOG if spec.series is None
 )
@@ -1698,6 +1786,8 @@ def _feature_value_source_groups() -> tuple[tuple[str, tuple[str, ...], str], ..
             raw_series=(series,),
             price_feature_series=(series,) if series in PRICE_FEATURE_SERIES else (),
             feature_columns=names,
+            preserve_raw_nulls=True,
+            safe_log_inputs=True,
         )
         source_sql = _feature_value_select_sql(
             f"({_materialized_view_query_body(query)})",
@@ -1939,6 +2029,11 @@ _FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION = (
     f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {_PUBLISHED_FEATURES_VIEW} "
     f"FROM {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
     f"REFRESH MATERIALIZED VIEW {_PUBLISHED_FEATURES_VIEW}",
+)
+_FEATURE_VALUES_NULL_RESET_REBUILD_MIGRATION = (
+    *_FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION[:1],
+    _FEATURE_VALUES_NULL_RESET_DDL.replace(_FEATURE_VALUES, _PUBLISHED_FEATURES_VIEW),
+    *_FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION[2:],
 )
 _FEATURE_VALUES_MIGRATION = (
     _FEATURE_VALUES_DDL,
@@ -2471,6 +2566,9 @@ _MIGRATIONS = (
     # Rebuild EMA/MACD outputs after aligning their recurrences to each source series' own
     # observation sequence rather than the union timestamp axis.
     _FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION,
+    # Preserve explicit null observations in raw series for EMA/MACD recurrence resets;
+    # evaluate logarithms only after invalid and non-positive inputs become NULL.
+    _FEATURE_VALUES_NULL_RESET_REBUILD_MIGRATION,
 )
 _FEATURE_VIEW_PUBLICATION_VERSION = max(
     version

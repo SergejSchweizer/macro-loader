@@ -12,7 +12,7 @@ Last reviewed: 2026-10-28
 ### PR-227: Align PostgreSQL Math QA With The Long-Form Feature View
 
 PR name: `align-postgres-math-qa-to-long-view`
-Status: Pushed — local quality gate passed; disposable PostgreSQL checks await configured test DSN
+Status: In progress — disposable PostgreSQL parity passes; full local quality gate pending
 Updated: 2026-10-28
 Git branch: `pr-227/align-postgres-math-qa-to-long-view`
 Git status: pushed-local-checks-passed
@@ -30,6 +30,10 @@ Description:
   trend/momentum, statistical, EMA/MACD, OHLC, stochastic, and Donchian outputs.
 - R3: Reconcile current delivery documentation with merged PR-226, migration 37, and the
   guarded 2026-10-28 cron acceptance result; keep historical snapshots labeled by date.
+- R4: Preserve explicit NULL source observations in raw-table EMA/MACD recurrences, make
+  positive-domain logarithm evaluation safe for zero-underflow ratios, and add migration 38
+  to rebuild the long-form view for existing installations. Historical migration definitions
+  remain unchanged.
 
 Acceptance:
 - A1 disposable PostgreSQL integration checks pass for current long-form schema and exact
@@ -40,6 +44,8 @@ Acceptance:
   without changing prior dated source-history snapshots.
 - A4 `make quality-gate` and the PostgreSQL integration suite pass locally; no GitHub Actions,
   production mutation, or production cron run.
+- A5 Regression coverage proves EMA and MACD warm-up restarts after an explicit NULL row in
+  an extended raw series, while exact formula parity remains intact for valid observations.
 
 
 ### PR-225: Parallelize Independent PostgreSQL Feature Conformance

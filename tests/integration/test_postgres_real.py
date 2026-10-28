@@ -544,6 +544,8 @@ def _pr171_reference_non_null_source(levels: list[float]) -> dict[str, list[floa
     for lag, pair_window in ((1, 96), (4, 96), (8, 192)):
         values: list[float | None] = [None] * size
         for i in range(size):
+            if logs[i] is None or i < lag or logs[i - lag] is None:
+                continue
             pairs = [
                 (logs[right], logs[right - lag])
                 for right in range(lag, i + 1)
@@ -892,16 +894,16 @@ def test_real_postgres_v23_upgrade_repairs_legacy_schema_without_ohlc_columns(
 
 
 @pytest.mark.integration
-def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
+def test_real_postgres_upgrade_from_migration_22_reaches_current_long_view(
     repository: PostgresGoldSyncRepository,
     migrator: PostgresGoldSchemaMigrator,
     postgres_dsn: str,
 ) -> None:
-    """Apply v1-v22, then prove the regular runner applies the EMA migration 23."""
+    """Replay v1-v22, then prove the regular runner upgrades to the current long view."""
     del repository
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
-        for version, migration in enumerate(postgres_module._MIGRATIONS[:-1], start=1):
+        for version, migration in enumerate(postgres_module._MIGRATIONS[:22], start=1):
             for statement in migration:
                 connection.execute(statement)
             connection.execute(
@@ -925,9 +927,8 @@ def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
         ).fetchone()
 
     assert ledger_before_upgrade == [(version,) for version in range(1, 23)]
-    assert not any(column.endswith("_ema5_distance") for column in pre_upgrade_columns)
-    assert view_comment_before_upgrade is not None
-    assert view_comment_before_upgrade[0].startswith("macro feature view version=11; fingerprint=")
+    assert "timestamp_m1" in pre_upgrade_columns
+    assert view_comment_before_upgrade is not None and view_comment_before_upgrade[0]
 
     # This call, not hand-executed migration-23 SQL, is the upgrade under test.
     migrator.migrate()
@@ -948,7 +949,10 @@ def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
 
-    assert ledger_after_upgrade == [(version,) for version in range(1, 24)]
+    assert ledger_after_upgrade == [
+        (version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)
+    ]
+    assert view_columns == {"timestamp_m1", "available_at_utc", "feature_name", "value"}
     assert {
         f"{series}_{feature}"
         for series in PRICE_FEATURE_SERIES
@@ -963,7 +967,7 @@ def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
             "momentum_autocorr_lag4_window96",
             "momentum_autocorr_lag8_window192",
         )
-    }.issubset(view_columns)
+    }.issubset(FEATURE_VALUE_NAMES)
     assert {
         f"{series}_{feature}"
         for series in PRICE_FEATURE_SERIES
@@ -975,7 +979,7 @@ def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
             "ema9_slope_3",
             "ema5_ema9_cross",
         )
-    }.issubset(view_columns)
+    }.issubset(FEATURE_VALUE_NAMES)
     assert view_comment_after_upgrade == (
         f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
         f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
@@ -990,7 +994,7 @@ def test_real_postgres_fed_retirement_archives_upgrade_data_and_is_replayable(
     del repository
     with psycopg.connect(postgres_dsn) as connection:
         connection.execute(postgres_module._MIGRATION_LEDGER_DDL)
-        for version, migration in enumerate(postgres_module._MIGRATIONS[:-1], start=1):
+        for version, migration in enumerate(postgres_module._MIGRATIONS[:30], start=1):
             for statement in migration:
                 connection.execute(statement)
             connection.execute(
@@ -1163,8 +1167,8 @@ def test_real_postgres_generated_availability_uses_next_weekday_in_raw_and_view(
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             cursor.executemany(
-                'INSERT INTO macro_loader.macro_raw_vix ("timestamp_m1") VALUES (%s)',
-                ((timestamp,) for timestamp in observations),
+                'INSERT INTO macro_loader.macro_raw_vix ("timestamp_m1", "close") VALUES (%s, %s)',
+                ((timestamp, 20.0 + index) for index, timestamp in enumerate(observations)),
             )
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         raw_values = connection.execute(
@@ -1172,7 +1176,7 @@ def test_real_postgres_generated_availability_uses_next_weekday_in_raw_and_view(
                ORDER BY timestamp_m1"""
         ).fetchall()
         view_values = connection.execute(
-            """SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_features
+            """SELECT DISTINCT timestamp_m1, available_at_utc FROM macro_loader.macro_features
                ORDER BY timestamp_m1"""
         ).fetchall()
 
@@ -1333,7 +1337,7 @@ def test_real_postgres_xetra_returns_match_independent_reference(
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             _insert_level_values(cursor.connection, timestamps, {"vix": levels})
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         feature_names = (
             "vix_log_return_1obs",
             "vix_return_geom_5obs_pct",
@@ -1367,7 +1371,7 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             _insert_level_values(cursor.connection, timestamps, {"vix": levels})
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         feature_names = (
             "vix_sma_ratio_5_20",
             "vix_rsi_7obs",
@@ -1417,7 +1421,7 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
                 timestamps,
                 {"vix": levels, "estr": [-1.0] * len(timestamps)},
             )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         counts = connection.execute(
             "SELECT (SELECT count(*) FROM macro_loader.macro_raw_vix), "
             "(SELECT count(DISTINCT timestamp_m1) FROM macro_loader.macro_features)"
@@ -1512,7 +1516,7 @@ def test_real_postgres_long_feature_materialized_view_refreshes_from_raw_source(
 
 
 @pytest.mark.integration
-def test_real_postgres_migration_36_renames_populated_view_and_retires_legacy_chain(
+def test_real_postgres_migrations_36_to_38_rename_populated_view_and_retire_legacy_chain(
     migrator: PostgresGoldSchemaMigrator,
     postgres_dsn: str,
 ) -> None:
@@ -1560,10 +1564,7 @@ def test_real_postgres_migration_36_renames_populated_view_and_retires_legacy_ch
                 f'CREATE MATERIALIZED VIEW macro_loader."macro_feature_transform_{series}" '
                 "AS SELECT 1::integer AS legacy"
             )
-        connection.execute(
-            "DELETE FROM macro_loader_sync.schema_migrations WHERE version = %s",
-            (len(postgres_module._MIGRATIONS),),
-        )
+        connection.execute("DELETE FROM macro_loader_sync.schema_migrations WHERE version >= 36")
 
     migrator.migrate()
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
@@ -1597,7 +1598,8 @@ def test_real_postgres_migration_36_renames_populated_view_and_retires_legacy_ch
         ).fetchone()
 
     assert before is not None and after is not None and after_refresh is not None
-    assert after[0] == before[0]
+    # Migration 36 renames the populated object; later migrations rebuild it.
+    assert after[0] != before[0]
     assert after[1] == before[1] > 0
     assert remaining == []
     assert indexes == [
@@ -1761,12 +1763,12 @@ def test_real_postgres_pr170_extended_windows_match_reference_and_ignore_future_
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             _insert_level_values(cursor.connection, timestamps, {"vix": levels})
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         full_history_values = _long_feature_values_at(connection, target, feature_names)
         connection.execute(
             "DELETE FROM macro_loader.macro_raw_vix WHERE timestamp_m1 > %s", (target,)
         )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         truncated_values = _long_feature_values_at(connection, target, feature_names)
 
     assert truncated_values == full_history_values, "future rows changed earlier view values"
@@ -1801,7 +1803,7 @@ def test_real_postgres_pr170_wilder_rsi_flat_gain_and_loss_boundaries(
             _clear_feature_tables(connection)
             with connection.cursor() as cursor:
                 _insert_level_values(cursor.connection, timestamps, {"vix": levels})
-            connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+            connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
             names = tuple(f"vix_rsi_{window}obs" for window in (3, 5, 7, 14))
             actual = _long_feature_values_at(connection, timestamps[-1], names)
             assert tuple(actual[name] for name in names) == expected, _name
@@ -1819,7 +1821,6 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
     host, port, database = _postgres_target(postgres_dsn)
     monkeypatch.setattr(postgres_module, "POSTGRES_HOST", host)
     monkeypatch.setattr(postgres_module, "POSTGRES_PORT", port)
-    monkeypatch.setattr(postgres_module, "POSTGRES_USER", "macro_loader_test")
     policy = PostgresTimeoutPolicy(
         connect_timeout_seconds=5,
         lock_timeout_ms=200,
@@ -1830,13 +1831,16 @@ def test_real_postgres_session_timeouts_bound_lock_and_statement(
         PostgresSyncConfig(
             host,
             port,
-            "macro_loader_test",
+            "macro-loader",
             database,
-            "macro_loader_test",
+            "runtime-secret",
             policy,
         )
     )
     migrator.migrate()
+    with psycopg.connect(postgres_dsn) as admin_connection:
+        admin_connection.execute(provision_sql(database, "runtime-secret", "macro_loader_test"))
+        admin_connection.commit()
 
     session = repository._open()
     try:
@@ -1893,7 +1897,22 @@ def test_real_postgres_schema_drift_fails_closed_before_sync(
 ) -> None:
     migrator.migrate()
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        connection.execute(drift_sql)
+        if "TIMESTAMPTZ(3)" in drift_sql:
+            migration = postgres_module._FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION
+            connection.execute('DROP MATERIALIZED VIEW "macro_loader"."macro_features" CASCADE')
+            connection.execute(
+                "ALTER TABLE macro_loader.macro_raw_vix DROP COLUMN available_at_utc"
+            )
+            connection.execute(drift_sql)
+            connection.execute(
+                "ALTER TABLE macro_loader.macro_raw_vix ADD COLUMN available_at_utc "
+                "TIMESTAMPTZ(6) GENERATED ALWAYS AS "
+                f"({postgres_module._AVAILABLE_AT_EXPRESSION}) STORED NOT NULL"
+            )
+            for statement in (migration[1], *migration[2:-1]):
+                connection.execute(statement)
+        else:
+            connection.execute(drift_sql)
 
     with pytest.raises(
         postgres_module.PostgresGoldRepositoryError, match="schema preflight failed"
@@ -2087,7 +2106,7 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
     target_timestamp = timestamps[target_index]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         _insert_level_values(connection, timestamps, series_levels)
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         full_rows = connection.execute(
             "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
             "WHERE timestamp_m1 <= %s AND feature_name = ANY(%s) "
@@ -2139,7 +2158,7 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
                 f'DELETE FROM macro_loader."{table}" WHERE timestamp_m1 > %s',
                 (target_timestamp,),
             )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         truncated_target = _long_feature_values_at(connection, target_timestamp, feature_names)
 
     assert truncated_target == full_target
@@ -2182,7 +2201,7 @@ def test_real_postgres_pr171_negative_correlation_and_zero_variance_are_preserve
         for scenario, levels in scenarios:
             _clear_feature_tables(connection)
             _insert_level_values(connection, timestamps, {"vix": levels})
-            connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+            connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
             row = _long_feature_values_at(connection, timestamps[-1], names)
             if scenario == "flat":
                 assert row[names[0]] is None

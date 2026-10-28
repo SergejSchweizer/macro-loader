@@ -21,6 +21,9 @@ on 2026-10-27. The 2026-10-28 guarded cron acceptance passed both wrapper runs, 
 replay, and independent per-feature population verification. This verifies schema, types, and
 source-derived row counts; it is not a substitute for numeric SQL-versus-independent-formula
 parity tests.
+PR-227 adds migration 38, keeping historical migrations immutable while rebuilding the long
+view with explicit-NULL EMA/MACD reset behavior and guarded log-ratio evaluation. Production
+remains on migration 37 until migration 38 is separately deployed.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
@@ -663,9 +666,10 @@ EMA outputs for each of the twelve
 `PRICE_FEATURE_SERIES`; signed/non-price `estr` is excluded. EMA is private SQL
 intermediate state and is not itself exposed. For period `n`, alpha is `2/(n+1)`;
 the first EMA is the arithmetic mean of `n` consecutive valid positive levels, and
-subsequent values use `EMA[t] = alpha*level[t] + (1-alpha)*EMA[t-1]`. A missing or
-nonpositive source level resets the recurrence and its seed. Output remains NULL until
-the seed is complete again. The EMA implementation follows the reference recurrence in
+subsequent values use `EMA[t] = alpha*level[t] + (1-alpha)*EMA[t-1]`. An explicit raw row
+with a NULL or nonpositive source level resets the recurrence and its seed; an absent row
+does not advance or reset it. Output remains NULL until the seed is complete again. The EMA
+implementation follows the reference recurrence in
 XETRA's `exponential_moving_average` helper.
 
 | Column suffix | Formula | Warm-up and NULL rules |
@@ -689,6 +693,8 @@ source observations. Timestamps belonging only to another feature series cannot 
 reset, or otherwise alter that series' recurrence. PostgreSQL migration 37 rebuilds the
 long-form `macro_loader.macro_features` materialized view to correct previously published
 EMA/MACD values under this source-observation rule.
+Migration 38 rebuilds that long-form view so explicit NULL rows reset the corresponding EMA
+and MACD signal recurrence; absent timestamps remain missing observations and have no effect.
 Volume transformations, market breadth, and cross-instrument dispersion are excluded by
 the current user scope. No applicable `volume_level` source or instrument panel exists in
 the raw contract.

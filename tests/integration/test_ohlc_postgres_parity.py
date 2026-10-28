@@ -980,7 +980,7 @@ def test_extended_view_publishes_all_added_series_and_causal_transformations(
         f"{series}_rsi_14obs",
         f"{series}_roc_20obs",
         f"{series}_drawdown_20obs",
-        f"{series}_ema_5obs",
+        f"{series}_ema5_distance",
         f"{series}_macd_hist_relative",
     )
     with psycopg.connect(postgres_dsn) as connection:
@@ -1001,7 +1001,7 @@ def test_extended_view_publishes_all_added_series_and_causal_transformations(
             )
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         early = _long_values_at(connection, timestamps[19], feature_names)
-        final = _long_values_at(connection, timestamps[-1], feature_names)
+        final = _long_values_at(connection, timestamps[60], feature_names)
         before_future = _long_values_at(connection, timestamps[-1], feature_names)
         future_timestamp = timestamps[-1] + timedelta(days=1)
         connection.execute(
@@ -1025,6 +1025,53 @@ def test_extended_view_publishes_all_added_series_and_causal_transformations(
     assert final[feature_names[8]] is not None
     assert final[feature_names[9]] is not None
     assert before_future == after_future
+
+
+@pytest.mark.integration
+def test_extended_ema_and_macd_restart_after_explicit_raw_null(
+    postgres_dsn: str,
+    migrator: PostgresGoldSchemaMigrator,
+) -> None:
+    migrator.migrate()
+    series = "vstoxx1m"
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    reset_index = 40
+    levels = [100.0 + index for index in range(reset_index)]
+    levels.append(None)
+    levels.extend(200.0 + index * index * 0.1 for index in range(40))
+    timestamps = [start + timedelta(days=index) for index in range(len(levels))]
+    feature_names = (f"{series}_ema5_distance", f"{series}_macd_hist_relative")
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(f'TRUNCATE TABLE macro_loader."macro_raw_{series}"')
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                f'INSERT INTO macro_loader."macro_raw_{series}" '
+                '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        observations = connection.execute(
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE feature_name = ANY(%s) AND timestamp_m1 = ANY(%s)",
+            (
+                list(feature_names),
+                [
+                    timestamps[reset_index + 4],
+                    timestamps[reset_index + 5],
+                    timestamps[reset_index + 33],
+                    timestamps[reset_index + 34],
+                ],
+            ),
+        ).fetchall()
+
+    values = {(timestamp, name): value for timestamp, name, value in observations}
+    assert values.get((timestamps[reset_index + 4], feature_names[0])) is None
+    assert values[(timestamps[reset_index + 5], feature_names[0])] == pytest.approx(
+        levels[reset_index + 5] / sum(levels[reset_index + 1 : reset_index + 6]) * 5.0 - 1.0
+    )
+    assert values.get((timestamps[reset_index + 33], feature_names[1])) is None
+    assert values[(timestamps[reset_index + 34], feature_names[1])] is not None
 
 
 def test_postgres_migration_32_upgrades_existing_v31_view_contract(

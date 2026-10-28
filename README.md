@@ -24,6 +24,12 @@ This operator guide does not provide Fed-specific command or scheduling instruct
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.
 
+Pending PR-227 adds migration 38 to rebuild the long-form view from the raw-series tables.
+An explicit NULL source observation resets that series' EMA/MACD recurrence; a missing
+timestamp is not an observation and does not reset state. Logarithm inputs are checked for a
+positive representable ratio before evaluation. Production remains on migration 37 until
+migration 38 is explicitly deployed.
+
 The current Gold semantic contract is schema version **11** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
 `application.gold_frame.GOLD_FEATURE_VERSION`. PostgreSQL schema migration 31 moves the
@@ -515,8 +521,10 @@ private-recursive EMA intermediates and six series-prefixed nullable outputs for
 `(EMA5-EMA21)/level`; normalized three-source-row EMA9 slope; and an EMA5/EMA9 crossover
 value (`1`, `-1`, or `0`). Each EMA seeds from the arithmetic mean of its first `n`
 consecutive positive levels, then recurs with alpha `2/(n+1)`; missing or nonpositive
-levels reset the seed. EMA intermediates are not view columns, and outputs remain NULL until
-the seed/endpoints exist. This follows XETRA's `exponential_moving_average` recurrence.
+levels reset the seed. An explicit raw row with a NULL level also resets the recurrence; an
+absent source row neither advances nor resets it. EMA intermediates are not view columns, and
+outputs remain NULL until the seed/endpoints exist. This follows XETRA's
+`exponential_moving_average` recurrence.
 PR-173 adds three relative MACD outputs to the version-13 merged view. Their formulas are
 `(EMA12-EMA26)/level`,
 `(MACD_line-EMA9_signal)/level`, and the three-source-row difference of the relative
@@ -524,6 +532,8 @@ histogram. The signal EMA accepts signed and zero MACD-line values and resets on
 NULL MACD line, matching XETRA's `allow_nonpositive` EMA mode. See the
 [XETRA MACD CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
 and [output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
+An explicit NULL raw observation produces a NULL MACD line and resets the signal recurrence;
+timestamps absent from that series do not affect it.
 Volume transformations, market breadth, and cross-instrument dispersion are excluded by
 the current user scope. The raw contract has no applicable `volume_level` field or
 cross-instrument panel.
