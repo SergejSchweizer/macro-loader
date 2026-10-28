@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from collections.abc import Callable, Sequence
@@ -13,6 +14,7 @@ import polars as pl
 from application.ports.lake import FrameDiff, ObservationBounds
 
 PathForDate = Callable[[date], Path]
+logger = logging.getLogger(__name__)
 
 
 def _existing_paths(paths: Sequence[Path]) -> list[Path]:
@@ -23,16 +25,27 @@ def _existing_paths(paths: Sequence[Path]) -> list[Path]:
 def read_monthly(paths: Sequence[Path], *, sort_by: Sequence[str]) -> pl.DataFrame:
     """Read zero, one, or many exact monthly Parquet files deterministically."""
     existing = _existing_paths(paths)
+    logger.debug("monthly parquet read started file_count=%d", len(existing))
     if not existing:
+        logger.debug("monthly parquet read completed file_count=0 row_count=0")
         return pl.DataFrame()
-    frames = [pl.read_parquet(path) for path in existing]
-    frame = frames[0] if len(frames) == 1 else pl.concat(frames, how="vertical_relaxed")
-    if not sort_by:
-        return frame
-    missing = [column for column in sort_by if column not in frame.columns]
-    if missing:
-        raise ValueError(f"sort key columns missing: {missing}")
-    return frame.sort(list(sort_by))
+    try:
+        frames = [pl.read_parquet(path) for path in existing]
+        frame = frames[0] if len(frames) == 1 else pl.concat(frames, how="vertical_relaxed")
+        if sort_by:
+            missing = [column for column in sort_by if column not in frame.columns]
+            if missing:
+                raise ValueError(f"sort key columns missing: {missing}")
+            frame = frame.sort(list(sort_by))
+    except Exception as exc:
+        logger.debug("monthly parquet read failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug(
+        "monthly parquet read completed file_count=%d row_count=%d",
+        len(existing),
+        frame.height,
+    )
+    return frame
 
 
 def observation_bounds(
@@ -143,30 +156,40 @@ def merge_frames(
 
 def atomic_write_parquet(frame: pl.DataFrame, destination: Path) -> None:
     """Atomically replace one Parquet destination using a same-directory temp file."""
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    file_descriptor, temp_name = tempfile.mkstemp(
-        dir=destination.parent,
-        prefix=f".{destination.name}.",
-        suffix=".tmp",
+    logger.debug(
+        "atomic parquet write started row_count=%d column_count=%d",
+        frame.height,
+        frame.width,
     )
-    temp_path = Path(temp_name)
-    os.close(file_descriptor)
+    temp_path: Path | None = None
     try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        file_descriptor, temp_name = tempfile.mkstemp(
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+        )
+        temp_path = Path(temp_name)
+        os.close(file_descriptor)
         frame.write_parquet(temp_path)
         with temp_path.open("rb") as handle:
             os.fsync(handle.fileno())
         os.replace(temp_path, destination)
         try:
             directory_fd = os.open(destination.parent, os.O_RDONLY)
-        except OSError:
-            return
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    except BaseException:
-        temp_path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.debug("atomic parquet directory sync skipped error_type=%s", type(exc).__name__)
+        else:
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except BaseException as exc:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        logger.debug("atomic parquet write failed error_type=%s", type(exc).__name__)
         raise
+    logger.debug("atomic parquet write completed row_count=%d", frame.height)
 
 
 def upsert_monthly(
@@ -178,10 +201,16 @@ def upsert_monthly(
     path_for_date: PathForDate,
 ) -> tuple[FrameDiff, tuple[Path, ...]]:
     """Upsert and rewrite only months containing inserted/revised observations."""
+    logger.debug(
+        "monthly parquet upsert started existing_rows=%d incoming_rows=%d",
+        existing.height,
+        incoming.height,
+    )
     if date_column not in incoming.columns:
         raise ValueError(f"date column missing from incoming: {date_column}")
     merged, diff = merge_frames(existing, incoming, key=key)
     if not diff.has_changes:
+        logger.debug("monthly parquet upsert completed inserted=0 revised=0 written_partitions=0")
         return diff, ()
     changed_dates = diff.changed.get_column(date_column).drop_nulls().to_list()
     if any(not isinstance(value, date) for value in changed_dates):
@@ -196,6 +225,12 @@ def upsert_monthly(
         )
         atomic_write_parquet(month_frame, destination)
         written.append(destination)
+    logger.debug(
+        "monthly parquet upsert completed inserted=%d revised=%d written_partitions=%d",
+        diff.inserts.height,
+        diff.revisions.height,
+        len(written),
+    )
     return diff, tuple(written)
 
 

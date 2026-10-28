@@ -9,14 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-208: Add Debug Telemetry To Lake Repositories
+
+PR name: `lake-repository-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-208/lake-repository-debug-logs`
+Git status: active-dirty: AGENTS.md, ARCHITECTURE.md, BACKLOG.md, README.md, ingestion/parquet_repository.py, ingestion/silver_repository.py, ingestion/state_repository.py, ingestion/operational_repository.py, ingestion/inventory_refresh.py, tests/unit/test_parquet_repository.py, tests/unit/test_planner_state.py, tests/unit/test_operational_repository.py, tests/integration/test_silver_repository.py
+Agent lane: monthly Parquet, Silver, state, inventory, and run-audit persistence
+Commit: `feat(pr-208): instrument lake repositories`
+Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
+Depends on: PR-207 (merged to `origin/main`)
+
+Description:
+- R1: Add safe module debug lifecycle logs to shared Parquet read/write/upsert primitives,
+  Silver persistence, ingestion state, inventory refresh, and operational run/inventory stores.
+- R2: Restrict log fields to canonical provider/series IDs, row/partition counts, operation,
+  and exception class; never log row values, secrets, record error text, or absolute paths.
+- R3: Preserve atomic writes, no-op physical stability, bounded delta semantics, and the
+  existing schemas and persistence ordering.
+- R4: Require local quality gates only; do not run GitHub Actions, production storage,
+  PostgreSQL, or cron.
+
+Acceptance:
+- A1 caplog tests verify read/write, diff, state, inventory, Silver, and run-record lifecycle
+  events with accurate counts and empty/no-op paths.
+- A2 injected-failure tests prove values, secrets, absolute paths, and exception text are
+  absent while exception classes remain diagnosable.
+- A3 existing repository tests continue to prove exact schemas, atomic recovery, affected-month
+  writes only, and no-op hash/mtime stability.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-207: Add Debug Telemetry To Gold Storage Adapters
 
 PR name: `gold-storage-adapter-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#207](https://github.com/SergejSchweizer/macro-loader/pull/207) (open)
+PR: [#207](https://github.com/SergejSchweizer/macro-loader/pull/207) (merged)
 Git branch: `pr-207/gold-storage-adapter-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: immutable Gold artifact, catalog, sidecar, materialized-view, and mirror persistence
 Commit: `cdbeece feat(pr-207): instrument Gold storage adapters`
 Design patterns: Logging Adapter; existing Repository, Materialized View, and Mark-and-Sweep boundaries remain unchanged.

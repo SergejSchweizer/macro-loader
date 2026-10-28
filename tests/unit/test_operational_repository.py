@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -222,3 +223,33 @@ def test_run_writer_rejects_duplicate_ids_and_bad_schema(tmp_path: Path) -> None
     pl.DataFrame({"bad": [1]}).write_parquet(path)
     with pytest.raises(ValueError, match="invalid ingestion-run schema"):
         read_runs(path)
+
+
+def test_operational_repository_logs_counts_without_record_error_text(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    inventory_path = tmp_path / "inventory.parquet"
+    runs_path = tmp_path / "runs.parquet"
+    failed = run(
+        status=RunStatus.FAILED,
+        inserted=0,
+        revised=0,
+        partitions=0,
+        error="private /source/path TOPSECRET payload=4.2",
+    )
+    caplog.set_level(logging.DEBUG, logger="ingestion.operational_repository")
+
+    write_inventory(inventory_path, [inventory()])
+    assert read_inventory(inventory_path) == [inventory()]
+    upsert_run(runs_path, failed, secrets=("TOPSECRET",))
+    assert read_runs(runs_path)[0].error_message == "private /source/path *** payload=4.2"
+
+    assert "inventory snapshot write completed record_count=1" in caplog.text
+    assert "inventory snapshot read completed record_count=1" in caplog.text
+    assert "ingestion run upsert completed run_id=run-1" in caplog.text
+    assert "ingestion run snapshot write completed record_count=1" in caplog.text
+    assert "private /source/path" not in caplog.text
+    assert "TOPSECRET" not in caplog.text
+    assert "payload=4.2" not in caplog.text
+    assert str(tmp_path) not in caplog.text

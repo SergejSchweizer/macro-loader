@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 import polars as pl
@@ -11,6 +12,8 @@ from application.paths import LakePaths
 from application.registry import SERIES_REGISTRY
 from ingestion.operational_repository import write_inventory
 
+logger = logging.getLogger(__name__)
+
 
 class InventoryRefreshService:
     """Rebuild the deterministic Bronze inventory snapshot for all canonical series."""
@@ -19,8 +22,18 @@ class InventoryRefreshService:
         self._paths = paths
 
     def refresh(self) -> tuple[InventoryRecord, ...]:
-        records = tuple(self._record(series_id) for series_id in SERIES_REGISTRY)
-        write_inventory(self._paths.inventory(), list(records))
+        logger.debug("Bronze inventory refresh started series_count=%d", len(SERIES_REGISTRY))
+        try:
+            records = tuple(self._record(series_id) for series_id in SERIES_REGISTRY)
+            write_inventory(self._paths.inventory(), list(records))
+        except Exception as exc:
+            logger.debug("Bronze inventory refresh failed error_type=%s", type(exc).__name__)
+            raise
+        logger.debug(
+            "Bronze inventory refresh completed series_count=%d nonempty_count=%d",
+            len(records),
+            sum(record.row_count > 0 for record in records),
+        )
         return records
 
     def _record(self, series_id: str) -> InventoryRecord:

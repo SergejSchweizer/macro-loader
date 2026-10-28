@@ -926,6 +926,9 @@ Gold Parquet, catalog, sidecar, bundle, root-view, retention-sweeper, and mirror
 record their persistence lifecycle and row/artifact counts. Adapter logs may include a
 canonical build ID and exception class, but never artifact digests, raw feature values,
 absolute paths, or exception text.
+Shared Parquet, Silver, ingestion-state, inventory, and run-audit repositories record
+read/write/upsert outcomes and row/partition counts with canonical provider/series IDs;
+they never include row payloads, persisted error text, absolute paths, or secret values.
 Failure logs contain only exception class names, never exception messages. These workflow
 logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are
