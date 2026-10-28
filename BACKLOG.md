@@ -9,16 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-220: Add Debug Telemetry To Cron Support Utilities
+
+PR name: `cron-support-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: pending
+Git branch: `pr-220/cron-support-debug-logs`
+Git status: active-local-checks-pending
+Agent lane: safe log-retention and cron-configuration helper lifecycle
+Commit: `feat(pr-220): instrument cron support utilities`
+Design patterns: Logging Adapter; preserve cron Command boundaries and secret-safe config export.
+Depends on: PR-219 (merged to `origin/main`)
+
+Description:
+- R1: Record lifecycle and safe counts for cron log rotation/retention and protected
+  configuration export using the standard `.logs` debug handler.
+- R2: Restrict debug records to rotated/pruned/exported-key counts and exception classes;
+  exclude paths, config values, credentials, and exception messages.
+- R3: Preserve shell-safe export, log-family boundaries, archive collision refusal, and
+  90-day retention semantics.
+
+Acceptance:
+- A1 unit tests assert rotation/prune counts and exception-class-only failure events.
+- A2 config-export tests assert key counts and prove protected values/config paths are absent
+  from debug logs on both success and failure.
+- A3 existing tests continue to prove shell quoting, endpoint validation, archive collision
+  behavior, and pruning restricted to named cron-log archives.
+- A4 `make quality-gate` passes locally; no GitHub Actions, production cron, or database runs.
+
 ### PR-219: Add Debug Telemetry To Daily Source Planning
 
 PR name: `planner-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#219](https://github.com/SergejSchweizer/macro-loader/pull/219) (open)
+PR: [#219](https://github.com/SergejSchweizer/macro-loader/pull/219) (merged)
 Git branch: `pr-219/planner-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: provider-neutral bootstrap, bounded update, and explicit reconcile planning
 Commit: `feat(pr-219): instrument daily source planning`
+Merge commit: `1714c293ace2e84262e63d2edf8b8cc06da7be40`
 Design patterns: Logging Adapter; preserve pure deterministic update planning.
 Depends on: PR-218 (merged to `origin/main`)
 

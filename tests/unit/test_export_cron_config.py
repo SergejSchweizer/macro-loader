@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shlex
 from pathlib import Path
 
@@ -98,6 +99,37 @@ def test_export_rejects_config_for_a_different_installed_project(
     monkeypatch.setenv("MACRO_LOADER_PROJECT_ROOT", "/installed/project")
     with pytest.raises(ValueError, match="installed project root"):
         export(config)
+
+
+def test_export_logs_variable_count_without_paths_or_values(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.export_cron_config")
+    config = tmp_path / "config.yaml"
+    config.write_text(_config(password="very-secret"), encoding="utf-8")
+
+    result = export(config)
+
+    assert "cron configuration export started" in caplog.text
+    assert f"variable_count={len(result.splitlines())}" in caplog.text
+    assert str(tmp_path) not in caplog.text
+    assert "very-secret" not in caplog.text
+
+
+def test_export_failure_logs_only_exception_class_and_no_config_values(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.export_cron_config")
+    config = tmp_path / "config.yaml"
+    config.write_text(_config().replace("10.10.1.3", "invalid-host"), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="postgres_host"):
+        export(config)
+
+    assert "cron configuration export failed error_type=ValueError" in caplog.text
+    assert "invalid-host" not in caplog.text
+    assert "must be 10.10.1.3" not in caplog.text
+    assert str(tmp_path) not in caplog.text
 
 
 def test_repository_ignores_protected_config_and_logs() -> None:

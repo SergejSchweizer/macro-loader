@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shlex
 import sys
@@ -9,6 +10,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
+
+from api.logging_config import configure_debug_logging
+
+logger = logging.getLogger(__name__)
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = "54321"
@@ -52,6 +57,17 @@ def _postgres_values(config: dict[str, Any]) -> dict[str, str]:
 
 
 def export(path: Path) -> str:
+    logger.debug("cron configuration export started")
+    try:
+        result = _export(path)
+    except Exception as exc:
+        logger.debug("cron configuration export failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug("cron configuration export completed variable_count=%d", len(result.splitlines()))
+    return result
+
+
+def _export(path: Path) -> str:
     parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(parsed, dict):
         raise ValueError("config.yaml must be a mapping")
@@ -83,6 +99,7 @@ def export(path: Path) -> str:
 
 
 def main() -> int:
+    configure_debug_logging(Path.cwd())
     try:
         print(export(Path(sys.argv[1])))
     except (IndexError, OSError, ValueError, yaml.YAMLError) as error:

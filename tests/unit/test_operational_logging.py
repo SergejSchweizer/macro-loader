@@ -128,3 +128,37 @@ def test_rotate_logs_leaves_current_day_files_in_place(tmp_path: Path) -> None:
 
     assert rotate_operational_logs(tmp_path) == ()
     assert current.read_text(encoding="utf-8") == "today"
+
+
+def test_rotate_logs_emits_counts_without_directory_paths(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.rotate_operational_logs")
+    yesterday = tmp_path / "macro-loader.log"
+    expired = tmp_path / "macro-loader.log.2026-07-29"
+    yesterday.write_text("daily", encoding="utf-8")
+    expired.write_text("expired", encoding="utf-8")
+    os.utime(yesterday, (datetime(2026, 10, 27, 10).timestamp(),) * 2)
+
+    rotate_operational_logs(tmp_path, today=date(2026, 10, 28))
+
+    assert "cron log maintenance started" in caplog.text
+    assert "rotated_count=1 pruned_archive_count=1" in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+def test_rotate_logs_failure_records_only_exception_class(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.rotate_operational_logs")
+    daily = tmp_path / "macro-loader.log"
+    daily.write_text("daily", encoding="utf-8")
+    (tmp_path / "macro-loader.log.2026-10-27").write_text("existing", encoding="utf-8")
+    os.utime(daily, (datetime(2026, 10, 27, 10).timestamp(),) * 2)
+
+    with pytest.raises(FileExistsError):
+        rotate_operational_logs(tmp_path, today=date(2026, 10, 28))
+
+    assert "cron log maintenance failed error_type=FileExistsError" in caplog.text
+    assert str(tmp_path) not in caplog.text
+    assert "refusing to overwrite" not in caplog.text

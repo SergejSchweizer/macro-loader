@@ -790,6 +790,10 @@ The daily source planner records provider/series identity, selected mode and fet
 request/filter bounds, and lifecycle outcome. Failures include only the exception class; source
 values and exception messages are excluded. Its logs do not change the strict newest-observation
 delta window or the explicit-only reconciliation policy.
+Cron support helpers write lifecycle records to the shared debug log: configuration export
+reports only the number of exported variables, while log maintenance reports rotated and
+pruned archive counts. Neither logs paths or configuration values; failures report only the
+exception class.
 Inventory text/JSON rendering logs the selected output format and record count, plus exception
 class on formatting failure; inventory rows and exception messages remain excluded.
 
