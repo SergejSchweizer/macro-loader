@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-203: Add Debug Telemetry To Source Ingestion Modules
 
 PR name: `source-ingestion-debug-logs`
-Status: In Progress
+Status: Open — PR #203 awaiting review
 Updated: 2026-10-28
-PR: TBD
-Git branch: `pr-203/source-ingestion-debug-logs`
-Git status: active-dirty: source-ingestion debug telemetry
+PR: [#203](https://github.com/SergejSchweizer/macro-loader/pull/203)
+Git branch: `pr-203/module-debug-logging`
+Git status: pushed-local-checks-passed
 Agent lane: instrument provider, transport, orchestration, and Bronze persistence boundaries
 Commit: `feat(pr-203): instrument source-ingestion debug logs`
 Design patterns: Logging Adapter; constructor-injected application boundaries remain unchanged.
