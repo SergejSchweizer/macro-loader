@@ -12,12 +12,13 @@ Last reviewed: 2026-10-28
 ### PR-225: Parallelize Independent PostgreSQL Feature Conformance
 
 PR name: `parallel-postgres-feature-verification`
-Status: In progress — parallelize independent verification and correct source-observation EMA/MACD recurrence inputs
+Status: Merged
 Updated: 2026-10-28
+PR: [#225](https://github.com/SergejSchweizer/macro-loader/pull/225) (merged)
 Git branch: `pr-225/parallel-postgres-feature-verification`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: bounded, read-only PostgreSQL raw-derived feature population verification
-Commit: pending
+Commit: `a20b7b8` (squash merge)
 Design patterns: Bounded Concurrency Policy; Verification Adapter; preserve read-only transaction boundaries.
 Depends on: PR-224 (merged to `origin/main`)
 
@@ -44,6 +45,36 @@ Acceptance:
   rebuild publishes the current long-form schema and catalog fingerprint.
 - A5 `make quality-gate` passes locally; no GitHub Actions are used. Production migration and
   the full cron acceptance run require explicit deployment authorization after merge.
+
+### PR-226: Close Idle Transactions During Long PostgreSQL Verification
+
+PR name: `close-idle-conformance-transactions`
+Status: In progress — live acceptance exposed an idle-transaction timeout after all source groups passed
+Updated: 2026-10-28
+Git branch: `pr-226/close-idle-conformance-transactions`
+Git status: local-work-in-progress
+Agent lane: read-only PostgreSQL live conformance transaction lifecycle
+Commit: `fix(pr-226): close idle verification transaction before scans`
+Design patterns: Unit of Work; short-lived read-only transaction boundaries; Dependency Injection.
+Depends on: PR-225 (merged to `origin/main`)
+
+Description:
+- R1: Finish and roll back the initial short read-only schema inspection transaction before
+  starting the potentially long per-feature population comparisons.
+- R2: Keep each bounded-concurrency feature-group comparison in its own short-lived
+  read-only transaction, then open a fresh read-only transaction for catalog, role, session,
+  and timestamp probes.
+- R3: Preserve fail-closed verification, rollback/close behavior on every failure, and
+  sanitized diagnostics.
+
+Acceptance:
+- A1 deterministic unit tests prove no schema-check transaction remains open while the
+  population groups execute and final metadata checks use a fresh connection.
+- A2 failure tests prove all connections are rolled back and closed even if a worker or final
+  metadata check fails.
+- A3 guarded production cron acceptance passes both wrappers, zero-change replay, and the
+  independent verifier after migration 37; retain its sanitized report.
+- A4 `make quality-gate` passes locally; no GitHub Actions or remote checks are used.
 
 ### PR-224: Bound Parallelism In Full-History Acceptance Runs
 

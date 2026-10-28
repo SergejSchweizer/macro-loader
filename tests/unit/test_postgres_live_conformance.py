@@ -220,6 +220,8 @@ def _fake_connection_factory(
     connections: list[FakeConnection] = []
 
     def create_connection(_: PostgresSyncConfig) -> FakeConnection:
+        if connections:
+            assert connections[0].closed, "schema transaction must close before population scans"
         connection = FakeConnection(FakeCursor(timezone=timezone))
         connections.append(connection)
         return connection
@@ -280,9 +282,8 @@ def test_live_inspector_independently_checks_schema_roles_session_and_temporal_p
     assert "secret" not in caplog.text
     assert connections[0].rollbacks == 1
     assert all(connection.closed for connection in connections)
-    cursor = connections[0].cursor()
-    assert cursor is not None
-    assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2
+    final_cursor = connections[-1].cursor()
+    assert final_cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2
     worker_queries = [
         query
         for connection in connections[1:]
@@ -307,6 +308,7 @@ def test_live_inspector_fails_closed_and_rolls_back_when_session_timezone_drifts
         inspector.inspect()
     assert connections[0].rollbacks == 1
     assert all(connection.closed for connection in connections)
+    assert all(connection.rollbacks == 1 for connection in connections)
     assert "error_type=ValueError" in caplog.text
     assert "session timezone differs" not in caplog.text
     assert "secret" not in caplog.text
@@ -344,3 +346,31 @@ def test_live_inspector_rejects_duplicate_primary_key_metadata() -> None:
     with pytest.raises(PostgresGoldRepositoryError, match="live conformance inspection failed"):
         inspector.inspect()
     assert not inspector._setting_matches("unexpected", 5_000)
+
+
+def test_live_inspector_closes_every_connection_when_a_population_group_fails() -> None:
+    class FailingWorkerCursor(FakeCursor):
+        def execute(
+            self, query: str, params: tuple[object, ...] | None = None
+        ) -> FailingWorkerCursor:
+            if query.startswith("WITH selected_names AS MATERIALIZED"):
+                raise RuntimeError("private worker failure")
+            return super().execute(query, params)
+
+    connections: list[FakeConnection] = []
+
+    def factory(_: PostgresSyncConfig) -> FakeConnection:
+        if connections:
+            assert connections[0].closed
+        connection = FakeConnection(FailingWorkerCursor())
+        connections.append(connection)
+        return connection
+
+    inspector = PostgresLiveDatabaseConformanceInspector(_config(), connection_factory=factory)
+
+    with pytest.raises(PostgresGoldRepositoryError, match="live conformance inspection failed"):
+        inspector.inspect()
+
+    assert len(connections) > 1
+    assert all(connection.closed for connection in connections)
+    assert all(connection.rollbacks == 1 for connection in connections)

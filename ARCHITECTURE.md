@@ -241,8 +241,12 @@ text; role DDL remains an explicit admin operation.
 service compares the certified current Gold bundle with independently read consumer rows, digest
 index, state, and summary. A dedicated ingestion adapter separately validates exact owned schema,
 role ownership and grants, UTC session settings, timeout/application identity, and rollback-only
-microsecond timestamp probes. It returns a deterministic, sanitized `PASS|FAIL` report and cannot
-publish, synchronize, migrate, or create durable probe state.
+microsecond timestamp probes. Schema checks complete in a short read-only transaction before
+independent raw-derived feature-group scans begin. Each bounded worker owns and closes its own
+read-only transaction; catalog, role, session, and temporal probes use a fresh short transaction
+after the scans, so a long comparison cannot leave an idle transaction open past the server's
+timeout. It returns a deterministic, sanitized `PASS|FAIL` report and cannot publish, synchronize,
+migrate, or create durable probe state.
 
 `postgres-reconstruct --execute` is a separate, explicitly authorized production command. Its
 application use case is fail-closed: maintenance marker, runner lock, PostgreSQL maintenance
