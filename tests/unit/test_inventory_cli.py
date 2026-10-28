@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 from datetime import date
+
+import pytest
 
 from api.inventory import INVENTORY_FIELDS, run_inventory
 from application.contracts import Provider
@@ -110,6 +113,44 @@ def test_empty_result_is_success_for_text_and_json() -> None:
     assert code == 0
     assert error == ""
     assert output == "[]\n"
+
+
+def test_inventory_rendering_logs_safe_format_and_row_counts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from api.inventory import render_json, render_text
+
+    with caplog.at_level(logging.DEBUG, logger="api.inventory"):
+        render_text(_records())
+        render_json([])
+
+    assert "inventory rendering started format=text record_count=2" in caplog.text
+    assert "inventory rendering completed format=text record_count=2" in caplog.text
+    assert "inventory rendering started format=json record_count=0" in caplog.text
+    assert "inventory rendering completed format=json record_count=0" in caplog.text
+    assert "us_10y" not in caplog.text
+    assert "1962-01-02" not in caplog.text
+
+
+def test_inventory_render_failure_logs_only_exception_class(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from api import inventory
+
+    def fail(_record: InventoryRecord) -> dict[str, object]:
+        raise ValueError("sensitive record payload")
+
+    monkeypatch.setattr(inventory, "_logical_row", fail)
+    with (
+        caplog.at_level(logging.DEBUG, logger="api.inventory"),
+        pytest.raises(ValueError, match="sensitive record payload"),
+    ):
+        inventory.render_text(_records())
+
+    assert "inventory rendering failed format=text error_type=ValueError" in caplog.text
+    assert "sensitive record payload" not in caplog.text
+    assert "us_10y" not in caplog.text
 
 
 def test_reader_or_schema_error_returns_nonzero_without_output() -> None:

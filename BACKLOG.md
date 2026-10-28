@@ -9,16 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-217: Add Debug Telemetry To Inventory Rendering
+
+PR name: `inventory-cli-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-217/inventory-cli-debug-logs`
+Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, api/inventory.py, tests/unit/test_inventory_cli.py
+Agent lane: inventory text/JSON serialization in the read-only CLI adapter
+Commit: `feat(pr-217): instrument inventory rendering`
+Design patterns: Logging Adapter; preserve the read-only CLI adapter boundary.
+Depends on: PR-216 (merged to `origin/main`)
+
+Description:
+- R1: Log text/JSON inventory rendering start, completion, and failure through the standard
+  `.logs` handler.
+- R2: Log only fixed output format, record count, and exception class; never log series rows,
+  dates, counts from source records, filesystem paths, or exception text.
+- R3: Preserve deterministic field/order serialization and existing CLI stdout/stderr and
+  exit-code behavior.
+
+Acceptance:
+- A1 caplog tests assert safe lifecycle events for text/JSON and empty/non-empty results.
+- A2 failure tests prove record data and exception messages are absent from the debug log.
+- A3 existing inventory tests continue to prove stable text/JSON schemas, filtering, and
+  error return behavior.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-216: Add Debug Telemetry To Bounded Parallelism
 
 PR name: `parallelism-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#216](https://github.com/SergejSchweizer/macro-loader/pull/216) (open)
+PR: [#216](https://github.com/SergejSchweizer/macro-loader/pull/216) (merged)
 Git branch: `pr-216/parallelism-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: bounded concurrent execution of independent application work units
 Commit: `feat(pr-216): instrument bounded parallel execution`
+Merge commit: `ee3db4e9167412317d7c0a759cd61e2240eafe54`
 Design patterns: Logging Adapter; preserve the shared bounded concurrency policy.
 Depends on: PR-215 (merged to `origin/main`)
 

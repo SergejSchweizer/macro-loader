@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#215 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#216 are merged to `origin/main`.
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
@@ -20,7 +20,8 @@ conformance/reconstruction telemetry. PR-212 merged as
 `1972971f3640181f0f5cb385e83c7e608cf288d4`. PR-214 adds safe logs to canonical Gold-frame
 assembly. PR-214 merged as `182b1c2a06dcfb5a9d93e91aa3a389caf796c6b7`; PR-215 added safe
 validation telemetry to the macro feature catalog and merged as
-`14fb82e8799fdfe1cbefc0b0a5fe80724eabdffe`. PR-216 instruments bounded parallel execution.
+`14fb82e8799fdfe1cbefc0b0a5fe80724eabdffe`. PR-216 added bounded parallel execution logs and
+merged as `ee3db4e9167412317d7c0a759cd61e2240eafe54`. PR-217 instruments inventory rendering.
 Per the user's instruction, GitHub Actions must
 remain disabled and must not be triggered, re-enabled, rerun, or newly added; perform checks
 locally only.
