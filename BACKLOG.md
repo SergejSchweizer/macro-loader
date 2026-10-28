@@ -12,13 +12,13 @@ Last reviewed: 2026-10-28
 ### PR-228: Record Production Migration 38 Verification
 
 PR name: `record-production-migration38-verification`
-Status: In Progress
+Status: Pushed — local quality gate passed; awaiting PR review
 Updated: 2026-10-28
-PR: pending
+PR: [#228](https://github.com/SergejSchweizer/macro-loader/pull/228) (open)
 Git branch: `pr-228/record-production-migration38-verification`
-Git status: active-dirty: BACKLOG.md, README.md, AGENTS.md
+Git status: pushed-local-checks-passed
 Agent lane: factual production deployment and verification documentation only
-Commit: `docs(pr-228): record production migration 38 verification`
+Commit: `955955f docs(pr-228): record production migration 38 verification`
 Design patterns: Architectural baseline only.
 Depends on: PR-227 (merged to `origin/main`)
 
