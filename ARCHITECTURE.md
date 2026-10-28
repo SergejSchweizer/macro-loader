@@ -938,6 +938,9 @@ The guarded production reconstruction adapter records each explicitly authorized
 start, completion/failure, elapsed milliseconds, and safe row/series counts. It excludes
 filesystem paths, endpoint/configuration details, credentials, subprocess output, and exception
 text; logging does not authorize or execute reconstruction.
+The PostgreSQL conformance and reconstruction application use cases record their start,
+stage/result counts, canonical build identity, safe stage names, statuses, and exception
+classes. They do not log report payloads, hashes, paths, secrets, or exception messages.
 Failure logs contain only exception class names, never exception messages. These workflow
 logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are

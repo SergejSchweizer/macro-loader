@@ -772,6 +772,9 @@ The guarded production reconstruction adapter logs fixed operation names, elapse
 safe counts/status, and exception classes. It never logs credentials, endpoints, paths,
 subprocess output, or exception text. Guarded reconstruction remains separately and explicitly
 authorized and is not part of the daily cron path.
+The application-level PostgreSQL conformance and reconstruction services also log safe
+start/result records, canonical build IDs, stage names/counts, statuses, and exception classes;
+they omit hashes, paths, report payloads, secrets, and exception text.
 
 Install it for the service account after reviewing the absolute project path:
 

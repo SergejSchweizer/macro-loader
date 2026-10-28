@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -49,7 +50,9 @@ def test_report_rejects_unordered_or_duplicate_checks() -> None:
         PostgresConformanceReport("FAIL", (), {"count": -1})
 
 
-def test_verifier_fails_closed_without_exposing_adapter_error() -> None:
+def test_verifier_fails_closed_without_exposing_adapter_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     class BrokenCatalog:
         def read(self) -> object:
             raise RuntimeError("postgresql://macro-loader:secret@example.test/db")
@@ -61,7 +64,14 @@ def test_verifier_fails_closed_without_exposing_adapter_error() -> None:
         inspector=object(),  # type: ignore[arg-type]
     )
 
-    assert verifier.verify() == PostgresConformanceReport("FAIL", ("verification_failed",), {})
+    with caplog.at_level(logging.DEBUG, logger="application.postgres_conformance_service"):
+        report = verifier.verify()
+
+    assert report == PostgresConformanceReport("FAIL", ("verification_failed",), {})
+    assert "verification started" in caplog.text
+    assert "verification failed error_type=RuntimeError" in caplog.text
+    assert "postgresql://macro-loader:secret@example.test/db" not in caplog.text
+    assert "secret" not in caplog.text
 
 
 def test_database_evidence_rejects_negative_counts() -> None:
@@ -69,7 +79,9 @@ def test_database_evidence_rejects_negative_counts() -> None:
         PostgresDatabaseConformanceEvidence(4, 2, -1)
 
 
-def test_verifier_reports_independent_evidence_for_matching_serving_state() -> None:
+def test_verifier_reports_independent_evidence_for_matching_serving_state(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     timestamp = datetime(2026, 8, 20, tzinfo=UTC)
     frame = pl.DataFrame(
         {
@@ -152,9 +164,13 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
         def inspect(self) -> PostgresDatabaseConformanceEvidence:
             return PostgresDatabaseConformanceEvidence(28, 2, 2, 0)
 
-    assert GoldPostgresConformanceVerifier(
+    verifier = GoldPostgresConformanceVerifier(
         catalog=Catalog(), source=Source(), repository=Repository(), inspector=Inspector()
-    ).verify() == PostgresConformanceReport(
+    )
+    with caplog.at_level(logging.DEBUG, logger="application.postgres_conformance_service"):
+        report = verifier.verify()
+
+    assert report == PostgresConformanceReport(
         "PASS",
         (
             "consumer",
@@ -177,6 +193,9 @@ def test_verifier_reports_independent_evidence_for_matching_serving_state() -> N
             "temporal_probe_count": 2,
         },
     )
+    assert "verification passed build_id=20260820T000000Z" in caplog.text
+    assert "source_row_count=1 consumer_row_count=1 digest_row_count=1" in caplog.text
+    assert "a" * 64 not in caplog.text
 
 
 def test_agreement_requires_identical_source_consumer_index_summary_and_state() -> None:
