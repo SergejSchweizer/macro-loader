@@ -938,6 +938,9 @@ The guarded production reconstruction adapter records each explicitly authorized
 start, completion/failure, elapsed milliseconds, and safe row/series counts. It excludes
 filesystem paths, endpoint/configuration details, credentials, subprocess output, and exception
 text; logging does not authorize or execute reconstruction.
+Canonical Silver-to-Gold frame assembly records safe start/completion counts and logs only
+exception classes on failure; source values, observation dates, provenance hashes, and error
+messages remain outside debug records.
 The PostgreSQL conformance and reconstruction application use cases record their start,
 stage/result counts, canonical build identity, safe stage names, statuses, and exception
 classes. They do not log report payloads, hashes, paths, secrets, or exception messages.

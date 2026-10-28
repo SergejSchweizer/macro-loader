@@ -9,16 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-214: Add Debug Telemetry To Canonical Gold Frame Assembly
+
+PR name: `gold-frame-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#214](https://github.com/SergejSchweizer/macro-loader/pull/214) (open)
+Git branch: `pr-214/gold-frame-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: canonical Silver-to-Gold frame assembly and validation
+Commit: `feat(pr-214): instrument canonical Gold frame assembly`
+Design patterns: Logging Adapter; keep canonical assembly deterministic and storage-neutral.
+Depends on: PR-213 (merged to `origin/main`)
+
+Description:
+- R1: Log canonical Gold assembly start, successful output row/column counts, and failures
+  from the storage-neutral assembly module through the standard `.logs` handler.
+- R2: Limit fields to source-series count, output row/column counts, semantic versions, and
+  exception class; do not log values, provenance hashes, dates, or exception text.
+- R3: Preserve frame schema/order, sparse timestamp union, finite-value checks, deterministic
+  provenance, and exception behavior.
+
+Acceptance:
+- A1 caplog tests assert safe start/success counts and error-class-only failure records.
+- A2 tests prove source values, SHA-256 provenance hashes, dates, and exception messages are
+  absent from Gold-frame debug records.
+- A3 existing Gold-frame tests continue to prove sparse alignment, exact output schema,
+  deterministic provenance, finite-value validation, and semantic-version fail-closed rules.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-213: Record PR-212 Merge In Delivery Documentation
 
 PR name: `record-pr-212-merge`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#213](https://github.com/SergejSchweizer/macro-loader/pull/213) (open)
+PR: [#213](https://github.com/SergejSchweizer/macro-loader/pull/213) (merged)
 Git branch: `pr-213/record-pr-212-merge`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: post-merge backlog and agent-status synchronization
 Commit: `docs(pr-213): record application telemetry merge`
+Merge commit: `1972971f3640181f0f5cb385e83c7e608cf288d4`
 Design patterns: Architectural baseline only.
 Depends on: PR-212 (merged to `origin/main`)
 

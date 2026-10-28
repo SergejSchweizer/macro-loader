@@ -775,6 +775,9 @@ authorized and is not part of the daily cron path.
 The application-level PostgreSQL conformance and reconstruction services also log safe
 start/result records, canonical build IDs, stage names/counts, statuses, and exception classes;
 they omit hashes, paths, report payloads, secrets, and exception text.
+Canonical Gold frame assembly logs input-series count, output row/column counts, semantic
+versions, and exception classes; it never logs source values, observation dates, provenance
+hashes, or exception text.
 
 Install it for the service account after reviewing the absolute project path:
 

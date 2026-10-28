@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
@@ -59,6 +60,34 @@ def test_raw_gold_has_only_source_levels_and_provenance() -> None:
     assert build.feature_version == GOLD_FEATURE_VERSION == 6
     assert [item.series_id for item in build.inputs] == list(GOLD_SOURCE_SERIES)
     assert all(len(item.sha256) == 64 for item in build.inputs)
+
+
+def test_gold_frame_debug_logs_safe_lifecycle_counts(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.DEBUG, logger="application.gold_frame"):
+        build = assemble_gold_frame(_all_silver(2))
+
+    assert "gold frame assembly started input_series_count=25" in caplog.text
+    assert (
+        f"gold frame assembly completed output_row_count={build.frame.height} "
+        f"output_column_count={build.frame.width} schema_version=11 feature_version=6"
+    ) in caplog.text
+    assert all(signature.sha256 not in caplog.text for signature in build.inputs)
+    assert "2026-01-01" not in caplog.text
+
+
+def test_gold_frame_failure_logs_exception_type_only(caplog: pytest.LogCaptureFixture) -> None:
+    silver = _all_silver(1)
+    silver["vix"] = _silver("vix", [float("nan")])
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.gold_frame"),
+        pytest.raises(ValueError, match="value must be finite"),
+    ):
+        assemble_gold_frame(silver)
+
+    assert "gold frame assembly failed error_type=ValueError" in caplog.text
+    assert "value must be finite" not in caplog.text
+    assert "nan" not in caplog.text.lower()
 
 
 def test_gold_outer_joins_original_levels_without_calendar_fill() -> None:

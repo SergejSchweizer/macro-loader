@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
@@ -15,6 +16,8 @@ from application.registry import OHLC_FIELDS, OHLC_SERIES, SERIES_REGISTRY
 from application.return_features import return_feature_columns
 from application.silver import SILVER_SCHEMA
 from application.volatility_features import VOLATILITY_SERIES
+
+logger = logging.getLogger(__name__)
 
 GOLD_SCHEMA_VERSION = 11
 GOLD_FEATURE_VERSION = 6
@@ -183,7 +186,7 @@ def _input_signatures(
     )
 
 
-def assemble_gold_frame(
+def _assemble_gold_frame(
     silver_by_series: Mapping[str, pl.DataFrame],
     *,
     versions: GoldSemanticVersions = GOLD_VERSIONS,
@@ -230,3 +233,26 @@ def assemble_gold_frame(
         feature_version=versions.feature_version,
         inputs=_input_signatures(silver_by_series),
     )
+
+
+def assemble_gold_frame(
+    silver_by_series: Mapping[str, pl.DataFrame],
+    *,
+    versions: GoldSemanticVersions = GOLD_VERSIONS,
+) -> GoldFrameBuild:
+    """Assemble canonical Gold while emitting payload-safe lifecycle diagnostics."""
+    logger.debug("gold frame assembly started input_series_count=%d", len(silver_by_series))
+    try:
+        build = _assemble_gold_frame(silver_by_series, versions=versions)
+    except Exception as exc:
+        logger.debug("gold frame assembly failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug(
+        "gold frame assembly completed output_row_count=%d output_column_count=%d "
+        "schema_version=%d feature_version=%d",
+        build.frame.height,
+        build.frame.width,
+        build.schema_version,
+        build.feature_version,
+    )
+    return build
