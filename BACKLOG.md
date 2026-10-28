@@ -9,16 +9,38 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-213: Record PR-212 Merge In Delivery Documentation
+
+PR name: `record-pr-212-merge`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-213/record-pr-212-merge`
+Git status: active-dirty: BACKLOG.md, AGENTS.md
+Agent lane: post-merge backlog and agent-status synchronization
+Commit: `docs(pr-213): record application telemetry merge`
+Design patterns: Architectural baseline only.
+Depends on: PR-212 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-212's actual merged state and merge commit in this backlog, and advance
+  the agent delivery status to PR-213 without changing implementation scope.
+
+Acceptance:
+- A1 the PR-212 entry reports its GitHub merged URL, merge commit, and `Git status: merged`;
+  the PR-213 entry carries the active branch/commit metadata, and `AGENTS.md` agrees.
+
 ### PR-212: Add Debug Telemetry To Application Verification Use Cases
 
 PR name: `application-verification-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#212](https://github.com/SergejSchweizer/macro-loader/pull/212) (open)
+PR: [#212](https://github.com/SergejSchweizer/macro-loader/pull/212) (merged)
 Git branch: `pr-212/application-verification-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: application-level PostgreSQL conformance and guarded reconstruction use cases
 Commit: `feat(pr-212): instrument application verification use cases`
+Merge commit: `923d63a67bce1ecfd8144745210059153c414d74`
 Design patterns: Logging Adapter; preserve application use-case and fail-closed boundaries.
 Depends on: PR-211 (merged to `origin/main`)
 
