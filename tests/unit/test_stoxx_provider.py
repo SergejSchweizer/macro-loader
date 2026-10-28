@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 import polars as pl
@@ -53,6 +54,18 @@ def test_vstoxx_scalar_schema_and_strict_delta_filter() -> None:
     assert frame.get_column("value").dtype == pl.Float64
     assert frame.get_column("source_id").unique().item() == "V2TX"
     assert transport.calls[0][0].params == {}
+
+
+def test_provider_debug_log_records_bounded_filter_without_source_url(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.stoxx_provider")
+    provider = StoxxProvider(FakeTransport(HttpResponse(200, PAYLOAD, {})), clock=lambda: NOW)
+
+    frame = provider.fetch(series_contract("vstoxx"), request())
+
+    assert frame.height == 2
+    assert "provider=stoxx series=vstoxx operation=update" in caplog.text
+    assert "provider fetch completed provider=stoxx series=vstoxx rows=2" in caplog.text
+    assert "www.stoxx.com" not in caplog.text
 
 
 def test_bootstrap_and_reconcile_accept_full_history() -> None:

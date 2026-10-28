@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
@@ -19,6 +20,7 @@ from ingestion.ohlc_validation import validate_ohlc_bar
 Clock = Callable[[], datetime]
 _DEFAULT_BASE_URL = "https://query1.finance.yahoo.com/v8/finance/chart"
 _YAHOO_USER_AGENT = "macro-loader/0.1 (+https://github.com/SergejSchweizer/macro-loader)"
+_LOGGER = logging.getLogger(__name__)
 
 
 def _system_utc_now() -> datetime:
@@ -49,6 +51,13 @@ class YahooMoveProvider:
 
     def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
         self._validate_contract(series)
+        _LOGGER.debug(
+            "provider fetch started provider=yahoo series=%s operation=%s start=%s end=%s",
+            series.series_id,
+            request.operation,
+            request.logical_start,
+            request.logical_end,
+        )
         url = f"{self._base_url}/{quote(series.source_id, safe='')}"
         params: dict[str, str | int | float] = {
             "interval": "1d",
@@ -86,7 +95,13 @@ class YahooMoveProvider:
             )
             if outside.height:
                 raise ValueError("Yahoo bounded response contains out-of-window observations")
-        return frame.sort("observation_date")
+        result = frame.sort("observation_date")
+        _LOGGER.debug(
+            "provider fetch completed provider=yahoo series=%s rows=%d",
+            series.series_id,
+            result.height,
+        )
+        return result
 
     def _validate_contract(self, series: SeriesContract) -> None:
         if series.provider is not self.provider or series.series_id != "move":

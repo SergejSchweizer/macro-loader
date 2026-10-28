@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 import pytest
@@ -44,6 +45,18 @@ def test_both_registered_series_map_exact_delta_bounds_and_scalar_schema() -> No
         assert frame.get_column("observation_date").to_list() == [START, END]
         assert frame.get_column("value").to_list() == [0.31, 0.45]
         assert frame.columns[-1] == "value"
+
+
+def test_provider_debug_log_records_safe_bounds_and_empty_result(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.ecb_provider")
+    provider = EcbProvider(FakeTransport(HttpResponse(200, b"", {})), clock=lambda: NOW)
+
+    frame = provider.fetch(series_contract("ciss"), update_request())
+
+    assert frame.is_empty()
+    assert "provider=ecb series=ciss operation=update" in caplog.text
+    assert "provider fetch completed provider=ecb series=ciss rows=0" in caplog.text
+    assert "data-api.ecb.europa.eu" not in caplog.text
 
 
 @pytest.mark.parametrize(

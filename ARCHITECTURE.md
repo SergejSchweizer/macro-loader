@@ -912,6 +912,15 @@ date-suffixed archives are rotated by the shared maintenance script and pruned a
 calendar days. Cleanup is restricted to those two named log families, and archive-name
 collisions fail closed rather than overwrite existing log data.
 
+Provider adapters record canonical provider/series IDs, operation bounds, and accepted row
+counts; the shared HTTP adapter additionally records safe scheme/host/path, response status,
+attempt, and retry delay. Bronze orchestration and its filesystem Unit of Work record
+insert/revision counts, partition counts, commit/rollback stages, and failure categories.
+No raw values, response bodies, query parameters, credentials, or exception messages are
+included. These debug messages use each module's standard `__name__` logger and flow through
+the composition-root handler; they do not alter update bounds, retry decisions, or commit
+behavior.
+
 ## Daily Pipeline
 
 `run-daily` performs:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -19,6 +20,7 @@ from application.state import advance_state
 
 Clock = Callable[[], datetime]
 RunIdFactory = Callable[[str], str]
+_LOGGER = logging.getLogger(__name__)
 
 
 def _system_utc_now() -> datetime:
@@ -119,6 +121,16 @@ class BronzeOrchestrator:
         fetched_rows = 0
         accepted_rows = 0
         requested_start = plan.filter_start or plan.request_start
+        _LOGGER.debug(
+            "series ingestion started provider=%s series=%s mode=%s start=%s end=%s "
+            "maximum_history=%s",
+            contract.provider.value,
+            contract.series_id,
+            plan.mode.value,
+            requested_start,
+            plan.request_end,
+            plan.maximum_history,
+        )
         try:
             incoming = provider.fetch(contract, self._provider_request(plan))
             fetched_rows = incoming.height
@@ -150,6 +162,17 @@ class BronzeOrchestrator:
             )
             with self._uow_write_lock:
                 self._uow.commit_success(prepared, success_run, next_state)
+            _LOGGER.debug(
+                "series ingestion committed provider=%s series=%s fetched=%d accepted=%d "
+                "inserted=%d revised=%d partitions=%d",
+                contract.provider.value,
+                contract.series_id,
+                fetched_rows,
+                accepted_rows,
+                prepared.diff.inserts.height,
+                prepared.diff.revisions.height,
+                prepared.written_partitions,
+            )
             return SeriesRunResult(
                 series_id=series_id,
                 provider=contract.provider,
@@ -163,6 +186,12 @@ class BronzeOrchestrator:
                 written_partitions=prepared.written_partitions,
             )
         except Exception as exc:
+            _LOGGER.debug(
+                "series ingestion failed provider=%s series=%s category=%s",
+                contract.provider.value,
+                contract.series_id,
+                type(exc).__name__,
+            )
             failed = IngestionRunRecord(
                 run_id=run_id,
                 provider=contract.provider,
@@ -200,6 +229,7 @@ class BronzeOrchestrator:
         selected = tuple(series_ids)
         if len(set(selected)) != len(selected):
             raise ValueError("run_many requires distinct series IDs")
+        _LOGGER.debug("series batch started operation=%s count=%d", operation.value, len(selected))
 
         def run_one(series_id: str) -> _SeriesOutcome:
             try:
@@ -218,6 +248,12 @@ class BronzeOrchestrator:
             series_id
             for series_id, outcome in zip(selected, outcomes, strict=True)
             if outcome.failed
+        )
+        _LOGGER.debug(
+            "series batch completed operation=%s successes=%d failures=%d",
+            operation.value,
+            len(successes),
+            len(failures),
         )
         return BatchRunResult(tuple(successes), failures)
 

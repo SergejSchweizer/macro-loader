@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from application.ports.market_data import ProviderRequest
 Clock = Callable[[], datetime]
 _DEFAULT_SOURCE_URL = "https://www.stoxx.com/document/Indices/Current/HistoricalData/h_v2tx.txt"
 _HISTORICAL_DATA_URL = "https://www.stoxx.com/document/Indices/Current/HistoricalData"
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +84,13 @@ class StoxxProvider:
 
     def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
         source = self._validate_contract(series)
+        _LOGGER.debug(
+            "provider fetch started provider=stoxx series=%s operation=%s start=%s end=%s",
+            series.series_id,
+            request.operation,
+            request.logical_start,
+            request.logical_end,
+        )
         context = RequestContext(self.provider, series.series_id, series.source_id)
         response = self._transport.send(HttpRequest("GET", source.source_url), context=context)
         if response.status_code != 200:
@@ -102,7 +111,13 @@ class StoxxProvider:
                     closed="both",
                 )
             )
-        return frame.sort("observation_date")
+        result = frame.sort("observation_date")
+        _LOGGER.debug(
+            "provider fetch completed provider=stoxx series=%s rows=%d",
+            series.series_id,
+            result.height,
+        )
+        return result
 
     def _validate_contract(self, series: SeriesContract) -> StoxxSource:
         if series.provider is not self.provider:

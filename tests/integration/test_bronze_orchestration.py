@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import logging
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -110,7 +111,8 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_canonical_delta_bootstrap_update_noop_and_revision(tmp_path: Path) -> None:
+def test_canonical_delta_bootstrap_update_noop_and_revision(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.bronze_uow")
     provider = FakeFredProvider()
     provider.queue(
         "us_10y",
@@ -126,6 +128,10 @@ def test_canonical_delta_bootstrap_update_noop_and_revision(tmp_path: Path) -> N
     assert provider.requests[0][1].operation == "bootstrap"
     assert provider.requests[0][1].maximum_history
     assert uow.bounds(SERIES_REGISTRY["us_10y"]).minimum == date(2000, 1, 3)
+    assert (
+        "Bronze prepare completed provider=fred series=us_10y existing=0 incoming=2" in caplog.text
+    )
+    assert "Bronze commit completed provider=fred series=us_10y partitions=2" in caplog.text
 
     update = service.run_series("us_10y", today=TODAY)
     assert update.mode is OperationMode.UPDATE
@@ -241,8 +247,9 @@ def test_us_5y_delta_update_preserves_history_from_first_exposed_observation(
 
 @pytest.mark.parametrize("fault_stage", ["after_bronze", "after_run", "after_state"])
 def test_barrier_failure_rolls_back_authoritative_data_and_state(
-    tmp_path: Path, fault_stage: str
+    tmp_path: Path, fault_stage: str, caplog
 ) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.bronze_uow")
     provider = FakeFredProvider()
     provider.queue("us_10y", [(date(2026, 8, 18), 4.1)])
     base_service, _, paths = _service(tmp_path, provider)
@@ -260,6 +267,8 @@ def test_barrier_failure_rolls_back_authoritative_data_and_state(
     failing_service, _, _ = _service(tmp_path, provider, fault=fail)
     with pytest.raises(RuntimeError, match="barrier failure"):
         failing_service.run_series("us_10y", today=TODAY)
+    assert "Bronze commit rollback completed provider=fred series=us_10y" in caplog.text
+    assert "barrier failure" not in caplog.text
     assert _sha(august) == bronze_before
     assert paths.ingestion_state().read_bytes() == state_before
     failed = read_runs(paths.ingestion_runs())[-1]
