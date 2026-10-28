@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#222 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#223 are merged to `origin/main`.
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
@@ -39,7 +39,9 @@ locally only.
 The guarded acceptance runners document production-like verification but must only be
 executed with explicit deployment authorization. PR-223 instruments the local Git contract
 validator with allow-listed, secret-safe debug lifecycle records while preserving its
-validation, bypass, and staged pre-commit deferral behavior.
+validation, bypass, and staged pre-commit deferral behavior. PR-224 batches independent
+full-history source operations through the bounded application-level `--cores` policy while
+keeping dependent publication and PostgreSQL stages sequential.
 
 ## Source of truth
 

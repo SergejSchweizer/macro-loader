@@ -959,6 +959,12 @@ request and filter bounds, and completion/failure lifecycle using canonical prov
 identity. Failure records contain only the exception class; fetched/source values and
 exception messages are excluded. Instrumentation does not alter bootstrap, delta, or explicit
 reconcile decisions.
+The guarded full-history runner batches independent empty-history bootstrap and existing-history
+reconcile operations through one multi-series CLI command per operation, using the CLI's bounded
+`--cores` policy (default six). Per-series Unit of Work and shared audit-write serialization remain
+owned by the application orchestrator. Silver/Gold/PostgreSQL publication and verification remain
+sequential because they have dependency and transaction boundaries. Its report schema is
+`macro-feature-full-run-v2`. The daily-cron acceptance runner remains sequential and unchanged.
 The guarded full-history and daily-cron acceptance runners log only fixed stage names, stage
 counts/status, replay mutation counts, and exception classes. They exclude subprocess commands,
 paths, credentials, captured output, and exception text; the explicit `--execute` guard and
