@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-211: Measure Daily Cron End-To-End Runtime
 
 PR name: `daily-cron-runtime-duration`
-Status: In progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#211](https://github.com/SergejSchweizer/macro-loader/pull/211) (open)
 Git branch: `pr-211/daily-cron-runtime-duration`
-Git status: local-changes
+Git status: pushed-local-checks-passed
 Agent lane: daily cron wrapper total elapsed time and exit outcome
 Commit: `feat(pr-211): record daily cron total runtime`
 Design patterns: Operational Telemetry; preserve the existing Command/cron-wrapper boundary.
