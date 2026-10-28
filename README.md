@@ -766,6 +766,10 @@ The live PostgreSQL conformance inspector logs verification stages, safe schema/
 counts, temporal probe counts, and exception classes. The catalog-selected Gold input reader
 logs bundle validation and frame/digest read outcomes, row counts, canonical build IDs, and
 exception classes without filesystem paths, feature values, digests, or exception text.
+The guarded production reconstruction adapter logs fixed operation names, elapsed milliseconds,
+safe counts/status, and exception classes. It never logs credentials, endpoints, paths,
+subprocess output, or exception text. Guarded reconstruction remains separately and explicitly
+authorized and is not part of the daily cron path.
 
 Install it for the service account after reviewing the absolute project path:
 

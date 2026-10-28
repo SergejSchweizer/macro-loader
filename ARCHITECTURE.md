@@ -934,6 +934,10 @@ population counts, temporal probes, and exception classes. The catalog-selected 
 adapter records bundle validation, digest/read outcomes, row counts, canonical build IDs,
 and exception classes; it never logs filesystem paths, feature values, digests, or exception
 text.
+The guarded production reconstruction adapter records each explicitly authorized operation's
+start, completion/failure, elapsed milliseconds, and safe row/series counts. It excludes
+filesystem paths, endpoint/configuration details, credentials, subprocess output, and exception
+text; logging does not authorize or execute reconstruction.
 Failure logs contain only exception class names, never exception messages. These workflow
 logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -122,6 +123,42 @@ def test_locks_reject_postgres_contention_and_release_runner_lock(
     assert operations._runner_handle is None
 
 
+def test_guarded_operation_logs_injected_elapsed_time_and_safe_failure(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    operations = _operations(tmp_path)
+    success_ticks = iter((10.0, 11.234))
+    operations.monotonic = lambda: next(success_ticks)
+
+    with caplog.at_level(logging.DEBUG, logger="ingestion.production_reconstruction_operations"):
+        operations.disable_scheduling()
+
+    assert "operation=disable_scheduling elapsed_ms=1234" in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+    caplog.clear()
+    failure_ticks = iter((20.0, 20.075))
+    operations = _operations(tmp_path / "failure")
+    operations.monotonic = lambda: next(failure_ticks)
+    connection = Connection((False,))
+    monkeypatch.setattr(module.psycopg, "connect", lambda **kwargs: connection)
+    _, admin = _configurations()
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="ingestion.production_reconstruction_operations"),
+        pytest.raises(RuntimeError, match="maintenance lock"),
+    ):
+        operations.acquire_locks()
+
+    assert "operation=acquire_locks error_type=RuntimeError elapsed_ms=75" in caplog.text
+    assert admin.host not in caplog.text
+    assert admin.password not in caplog.text
+    assert str(tmp_path) not in caplog.text
+    assert "already held" not in caplog.text
+
+
 def test_endpoint_preflight_requires_held_maintenance_lock(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="not held"):
         _operations(tmp_path).preflight_endpoint()
@@ -219,14 +256,29 @@ def test_operations_delegate_pipeline_sync_and_wrapper_without_payload_output(
 
 
 def test_wrapper_failure_and_missing_marker_keep_scheduling_disabled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     operations = _operations(tmp_path)
     monkeypatch.setattr(
-        module.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=4)
+        module.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=4, stdout="process-secret", stderr="wrapper-error-detail"
+        ),
     )
 
-    with pytest.raises(RuntimeError, match="wrapper verification"):
+    with (
+        caplog.at_level(logging.DEBUG, logger="ingestion.production_reconstruction_operations"),
+        pytest.raises(RuntimeError, match="wrapper verification"),
+    ):
         operations.verify_daily_wrapper()
     with pytest.raises(RuntimeError, match="marker is missing"):
         operations.enable_scheduling()
+
+    assert "error_type=RuntimeError" in caplog.text
+    assert "process-secret" not in caplog.text
+    assert "wrapper-error-detail" not in caplog.text
+    assert "runner" not in caplog.text
+    assert str(tmp_path) not in caplog.text
