@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 
 from application.paths import LakePaths
 from application.registry import series_contract
+from ingestion.inventory_refresh import InventoryRefreshService
 from ingestion.parquet_repository import atomic_write_parquet
 from ingestion.silver_repository import SilverSeriesRepository
 
@@ -104,10 +106,47 @@ def test_building_selected_series_does_not_touch_other_silver_series(tmp_path: P
     assert _hash(other) == other_hash
 
 
-def test_corrupt_persisted_silver_schema_is_rejected(tmp_path: Path) -> None:
+def test_corrupt_persisted_silver_schema_is_rejected_without_logging_paths_or_error_text(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     paths = LakePaths(tmp_path / "lake")
     contract = series_contract("us_10y")
     target = paths.silver_month(contract.series_id, date(2026, 8, 1))
     atomic_write_parquet(pl.DataFrame({"bad": [1]}), target)
+    caplog.set_level(logging.DEBUG, logger="ingestion.silver_repository")
     with pytest.raises(ValueError, match="invalid persisted Silver schema"):
         SilverSeriesRepository(paths).read(contract)
+
+    assert (
+        "Silver series read failed provider=fred series_id=us_10y error_type=ValueError"
+        in caplog.text
+    )
+    assert "invalid persisted Silver schema" not in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+def test_silver_and_inventory_adapters_log_safe_lifecycle_counts(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    paths = LakePaths(tmp_path / "lake")
+    contract = series_contract("us_10y")
+    atomic_write_parquet(
+        _bronze_scalar("us_10y", [(date(2026, 8, 19), 987654.321)]),
+        paths.bronze_month(contract.provider, contract.series_id, date(2026, 8, 1)),
+    )
+    caplog.set_level(logging.DEBUG, logger="ingestion")
+
+    diff = SilverSeriesRepository(paths).build(contract)
+    inventory = InventoryRefreshService(paths).refresh()
+
+    assert diff.inserts.height == 1
+    assert len(inventory) == 25
+    assert (
+        "Silver series build completed provider=fred series_id=us_10y inserted=1 revised=0"
+        in caplog.text
+    )
+    assert "Bronze inventory refresh completed series_count=25 nonempty_count=1" in caplog.text
+    assert "987654.321" not in caplog.text
+    assert str(tmp_path) not in caplog.text

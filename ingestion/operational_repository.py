@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import polars as pl
@@ -42,6 +43,7 @@ RUN_SCHEMA = pl.Schema(
         "error_message": pl.String(),
     }
 )
+logger = logging.getLogger(__name__)
 
 
 def _sanitize(text: str | None, secrets: tuple[str, ...]) -> str | None:
@@ -78,17 +80,30 @@ def _inventory_frame(records: list[InventoryRecord]) -> pl.DataFrame:
 
 def write_inventory(path: Path, records: list[InventoryRecord]) -> None:
     """Atomically replace the authoritative inventory snapshot."""
-    atomic_write_parquet(_inventory_frame(records), path)
+    logger.debug("inventory snapshot write started record_count=%d", len(records))
+    try:
+        atomic_write_parquet(_inventory_frame(records), path)
+    except Exception as exc:
+        logger.debug("inventory snapshot write failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug("inventory snapshot write completed record_count=%d", len(records))
 
 
 def read_inventory(path: Path) -> list[InventoryRecord]:
     """Read exact authoritative inventory records."""
+    logger.debug("inventory snapshot read started")
     if not path.is_file():
+        logger.debug("inventory snapshot read completed record_count=0")
         return []
-    frame = pl.read_parquet(path)
+    try:
+        frame = pl.read_parquet(path)
+    except Exception as exc:
+        logger.debug("inventory snapshot read failed error_type=%s", type(exc).__name__)
+        raise
     if frame.schema != INVENTORY_SCHEMA:
+        logger.debug("inventory snapshot read failed error_type=ValueError")
         raise ValueError("invalid inventory schema")
-    return [
+    records = [
         InventoryRecord(
             series_id=row["series_id"],
             provider=Provider(row["provider"]),
@@ -100,6 +115,8 @@ def read_inventory(path: Path) -> list[InventoryRecord]:
         )
         for row in frame.iter_rows(named=True)
     ]
+    logger.debug("inventory snapshot read completed record_count=%d", len(records))
+    return records
 
 
 def _run_frame(records: list[IngestionRunRecord], *, secrets: tuple[str, ...]) -> pl.DataFrame:
@@ -140,17 +157,30 @@ def write_runs(
     secrets: tuple[str, ...] = (),
 ) -> None:
     """Atomically replace a validated run-record snapshot."""
-    atomic_write_parquet(_run_frame(records, secrets=secrets), path)
+    logger.debug("ingestion run snapshot write started record_count=%d", len(records))
+    try:
+        atomic_write_parquet(_run_frame(records, secrets=secrets), path)
+    except Exception as exc:
+        logger.debug("ingestion run snapshot write failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug("ingestion run snapshot write completed record_count=%d", len(records))
 
 
 def read_runs(path: Path) -> list[IngestionRunRecord]:
     """Read exact typed run records."""
+    logger.debug("ingestion run snapshot read started")
     if not path.is_file():
+        logger.debug("ingestion run snapshot read completed record_count=0")
         return []
-    frame = pl.read_parquet(path)
+    try:
+        frame = pl.read_parquet(path)
+    except Exception as exc:
+        logger.debug("ingestion run snapshot read failed error_type=%s", type(exc).__name__)
+        raise
     if frame.schema != RUN_SCHEMA:
+        logger.debug("ingestion run snapshot read failed error_type=ValueError")
         raise ValueError("invalid ingestion-run schema")
-    return [
+    records = [
         IngestionRunRecord(
             run_id=row["run_id"],
             provider=Provider(row["provider"]),
@@ -171,6 +201,8 @@ def read_runs(path: Path) -> list[IngestionRunRecord]:
         )
         for row in frame.iter_rows(named=True)
     ]
+    logger.debug("ingestion run snapshot read completed record_count=%d", len(records))
+    return records
 
 
 def upsert_run(
@@ -180,6 +212,13 @@ def upsert_run(
     secrets: tuple[str, ...] = (),
 ) -> None:
     """Insert or replace one unique run ID deterministically."""
+    logger.debug(
+        "ingestion run upsert started run_id=%s provider=%s series_id=%s",
+        record.run_id,
+        record.provider.value,
+        record.series_id,
+    )
     existing = read_runs(path)
     retained = [item for item in existing if item.run_id != record.run_id]
     write_runs(path, [*retained, record], secrets=secrets)
+    logger.debug("ingestion run upsert completed run_id=%s", record.run_id)

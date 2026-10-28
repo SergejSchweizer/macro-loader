@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date
 from pathlib import Path
@@ -318,3 +319,55 @@ def test_monthly_upsert_noop_performs_no_write(
     assert not diff.has_changes
     assert written == ()
     assert not called
+
+
+def test_parquet_repository_logs_safe_read_write_and_upsert_counts(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = month_path(tmp_path, date(2026, 8, 1))
+    existing = frame([("series", date(2026, 8, 18), 987654.321)])
+    caplog.set_level(logging.DEBUG, logger="ingestion.parquet_repository")
+
+    repo.atomic_write_parquet(existing, path)
+    loaded = repo.read_monthly([path], sort_by=("observation_date",))
+    diff, written = repo.upsert_monthly(
+        loaded,
+        frame([("series", date(2026, 8, 18), 987654.321)]),
+        key=("series_id", "observation_date"),
+        date_column="observation_date",
+        path_for_date=lambda _: path,
+    )
+
+    assert not diff.has_changes
+    assert written == ()
+    assert "atomic parquet write completed row_count=1" in caplog.text
+    assert "monthly parquet read completed file_count=1 row_count=1" in caplog.text
+    assert (
+        "monthly parquet upsert completed inserted=0 revised=0 written_partitions=0" in caplog.text
+    )
+    assert "987654.321" not in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+def test_parquet_write_failure_logs_class_without_path_or_error_text(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_replace(source: str | os.PathLike[str], destination: str | os.PathLike[str]) -> None:
+        del source, destination
+        raise OSError("private /deployment/path secret-value=TOPSECRET")
+
+    monkeypatch.setattr(repo.os, "replace", fail_replace)
+    caplog.set_level(logging.DEBUG, logger="ingestion.parquet_repository")
+
+    with pytest.raises(OSError, match="TOPSECRET"):
+        repo.atomic_write_parquet(
+            frame([("series", date(2026, 8, 18), 1.0)]), tmp_path / "data.parquet"
+        )
+
+    assert "atomic parquet write failed error_type=OSError" in caplog.text
+    assert "TOPSECRET" not in caplog.text
+    assert "/deployment/path" not in caplog.text
+    assert str(tmp_path) not in caplog.text

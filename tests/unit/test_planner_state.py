@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -213,3 +214,21 @@ def test_state_repository_rejects_duplicate_and_bad_schema(tmp_path: Path) -> No
     pl.DataFrame({"bad": [1]}).write_parquet(path)
     with pytest.raises(ValueError, match="invalid ingestion-state schema"):
         read_states(path)
+
+
+def test_state_repository_logs_identity_and_record_counts_only(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = tmp_path / "state.parquet"
+    state = IngestionState(series_contract("us_10y").provider, "us_10y")
+    caplog.set_level(logging.DEBUG, logger="ingestion.state_repository")
+
+    upsert_state(path, state)
+    assert read_states(path) == [state]
+
+    assert "ingestion state upsert started provider=fred series_id=us_10y" in caplog.text
+    assert "ingestion state write completed record_count=1" in caplog.text
+    assert "ingestion state upsert completed provider=fred series_id=us_10y" in caplog.text
+    assert "ingestion state read completed record_count=1" in caplog.text
+    assert str(tmp_path) not in caplog.text

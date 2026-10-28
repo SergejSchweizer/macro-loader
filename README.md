@@ -759,6 +759,9 @@ Gold artifact adapters also log Parquet/catalog/sidecar creation and reads, bund
 root-view refresh, retention sweeps, and mirror completion with row or artifact counts where
 available. These records use canonical build IDs and exception classes only; they exclude
 absolute paths, feature values, artifact digests, and exception text.
+Shared Parquet, Silver, ingestion-state, inventory, and run-audit repositories log operation
+outcomes and row/partition counts using canonical provider/series IDs. They do not log row
+payloads, stored error messages, absolute paths, or secrets.
 
 Install it for the service account after reviewing the absolute project path:
 
