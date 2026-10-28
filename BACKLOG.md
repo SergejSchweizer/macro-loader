@@ -16,7 +16,7 @@ Status: In progress
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-210/reconstruction-operations-debug-logs`
-Git status: local-changes
+Git status: pushed-local-checks-passed
 Agent lane: explicitly guarded production reconstruction orchestration adapter
 Commit: `feat(pr-210): instrument guarded reconstruction operations`
 Design patterns: Logging Adapter; existing guarded-operation state and lock ownership remain unchanged.
