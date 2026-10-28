@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -185,6 +186,25 @@ def test_bundle_or_precommit_view_failure_finalizes_attempt_without_changing_old
         assert attempt.status is GoldBuildStatus.FAILED
         assert not attempt.current
         assert attempt.data_path is None
+
+
+def test_publication_debug_logs_safe_lifecycle_and_error_category(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    publisher = GoldPublisher(
+        FakeCatalog([]), FakeBundle(fail=True), FakeViews(), clock=lambda: START
+    )
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.gold_publication"),
+        pytest.raises(OSError, match="injected bundle failure"),
+    ):
+        publisher.publish(_frame())
+
+    assert "gold publication started row_count=1" in caplog.text
+    assert "gold publication failed before commit" in caplog.text
+    assert "error_type=OSError" in caplog.text
+    assert "injected bundle failure" not in caplog.text
+    assert "1.0" not in caplog.text
 
 
 def test_candidate_version_mismatch_prevents_promotion_and_marks_failed() -> None:

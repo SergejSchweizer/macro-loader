@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 from threading import Barrier
 
@@ -225,6 +226,23 @@ def test_run_daily_can_only_reach_update_and_series_restricts_bronze_silver_not_
     assert us10["request_start"] == "2026-08-11"
     assert us10["request_end"] == "2026-08-19"
     assert us10["maximum_history"] is False
+
+
+def test_pipeline_debug_logs_command_lifecycle_and_redacts_failure_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pipeline, *_ = _pipeline(silver=FakeSilver(fail_series="vix"))
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.daily_pipeline"),
+        pytest.raises(OSError, match="injected silver failure"),
+    ):
+        pipeline.run_daily(["vix"], today=TODAY)
+
+    assert "pipeline command started command=run-daily" in caplog.text
+    assert "silver build failed" in caplog.text
+    assert "pipeline command finished command=run-daily" in caplog.text
+    assert "error_type=OSError" in caplog.text
+    assert "injected silver failure" not in caplog.text
 
 
 def test_explicit_source_commands_are_distinct_and_reconcile_is_never_hidden() -> None:

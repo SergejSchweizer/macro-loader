@@ -9,16 +9,47 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-204: Add Debug Telemetry To Core Application Workflows
+
+PR name: `application-workflow-debug-logs`
+Status: Open — PR #204 awaiting review
+Updated: 2026-10-28
+PR: [#204](https://github.com/SergejSchweizer/macro-loader/pull/204)
+Git branch: `pr-204/application-workflow-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: daily pipeline, Silver canonicalization, Gold publication and retention logs
+Commit: `feat(pr-204): instrument application workflow debug logs`
+Design patterns: Logging Adapter; existing injected event and repository boundaries remain unchanged.
+Depends on: PR-203 (merged to `origin/main`)
+
+Description:
+- R1: Add standard module debug logs to daily/source workflow orchestration, recording
+  command/stage transitions, selected series, row/build counts, and successful/failing
+  outcomes for Bronze-to-Silver-to-Gold execution.
+- R2: Add safe lifecycle logs to Silver canonicalization, Gold catalog publication, and
+  retention mark-and-sweep, without logging raw values, credentials, URLs, or exception text.
+- R3: Keep logs on the PR-202 composition-root handler and preserve event-sink behavior,
+  persistence ordering, and publication/retention commit boundaries.
+
+Acceptance:
+- A1 caplog tests verify command/stage lifecycle records and safe contextual counts on
+  success and failure without introducing a network or persistence dependency.
+- A2 tests prove source values and exception messages do not appear in Silver, publication,
+  or retention logs.
+- A3 tests confirm publication commits, view refresh ordering, and tombstone-before-sweep
+  semantics remain unchanged; existing offline pipeline integration tests pass.
+- A4 `make quality-gate` passes locally; no GitHub Actions, production database, or cron run.
+
 ### PR-203: Add Debug Telemetry To Source Ingestion Modules
 
 PR name: `source-ingestion-debug-logs`
-Status: Open — PR #203 awaiting review
+Status: Merged
 Updated: 2026-10-28
-PR: [#203](https://github.com/SergejSchweizer/macro-loader/pull/203)
+PR: [#203](https://github.com/SergejSchweizer/macro-loader/pull/203) (merged)
 Git branch: `pr-203/module-debug-logging`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: instrument provider, transport, orchestration, and Bronze persistence boundaries
-Commit: `feat(pr-203): instrument source-ingestion debug logs`
+Commit: `7779f0a feat(pr-203): instrument source-ingestion debug logs` (GitHub squash merge)
 Design patterns: Logging Adapter; constructor-injected application boundaries remain unchanged.
 Depends on: PR-202 (merged to `origin/main`)
 

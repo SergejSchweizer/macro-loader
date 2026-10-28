@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -16,6 +17,8 @@ from application.gold_publication import GoldPublisher
 from application.gold_retention import GoldRetentionResult, GoldRetentionService
 from application.parallelism import PolarsExecutionPolicy
 from application.planner import OperationMode
+
+logger = logging.getLogger(__name__)
 
 RunIdFactory = Callable[[str], str]
 EventSink = Callable[[dict[str, object]], None]
@@ -105,7 +108,13 @@ class DailyMedallionPipeline:
             self._build_selected_silver(selected, run_id=run_id)
             self._finish(run_id, "silver-build", "success")
             return PipelineCommandResult("silver-build", run_id, selected)
-        except Exception:
+        except Exception as error:
+            logger.debug(
+                "pipeline command failed command=%s run_id=%s error_type=%s",
+                "silver-build",
+                run_id,
+                type(error).__name__,
+            )
             self._finish(run_id, "silver-build", "failed")
             raise
 
@@ -130,7 +139,13 @@ class DailyMedallionPipeline:
             )
             self._finish(run_id, "gold-build", "success")
             return PipelineCommandResult("gold-build", run_id, (), gold_build_id=published.build_id)
-        except Exception:
+        except Exception as error:
+            logger.debug(
+                "pipeline command failed command=%s run_id=%s error_type=%s",
+                "gold-build",
+                run_id,
+                type(error).__name__,
+            )
             self._finish(run_id, "gold-build", "failed")
             raise
 
@@ -140,7 +155,13 @@ class DailyMedallionPipeline:
             self._inventory.refresh()
             self._finish(run_id, "inventory", "success")
             return PipelineCommandResult("inventory", run_id, ())
-        except Exception:
+        except Exception as error:
+            logger.debug(
+                "pipeline command failed command=%s run_id=%s error_type=%s",
+                "inventory",
+                run_id,
+                type(error).__name__,
+            )
             self._finish(run_id, "inventory", "failed")
             raise
 
@@ -193,7 +214,13 @@ class DailyMedallionPipeline:
                 gold_build_id=published.build_id,
                 retention=retention,
             )
-        except Exception:
+        except Exception as error:
+            logger.debug(
+                "pipeline command failed command=%s run_id=%s error_type=%s",
+                "run-daily",
+                run_id,
+                type(error).__name__,
+            )
             self._finish(run_id, "run-daily", "failed")
             raise
 
@@ -224,7 +251,13 @@ class DailyMedallionPipeline:
                 raise ProviderBatchError(batch.failures)
             self._finish(run_id, command, "success")
             return PipelineCommandResult(command, run_id, selected, bronze=batch)
-        except Exception:
+        except Exception as error:
+            logger.debug(
+                "pipeline command failed command=%s run_id=%s error_type=%s",
+                command,
+                run_id,
+                type(error).__name__,
+            )
             self._finish(run_id, command, "failed")
             raise
 
@@ -276,13 +309,41 @@ class DailyMedallionPipeline:
         run_id: str,
         command: str = "silver-build",
     ) -> None:
+        logger.debug(
+            "silver build started command=%s run_id=%s series_count=%d",
+            command,
+            run_id,
+            len(selected),
+        )
         self._event(run_id, command, stage="silver", status="started")
-        self._polars_execution.map(
-            lambda series_id: self._silver.build(self._series_registry[series_id]), selected
+        try:
+            self._polars_execution.map(
+                lambda series_id: self._silver.build(self._series_registry[series_id]), selected
+            )
+        except Exception as error:
+            logger.debug(
+                "silver build failed command=%s run_id=%s series_count=%d error_type=%s",
+                command,
+                run_id,
+                len(selected),
+                type(error).__name__,
+            )
+            raise
+        logger.debug(
+            "silver build completed command=%s run_id=%s series_count=%d",
+            command,
+            run_id,
+            len(selected),
         )
         self._event(run_id, command, stage="silver", status="success")
 
     def _canonical_gold(self, *, run_id: str, command: str, today: date) -> GoldFrameBuild:
+        logger.debug(
+            "gold frame build started command=%s run_id=%s series_count=%d",
+            command,
+            run_id,
+            len(self._series_registry),
+        )
         self._event(run_id, command, stage="gold-frame", status="started")
         series_items = tuple(self._series_registry.items())
         silver_by_series = dict(
@@ -304,10 +365,23 @@ class DailyMedallionPipeline:
             status="success",
             row_count=result.frame.height,
         )
+        logger.debug(
+            "gold frame build completed command=%s run_id=%s row_count=%d",
+            command,
+            run_id,
+            result.frame.height,
+        )
         return result
 
     def _start(self, command: str, selected: Sequence[str]) -> str:
         run_id = self._run_id_factory(command)
+        logger.debug(
+            "pipeline command started command=%s run_id=%s series_count=%d series_ids=%s",
+            command,
+            run_id,
+            len(selected),
+            ",".join(selected),
+        )
         self._event(
             run_id,
             command,
@@ -318,6 +392,9 @@ class DailyMedallionPipeline:
         return run_id
 
     def _finish(self, run_id: str, command: str, status: str) -> None:
+        logger.debug(
+            "pipeline command finished command=%s run_id=%s status=%s", command, run_id, status
+        )
         self._event(run_id, command, stage="command", status=status)
 
     def _event(

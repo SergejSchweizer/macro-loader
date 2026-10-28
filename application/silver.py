@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import polars as pl
 
 from application.contracts import NativeShape, SeriesContract
+
+logger = logging.getLogger(__name__)
 
 SILVER_COLUMNS = (
     "observation_date",
@@ -86,7 +90,15 @@ def _finite_non_null(frame: pl.DataFrame, columns: tuple[str, ...]) -> None:
 
 def canonicalize_silver(contract: SeriesContract, bronze: pl.DataFrame) -> pl.DataFrame:
     """Map one retained Bronze series to exact deterministic Silver schema."""
+    logger.debug(
+        "silver canonicalization started series=%s provider=%s row_count=%d native_shape=%s",
+        contract.series_id,
+        contract.provider.value,
+        bronze.height,
+        contract.native_shape.value,
+    )
     if bronze.is_empty() and not bronze.columns:
+        logger.debug("silver canonicalization completed series=%s row_count=0", contract.series_id)
         return pl.DataFrame(schema=SILVER_SCHEMA)
     _assert_common(bronze, contract)
     if contract.native_shape is NativeShape.OHLC:
@@ -126,4 +138,9 @@ def canonicalize_silver(contract: SeriesContract, bronze: pl.DataFrame) -> pl.Da
         raise TypeError(f"canonical Silver schema drift: {result.schema}")
     if not bool(result.get_column("value").is_finite().all()):
         raise ValueError("Silver value must be finite")
+    logger.debug(
+        "silver canonicalization completed series=%s row_count=%d",
+        contract.series_id,
+        result.height,
+    )
     return result

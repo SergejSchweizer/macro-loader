@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
@@ -180,6 +181,29 @@ def test_sweep_failure_keeps_catalog_tombstone_and_retry_is_idempotent() -> None
     assert result.swept_build_ids == (records[0].build_id,)
     assert catalog.replace_count == 1
     assert views.refresh_count == 2
+
+
+def test_retention_debug_logs_counts_and_redacts_sweeper_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    records = [_complete(index, current=index == 5) for index in range(6)]
+    catalog = FakeCatalog(records)
+    service = GoldRetentionService(
+        catalog,
+        AssertingSweeper(catalog, fail=True),
+        FakeViews(),
+        clock=lambda: START + timedelta(hours=1),
+    )
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.gold_retention"),
+        pytest.raises(OSError, match="sweep failure"),
+    ):
+        service.run()
+
+    assert "gold retention started catalog_rows=6 mark_count=1" in caplog.text
+    assert "gold retention sweep failed" in caplog.text
+    assert "error_type=OSError" in caplog.text
+    assert "sweep failure" not in caplog.text
 
 
 def test_policy_and_mark_validation_fail_closed() -> None:
