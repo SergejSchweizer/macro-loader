@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-205: Add Debug Telemetry To PostgreSQL Gold Sync Service
 
 PR name: `postgres-sync-debug-logs`
-Status: In Progress
+Status: Open — PR #205 awaiting review
 Updated: 2026-10-28
-PR: TBD
+PR: [#205](https://github.com/SergejSchweizer/macro-loader/pull/205)
 Git branch: `pr-205/postgres-sync-debug-logs`
-Git status: active-clean
+Git status: pushed-local-checks-passed
 Agent lane: application PostgreSQL Gold delta-sync stages
 Commit: `feat(pr-205): instrument postgres sync debug logs`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
