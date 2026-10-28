@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-214: Add Debug Telemetry To Canonical Gold Frame Assembly
 
 PR name: `gold-frame-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#214](https://github.com/SergejSchweizer/macro-loader/pull/214) (open)
 Git branch: `pr-214/gold-frame-debug-logs`
-Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/gold_frame.py, tests/unit/test_gold_frame.py
+Git status: pushed-local-checks-passed
 Agent lane: canonical Silver-to-Gold frame assembly and validation
 Commit: `feat(pr-214): instrument canonical Gold frame assembly`
 Design patterns: Logging Adapter; keep canonical assembly deterministic and storage-neutral.
