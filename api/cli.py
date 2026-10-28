@@ -317,6 +317,7 @@ def build_postgres_migration_runtime(*, stderr: TextIO) -> PostgresMigrationRunt
 def build_postgres_verification_runtime(
     *, lake_root: Path, stderr: TextIO
 ) -> PostgresVerificationRuntime:
+    _logger(stderr)
     config = PostgresSyncConfig.from_env()
     paths = LakePaths(lake_root)
     build_store = GoldBuildStore(paths)

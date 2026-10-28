@@ -36,7 +36,7 @@ from application.trend_features import (
 )
 from application.volatility_features import VOLATILITY_SERIES
 
-MACRO_FEATURE_VIEW_VERSION = 16
+MACRO_FEATURE_VIEW_VERSION = 17
 logger = logging.getLogger(__name__)
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
@@ -268,12 +268,14 @@ def _source_specs(
                 "ema_trend",
                 series,
                 {
-                    "ema5_distance": "level/EMA(5)-1",
-                    "ema9_distance": "level/EMA(9)-1",
-                    "ema21_distance": "level/EMA(21)-1",
+                    "ema5_distance": "level/EMA(5)-1 over positive source observations",
+                    "ema9_distance": "level/EMA(9)-1 over positive source observations",
+                    "ema21_distance": "level/EMA(21)-1 over positive source observations",
                     "ema5_ema21_spread": "(EMA(5)-EMA(21))/level",
                     "ema9_slope_3": "(EMA(9)(t)-EMA(9)(t-3 source rows))/(3*level)",
-                    "ema5_ema9_cross": "1/-1 for upward/downward EMA(5)/EMA(9) crossing, else 0",
+                    "ema5_ema9_cross": (
+                        "1/-1 for upward/downward EMA(5)/EMA(9) crossing over source rows, else 0"
+                    ),
                 }[suffix],
             )
             for suffix in EMA_OUTPUT_SUFFIXES
@@ -284,9 +286,14 @@ def _source_specs(
                 "macd",
                 series,
                 {
-                    "macd_line_relative": "(EMA(12)-EMA(26))/positive level",
-                    "macd_hist_relative": "(EMA(12)-EMA(26)-EMA(9 signal))/positive level",
-                    "macd_hist_delta_3": "relative MACD histogram(t)-histogram(t-3 source rows)",
+                    "macd_line_relative": (
+                        "(EMA(12)-EMA(26))/positive level; EMAs use source observations"
+                    ),
+                    "macd_hist_relative": (
+                        "(EMA(12)-EMA(26)-EMA(9 signal))/positive level; "
+                        "EMAs use source observations"
+                    ),
+                    "macd_hist_delta_3": ("relative MACD histogram(t)-histogram(t-3 source rows)"),
                 }[suffix],
             )
             for suffix in MACD_OUTPUT_SUFFIXES
@@ -423,7 +430,7 @@ EXTENDED_FEATURE_COLUMNS: tuple[str, ...] = (
 EXTENDED_FEATURE_POSTGRES_TYPES: dict[str, str] = {
     spec.name: spec.postgres_type for spec in EXTENDED_FEATURE_CATALOG
 }
-EXTENDED_MACRO_FEATURE_VIEW_VERSION = 1
+EXTENDED_MACRO_FEATURE_VIEW_VERSION = 2
 
 # Long-form storage contains derived outputs, while native OHLC passthrough values
 # remain in their dedicated raw tables and wide compatibility views.
@@ -437,7 +444,7 @@ FEATURE_VALUE_PRIMARY_NAMES: tuple[str, ...] = tuple(
 FEATURE_VALUE_EXTENDED_NAMES: tuple[str, ...] = tuple(
     spec.name for spec in EXTENDED_FEATURE_CATALOG if spec.family != "raw_ohlc"
 )
-FEATURE_VALUE_SCHEMA_VERSION = 1
+FEATURE_VALUE_SCHEMA_VERSION = 2
 if len(FEATURE_VALUE_NAMES) != len(set(FEATURE_VALUE_NAMES)):
     raise ValueError("long-form feature catalog contains duplicate names")
 FEATURE_VALUE_CATALOG_FINGERPRINT = hashlib.sha256(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 import pytest
 
@@ -10,9 +11,12 @@ from application.macro_feature_catalog import (
 )
 from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
-from ingestion.postgres_conformance_verifier import PostgresLiveDatabaseConformanceInspector
+from ingestion.postgres_conformance_verifier import (
+    _FEATURE_VALUE_CATALOG_DRIFT_SQL,
+    PostgresLiveDatabaseConformanceInspector,
+)
 from ingestion.postgres_gold_repository import (
-    _FEATURE_VALUE_POPULATION_SQL,
+    _FEATURE_VALUE_POPULATION_QUERIES,
     _POSTGRES_OWNER_ROLE,
     _SCHEMA_SPECIFICATION,
     POSTGRES_HOST,
@@ -121,8 +125,22 @@ class FakeCursor:
                 f"CREATE {unique_sql}INDEX {index_name} "
                 f"ON macro_loader.macro_features USING btree {index_columns}",
             )
-        elif query == _FEATURE_VALUE_POPULATION_SQL:
-            self._one = (100, 100, 20, 20, 0, 0, 0)
+        elif query == _FEATURE_VALUE_CATALOG_DRIFT_SQL:
+            self._one = (0,)
+        elif query.startswith("WITH selected_names AS MATERIALIZED"):
+            assert params is not None and isinstance(params[0], list)
+            feature_count = len(params[0])
+            self._one = (
+                feature_count,
+                feature_count,
+                feature_count,
+                feature_count,
+                0,
+                0,
+                0,
+                0,
+                None,
+            )
         elif "FROM pg_class AS classes" in query:
             self._many = [
                 (table.schema, table.name, POSTGRES_OWNER_ROLE)
@@ -196,33 +214,90 @@ def _config() -> PostgresSyncConfig:
     return PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "secret")
 
 
+def _fake_connection_factory(
+    *, timezone: str = "UTC"
+) -> tuple[Callable[[PostgresSyncConfig], FakeConnection], list[FakeConnection]]:
+    connections: list[FakeConnection] = []
+
+    def create_connection(_: PostgresSyncConfig) -> FakeConnection:
+        connection = FakeConnection(FakeCursor(timezone=timezone))
+        connections.append(connection)
+        return connection
+
+    return create_connection, connections
+
+
+def test_population_verification_partitions_the_complete_catalog_into_source_groups() -> None:
+    assert len(_FEATURE_VALUE_POPULATION_QUERIES) == 26
+    covered_names = tuple(
+        name for _, names, _ in _FEATURE_VALUE_POPULATION_QUERIES for name in names
+    )
+    assert len(covered_names) == 1720
+    assert len(set(covered_names)) == len(covered_names)
+    for group_name, _, query in _FEATURE_VALUE_POPULATION_QUERIES:
+        assert "source_values AS MATERIALIZED" in query
+        assert "feature_count_differences" in query
+        assert "jsonb_typeof(value) = 'boolean'" in query
+        assert "jsonb_typeof(value) = 'number'" in query
+        assert "invalid_source AS" in query
+        if group_name == "cross_series":
+            assert "WITH RECURSIVE" not in query
+            assert all(
+                f'"macro_loader"."macro_raw_{series}"' in query for series in _RAW_TABLE_SERIES
+            )
+        else:
+            assert f'"macro_loader"."macro_raw_{group_name}"' in query
+            assert not any(
+                f'"macro_loader"."macro_raw_{series}"' in query
+                for series in _RAW_TABLE_SERIES
+                if series != group_name
+            )
+
+
+_RAW_TABLE_SERIES = tuple(
+    group_name
+    for group_name, _, _ in _FEATURE_VALUE_POPULATION_QUERIES
+    if group_name != "cross_series"
+)
+
+
 def test_live_inspector_independently_checks_schema_roles_session_and_temporal_probes(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    cursor = FakeCursor()
-    connection = FakeConnection(cursor)
+    connection_factory, connections = _fake_connection_factory()
     inspector = PostgresLiveDatabaseConformanceInspector(
-        _config(), connection_factory=lambda _: connection
+        _config(), connection_factory=connection_factory
     )
 
     with caplog.at_level(logging.DEBUG, logger="ingestion.postgres_conformance_verifier"):
         evidence = inspector.inspect()
 
-    assert evidence == PostgresDatabaseConformanceEvidence(28, 3, 2, 100)
+    assert evidence == PostgresDatabaseConformanceEvidence(28, 3, 2, 1720)
     assert "postgres live conformance inspection started" in caplog.text
-    assert "schema_table_count=28 feature_value_row_count=100 temporal_probe_count=2" in caplog.text
+    assert (
+        "schema_table_count=28 feature_value_row_count=1720 temporal_probe_count=2" in caplog.text
+    )
     assert "secret" not in caplog.text
-    assert connection.rollbacks == 1
-    assert connection.closed
+    assert connections[0].rollbacks == 1
+    assert all(connection.closed for connection in connections)
+    cursor = connections[0].cursor()
+    assert cursor is not None
     assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2
+    worker_queries = [
+        query
+        for connection in connections[1:]
+        for query in connection.cursor().queries
+        if query.startswith("WITH selected_names AS MATERIALIZED")
+    ]
+    assert len(worker_queries) == len(_FEATURE_VALUE_POPULATION_QUERIES)
 
 
 def test_live_inspector_fails_closed_and_rolls_back_when_session_timezone_drifts(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    connection = FakeConnection(FakeCursor(timezone="Europe/Berlin"))
+    connection_factory, connections = _fake_connection_factory(timezone="Europe/Berlin")
     inspector = PostgresLiveDatabaseConformanceInspector(
-        _config(), connection_factory=lambda _: connection
+        _config(), connection_factory=connection_factory
     )
 
     with (
@@ -230,11 +305,26 @@ def test_live_inspector_fails_closed_and_rolls_back_when_session_timezone_drifts
         pytest.raises(PostgresGoldRepositoryError, match="live conformance inspection failed"),
     ):
         inspector.inspect()
-    assert connection.rollbacks == 1
-    assert connection.closed
+    assert connections[0].rollbacks == 1
+    assert all(connection.closed for connection in connections)
     assert "error_type=ValueError" in caplog.text
     assert "session timezone differs" not in caplog.text
     assert "secret" not in caplog.text
+
+
+def test_live_inspector_rejects_feature_names_outside_the_catalog() -> None:
+    class DriftCursor(FakeCursor):
+        def execute(self, query: str, params: tuple[object, ...] | None = None) -> DriftCursor:
+            result = super().execute(query, params)
+            if query == _FEATURE_VALUE_CATALOG_DRIFT_SQL:
+                self._one = (1,)
+            return result
+
+    cursor = DriftCursor()
+    inspector = PostgresLiveDatabaseConformanceInspector(_config())
+
+    with pytest.raises(ValueError, match="unknown feature names"):
+        inspector._assert_feature_value_catalog(cursor)
 
 
 def test_live_inspector_rejects_duplicate_primary_key_metadata() -> None:

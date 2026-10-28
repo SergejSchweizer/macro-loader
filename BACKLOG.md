@@ -9,14 +9,50 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-225: Parallelize Independent PostgreSQL Feature Conformance
+
+PR name: `parallel-postgres-feature-verification`
+Status: In progress — parallelize independent verification and correct source-observation EMA/MACD recurrence inputs
+Updated: 2026-10-28
+Git branch: `pr-225/parallel-postgres-feature-verification`
+Git status: local-work-in-progress
+Agent lane: bounded, read-only PostgreSQL raw-derived feature population verification
+Commit: pending
+Design patterns: Bounded Concurrency Policy; Verification Adapter; preserve read-only transaction boundaries.
+Depends on: PR-224 (merged to `origin/main`)
+
+Description:
+- R1: Verify each of the 25 raw-series-derived feature groups independently, plus the full
+  cross-series group, through at most six concurrent read-only PostgreSQL sessions.
+- R2: Compare row counts per feature (not only global totals), preserve catalog coverage,
+  finite-value handling, source-type validation, and reject unknown published feature names.
+- R3: Correct EMA/MACD recurrence and lag calculations to use each feature series' own
+  source-observation sequence, independent of timestamps from other series.
+- R4: Add migration 37 to rebuild and repopulate the long-form materialized view with the
+  corrected recurrence results; preserve the established refresh/publication boundaries.
+
+Acceptance:
+- A1 deterministic SQL-contract tests prove complete, non-overlapping group coverage,
+  single-source isolation, cross-series coverage, bounded concurrency, and read-only sessions.
+- A2 tests continue to fail closed for missing/extra features, invalid types, invalid source
+  values, and row-count mismatches; the verifier remains read-only.
+- A3 the end-to-end cron acceptance report passes only after both wrapper runs, zero-change
+  replay, and independent PostgreSQL verification all pass within its existing bounded
+  statement timeout, without sampling feature families.
+- A4 independent EMA and MACD PostgreSQL parity tests use staggered per-series timestamps and
+  prove unrelated series timestamps do not alter outputs; migration tests prove the v37
+  rebuild publishes the current long-form schema and catalog fingerprint.
+- A5 `make quality-gate` passes locally; no GitHub Actions are used. Production migration and
+  the full cron acceptance run require explicit deployment authorization after merge.
+
 ### PR-224: Bound Parallelism In Full-History Acceptance Runs
 
 PR name: `parallel-full-history-reconcile`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#224](https://github.com/SergejSchweizer/macro-loader/pull/224) (open)
+PR: [#224](https://github.com/SergejSchweizer/macro-loader/pull/224) (merged)
 Git branch: `pr-224/parallel-full-history-reconcile`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: guarded full-history acceptance runner and source-series batch orchestration
 Commit: `perf(pr-224): parallelize guarded full-history ingestion`
 Design patterns: Bounded Concurrency Policy; reuse per-series Unit of Work through the CLI

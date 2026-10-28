@@ -676,6 +676,11 @@ three-source-row relative histogram delta. Price EMAs use positive-level arithme
 seeds; the EMA-9 signal seed accepts negative and zero MACD-line values and resets on NULL.
 This follows XETRA's [MACD EMA CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
 and [relative output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
+EMA and MACD recurrences and their lagged outputs are evaluated on each series' own ordered
+source observations. Timestamps belonging only to another feature series cannot advance,
+reset, or otherwise alter that series' recurrence. PostgreSQL migration 37 rebuilds the
+long-form `macro_loader.macro_features` materialized view to correct previously published
+EMA/MACD values under this source-observation rule.
 Volume transformations, market breadth, and cross-instrument dispersion are excluded by
 the current user scope. No applicable `volume_level` source or instrument panel exists in
 the raw contract.
