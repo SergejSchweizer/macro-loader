@@ -9,16 +9,47 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-205: Add Debug Telemetry To PostgreSQL Gold Sync Service
+
+PR name: `postgres-sync-debug-logs`
+Status: Open — PR #205 awaiting review
+Updated: 2026-10-28
+PR: [#205](https://github.com/SergejSchweizer/macro-loader/pull/205)
+Git branch: `pr-205/postgres-sync-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: application PostgreSQL Gold delta-sync stages
+Commit: `feat(pr-205): instrument postgres sync debug logs`
+Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
+Depends on: PR-204 (merged to `origin/main`)
+
+Description:
+- R1: Log PostgreSQL Gold sync stages, selected source build/schema identity, and delta
+  counts from `GoldPostgresDeltaSync` using the standard module logger.
+- R2: Limit log fields to IDs, schema/feature versions, row/delta counts, and exception
+  class names; never emit row values, digests, credentials, connection strings, or error text.
+- R3: Preserve schema preflight-before-transaction ordering, locked delta application,
+  verification, and rollback behavior.
+- R4: Require the complete local quality gate and keep production PostgreSQL, cron, and
+  GitHub Actions out of this implementation PR.
+
+Acceptance:
+- A1 caplog tests verify start, preflight, planned delta, and completion records with
+  correct counts for insert/update/delete/no-op paths.
+- A2 failure-path tests prove exception text, row values, and digests are absent from logs.
+- A3 existing sync tests continue to assert preflight and transactional mutation ordering,
+  idempotent replay, and no state advancement after failures.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production PostgreSQL/cron run.
+
 ### PR-204: Add Debug Telemetry To Core Application Workflows
 
 PR name: `application-workflow-debug-logs`
-Status: Open — PR #204 awaiting review
+Status: Merged
 Updated: 2026-10-28
-PR: [#204](https://github.com/SergejSchweizer/macro-loader/pull/204)
+PR: [#204](https://github.com/SergejSchweizer/macro-loader/pull/204) (merged)
 Git branch: `pr-204/application-workflow-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: daily pipeline, Silver canonicalization, Gold publication and retention logs
-Commit: `feat(pr-204): instrument application workflow debug logs`
+Commit: `dc66ac0 feat(pr-204): instrument application workflow debug logs` (GitHub squash merge)
 Design patterns: Logging Adapter; existing injected event and repository boundaries remain unchanged.
 Depends on: PR-203 (merged to `origin/main`)
 

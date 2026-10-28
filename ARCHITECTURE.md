@@ -918,6 +918,8 @@ attempt, and retry delay. Bronze orchestration and its filesystem Unit of Work r
 insert/revision counts, partition counts, commit/rollback stages, and failure categories.
 The daily pipeline, Silver canonicalizer, Gold publisher, and Gold retention service record
 command/stage lifecycle, canonical series IDs, row/build counts, and state transitions.
+The PostgreSQL Gold sync service records source-build/schema identity, preflight and locked
+transaction stages, and insert/update/delete/no-op counts.
 Failure logs contain only exception class names, never exception messages. These workflow
 logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are

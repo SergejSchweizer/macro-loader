@@ -751,8 +751,9 @@ older than 90 days. Other files in `.logs` are not subject to this cleanup.
 Debug records cover provider request windows and row counts, HTTP attempts/retries using a
 query-free safe path, Bronze diff/commit/rollback counts, daily pipeline and Silver stage
 counts, and Gold publication/retention state transitions. Failure records contain only the
-exception class. Raw observations, response bodies, query parameters, credentials, and
-exception messages are intentionally excluded.
+exception class. PostgreSQL Gold sync logs record the selected build, schema preflight,
+locked delta counts, and completion state. Raw observations, digests, response bodies, query
+parameters, credentials, and exception messages are intentionally excluded.
 
 Install it for the service account after reviewing the absolute project path:
 
