@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,7 @@ GOLD_CATALOG_SCHEMA = pl.Schema(
         "pruned_at_utc": pl.Datetime("us", "UTC"),
     }
 )
+logger = logging.getLogger(__name__)
 
 
 def _validate_record(record: GoldCatalogRecord) -> None:
@@ -157,17 +159,30 @@ class GoldCatalogRepository:
         return self._path
 
     def read(self) -> list[GoldCatalogRecord]:
-        if not self._path.is_file():
-            return []
-        frame = pl.read_parquet(self._path)
-        if frame.schema != GOLD_CATALOG_SCHEMA:
-            raise ValueError("invalid Gold catalog schema")
-        records = [_record(row) for row in frame.iter_rows(named=True)]
-        _frame(records)
+        logger.debug("gold catalog read started")
+        try:
+            if not self._path.is_file():
+                records: list[GoldCatalogRecord] = []
+            else:
+                frame = pl.read_parquet(self._path)
+                if frame.schema != GOLD_CATALOG_SCHEMA:
+                    raise ValueError("invalid Gold catalog schema")
+                records = [_record(row) for row in frame.iter_rows(named=True)]
+                _frame(records)
+        except Exception as exc:
+            logger.debug("gold catalog read failed error_type=%s", type(exc).__name__)
+            raise
+        logger.debug("gold catalog read completed record_count=%d", len(records))
         return records
 
     def replace(self, records: list[GoldCatalogRecord]) -> None:
-        atomic_write_parquet(_frame(records), self._path)
+        logger.debug("gold catalog replace started record_count=%d", len(records))
+        try:
+            atomic_write_parquet(_frame(records), self._path)
+        except Exception as exc:
+            logger.debug("gold catalog replace failed error_type=%s", type(exc).__name__)
+            raise
+        logger.debug("gold catalog replace completed record_count=%d", len(records))
 
     def append(self, record: GoldCatalogRecord) -> None:
         self.replace([*self.read(), record])

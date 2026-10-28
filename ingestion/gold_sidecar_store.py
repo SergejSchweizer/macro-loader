@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import tempfile
@@ -29,6 +30,7 @@ from ingestion.gold_build_store import GoldBuildArtifact, GoldBuildStore
 FaultInjector = Callable[[str], None]
 ProfileRenderer = Callable[[pl.DataFrame], bytes]
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+logger = logging.getLogger(__name__)
 
 
 def _no_fault(stage: str) -> None:
@@ -188,41 +190,58 @@ class GoldSidecarStore:
         completed_at_utc: datetime,
         inputs: tuple[SilverInputSignature, ...] = (),
     ) -> GoldSidecarArtifacts:
-        if not inputs:
-            raise ValueError("Gold sidecar creation requires certified Silver input provenance")
-        manifest_path = self._paths.gold_build_manifest(artifact.build_id)
-        plot_path = self._paths.gold_build_profile(artifact.build_id)
-        if manifest_path.exists() or plot_path.exists():
-            raise FileExistsError(f"Gold sidecars already exist for build {artifact.build_id}")
-        frame = self._validated_frame(artifact)
-        plot_bytes = self._profile_renderer(frame)
-        if not plot_bytes.startswith(_PNG_SIGNATURE):
-            raise ValueError("Gold feature profile renderer must return a PNG")
-        self._fault("after_plot_bytes")
-        _create_bytes(plot_path, plot_bytes)
-        self._fault("after_plot_create")
-        manifest = self._builder.build(
-            frame,
-            build_id=artifact.build_id,
-            started_at_utc=started_at_utc,
-            completed_at_utc=completed_at_utc,
-            data_path=self._relative(artifact.data_path),
-            data_sha256=artifact.data_sha256,
-            plot_path=self._relative(plot_path),
-            inputs=inputs,
+        logger.debug(
+            "gold sidecar creation started build_id=%s row_count=%d",
+            artifact.build_id,
+            artifact.row_count,
         )
-        manifest_bytes = manifest.to_json_bytes()
-        self._fault("after_manifest_bytes")
-        _create_bytes(manifest_path, manifest_bytes)
-        self._fault("after_manifest_create")
-        sidecars = GoldSidecarArtifacts(
-            manifest=manifest,
-            manifest_path=manifest_path,
-            plot_path=plot_path,
-            manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
-            plot_sha256=hashlib.sha256(plot_bytes).hexdigest(),
+        try:
+            if not inputs:
+                raise ValueError("Gold sidecar creation requires certified Silver input provenance")
+            manifest_path = self._paths.gold_build_manifest(artifact.build_id)
+            plot_path = self._paths.gold_build_profile(artifact.build_id)
+            if manifest_path.exists() or plot_path.exists():
+                raise FileExistsError(f"Gold sidecars already exist for build {artifact.build_id}")
+            frame = self._validated_frame(artifact)
+            plot_bytes = self._profile_renderer(frame)
+            if not plot_bytes.startswith(_PNG_SIGNATURE):
+                raise ValueError("Gold feature profile renderer must return a PNG")
+            self._fault("after_plot_bytes")
+            _create_bytes(plot_path, plot_bytes)
+            self._fault("after_plot_create")
+            manifest = self._builder.build(
+                frame,
+                build_id=artifact.build_id,
+                started_at_utc=started_at_utc,
+                completed_at_utc=completed_at_utc,
+                data_path=self._relative(artifact.data_path),
+                data_sha256=artifact.data_sha256,
+                plot_path=self._relative(plot_path),
+                inputs=inputs,
+            )
+            manifest_bytes = manifest.to_json_bytes()
+            self._fault("after_manifest_bytes")
+            _create_bytes(manifest_path, manifest_bytes)
+            self._fault("after_manifest_create")
+            sidecars = GoldSidecarArtifacts(
+                manifest=manifest,
+                manifest_path=manifest_path,
+                plot_path=plot_path,
+                manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+                plot_sha256=hashlib.sha256(plot_bytes).hexdigest(),
+            )
+            self.validate_bundle(artifact, sidecars)
+        except Exception as exc:
+            logger.debug(
+                "gold sidecar creation failed build_id=%s error_type=%s",
+                artifact.build_id,
+                type(exc).__name__,
+            )
+            raise
+        logger.debug(
+            "gold sidecar creation completed build_id=%s",
+            artifact.build_id,
         )
-        self.validate_bundle(artifact, sidecars)
         return sidecars
 
     def validate_bundle(
@@ -230,48 +249,58 @@ class GoldSidecarStore:
         artifact: GoldBuildArtifact,
         sidecars: GoldSidecarArtifacts,
     ) -> None:
-        frame = self._validated_frame(artifact)
-        if sidecars.manifest_path != self._paths.gold_build_manifest(artifact.build_id):
-            raise ValueError("Gold build manifest path mismatch")
-        if sidecars.plot_path != self._paths.gold_build_profile(artifact.build_id):
-            raise ValueError("Gold feature profile path mismatch")
-        if not sidecars.manifest_path.is_file() or not sidecars.plot_path.is_file():
-            raise FileNotFoundError("Gold build bundle is incomplete")
-        manifest_bytes = sidecars.manifest_path.read_bytes()
-        if manifest_bytes != sidecars.manifest.to_json_bytes():
-            raise ValueError("Gold build manifest bytes mismatch")
-        if hashlib.sha256(manifest_bytes).hexdigest() != sidecars.manifest_sha256:
-            raise ValueError("Gold build manifest SHA-256 mismatch")
-        plot_bytes = sidecars.plot_path.read_bytes()
-        if not plot_bytes.startswith(_PNG_SIGNATURE):
-            raise ValueError("Gold feature profile is not a PNG")
-        if hashlib.sha256(plot_bytes).hexdigest() != sidecars.plot_sha256:
-            raise ValueError("Gold feature profile SHA-256 mismatch")
-        parsed = json.loads(manifest_bytes)
-        if sorted(parsed) != list(expected_manifest_keys()):
-            raise ValueError("Gold build manifest key set mismatch")
-        manifest = sidecars.manifest
-        if manifest.artifact_state != "built":
-            raise ValueError("Gold build sidecar artifact_state must be built")
-        if "status" in parsed:
-            raise ValueError("Gold build manifest must not contain publication status")
-        if manifest.build_id != artifact.build_id:
-            raise ValueError("Gold build identity mismatch")
-        if manifest.data_path != self._relative(artifact.data_path):
-            raise ValueError("Gold build data path mismatch")
-        if manifest.plot_path != self._relative(sidecars.plot_path):
-            raise ValueError("Gold build plot path mismatch")
-        if manifest.data_sha256 != artifact.data_sha256:
-            raise ValueError("Gold build manifest data SHA-256 mismatch")
-        if manifest.row_count != artifact.row_count:
-            raise ValueError("Gold build manifest row count mismatch")
-        expected_feature_hash = self._builder.feature_set_hash(
-            frame,
-            schema_version=manifest.schema_version,
-            feature_version=manifest.feature_version,
-        )
-        if manifest.feature_set_hash != expected_feature_hash:
-            raise ValueError("Gold build feature-set hash mismatch")
+        logger.debug("gold sidecar validation started build_id=%s", artifact.build_id)
+        try:
+            frame = self._validated_frame(artifact)
+            if sidecars.manifest_path != self._paths.gold_build_manifest(artifact.build_id):
+                raise ValueError("Gold build manifest path mismatch")
+            if sidecars.plot_path != self._paths.gold_build_profile(artifact.build_id):
+                raise ValueError("Gold feature profile path mismatch")
+            if not sidecars.manifest_path.is_file() or not sidecars.plot_path.is_file():
+                raise FileNotFoundError("Gold build bundle is incomplete")
+            manifest_bytes = sidecars.manifest_path.read_bytes()
+            if manifest_bytes != sidecars.manifest.to_json_bytes():
+                raise ValueError("Gold build manifest bytes mismatch")
+            if hashlib.sha256(manifest_bytes).hexdigest() != sidecars.manifest_sha256:
+                raise ValueError("Gold build manifest SHA-256 mismatch")
+            plot_bytes = sidecars.plot_path.read_bytes()
+            if not plot_bytes.startswith(_PNG_SIGNATURE):
+                raise ValueError("Gold feature profile is not a PNG")
+            if hashlib.sha256(plot_bytes).hexdigest() != sidecars.plot_sha256:
+                raise ValueError("Gold feature profile SHA-256 mismatch")
+            parsed = json.loads(manifest_bytes)
+            if sorted(parsed) != list(expected_manifest_keys()):
+                raise ValueError("Gold build manifest key set mismatch")
+            manifest = sidecars.manifest
+            if manifest.artifact_state != "built":
+                raise ValueError("Gold build sidecar artifact_state must be built")
+            if "status" in parsed:
+                raise ValueError("Gold build manifest must not contain publication status")
+            if manifest.build_id != artifact.build_id:
+                raise ValueError("Gold build identity mismatch")
+            if manifest.data_path != self._relative(artifact.data_path):
+                raise ValueError("Gold build data path mismatch")
+            if manifest.plot_path != self._relative(sidecars.plot_path):
+                raise ValueError("Gold build plot path mismatch")
+            if manifest.data_sha256 != artifact.data_sha256:
+                raise ValueError("Gold build manifest data SHA-256 mismatch")
+            if manifest.row_count != artifact.row_count:
+                raise ValueError("Gold build manifest row count mismatch")
+            expected_feature_hash = self._builder.feature_set_hash(
+                frame,
+                schema_version=manifest.schema_version,
+                feature_version=manifest.feature_version,
+            )
+            if manifest.feature_set_hash != expected_feature_hash:
+                raise ValueError("Gold build feature-set hash mismatch")
+        except Exception as exc:
+            logger.debug(
+                "gold sidecar validation failed build_id=%s error_type=%s",
+                artifact.build_id,
+                type(exc).__name__,
+            )
+            raise
+        logger.debug("gold sidecar validation completed build_id=%s", artifact.build_id)
 
     def _validated_frame(self, artifact: GoldBuildArtifact) -> pl.DataFrame:
         expected_path = self._paths.gold_data(artifact.build_id)

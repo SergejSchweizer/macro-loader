@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Callable, Sequence
@@ -14,6 +15,7 @@ from application.paths import LakePaths
 
 FaultInjector = Callable[[str], None]
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+logger = logging.getLogger(__name__)
 
 
 def _no_fault(stage: str) -> None:
@@ -82,31 +84,41 @@ class GoldMaterializedViewWriter:
         self._fault = fault_injector if fault_injector is not None else _no_fault
 
     def refresh(self, records: Sequence[GoldCatalogRecord]) -> None:
-        current = [record for record in records if record.current]
-        if len(current) > 1:
-            raise ValueError("Gold catalog contains multiple current rows")
-        if not current:
-            self._paths.gold_manifest_json().unlink(missing_ok=True)
-            self._paths.gold_profile().unlink(missing_ok=True)
-            self._fault("after_clear")
-            return
+        logger.debug("gold root views refresh started catalog_rows=%d", len(records))
+        try:
+            current = [record for record in records if record.current]
+            if len(current) > 1:
+                raise ValueError("Gold catalog contains multiple current rows")
+            if not current:
+                self._paths.gold_manifest_json().unlink(missing_ok=True)
+                self._paths.gold_profile().unlink(missing_ok=True)
+                self._fault("after_clear")
+                logger.debug("gold root views cleared")
+                return
 
-        record = current[0]
-        if not record.selectable_complete:
-            raise ValueError("Gold current row is not a selectable complete build")
-        data_path, manifest_path, plot_path = self._physical_paths(record)
-        if not data_path.is_file() or not manifest_path.is_file() or not plot_path.is_file():
-            raise FileNotFoundError("Gold current bundle is physically incomplete")
-        plot_bytes = plot_path.read_bytes()
-        if not plot_bytes.startswith(_PNG_SIGNATURE):
-            raise ValueError("Gold current feature profile is not a PNG")
-        root_json = _catalog_json(record)
+            record = current[0]
+            if not record.selectable_complete:
+                raise ValueError("Gold current row is not a selectable complete build")
+            data_path, manifest_path, plot_path = self._physical_paths(record)
+            if not data_path.is_file() or not manifest_path.is_file() or not plot_path.is_file():
+                raise FileNotFoundError("Gold current bundle is physically incomplete")
+            plot_bytes = plot_path.read_bytes()
+            if not plot_bytes.startswith(_PNG_SIGNATURE):
+                raise ValueError("Gold current feature profile is not a PNG")
+            root_json = _catalog_json(record)
 
-        self._fault("before_root_json")
-        _atomic_replace_bytes(self._paths.gold_manifest_json(), root_json)
-        self._fault("after_root_json")
-        _atomic_replace_bytes(self._paths.gold_profile(), plot_bytes)
-        self._fault("after_root_profile")
+            self._fault("before_root_json")
+            _atomic_replace_bytes(self._paths.gold_manifest_json(), root_json)
+            self._fault("after_root_json")
+            _atomic_replace_bytes(self._paths.gold_profile(), plot_bytes)
+            self._fault("after_root_profile")
+        except Exception as exc:
+            logger.debug(
+                "gold root views refresh failed error_type=%s",
+                type(exc).__name__,
+            )
+            raise
+        logger.debug("gold root views refreshed build_id=%s", record.build_id)
 
     def _physical_paths(self, record: GoldCatalogRecord) -> tuple[Path, Path, Path]:
         build_id = record.build_id

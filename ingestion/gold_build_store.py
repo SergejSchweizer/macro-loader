@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import shutil
 import tempfile
@@ -19,6 +20,7 @@ from application.paths import LakePaths
 
 Clock = Callable[[], datetime]
 FaultInjector = Callable[[str], None]
+logger = logging.getLogger(__name__)
 
 
 def _system_utc_now() -> datetime:
@@ -81,12 +83,20 @@ class GoldBuildStore:
         self._validate_frame(frame)
         resolved_id = self.next_build_id() if build_id is None else build_id
         self._validate_build_id(resolved_id)
+        logger.debug(
+            "gold parquet build started build_id=%s row_count=%d", resolved_id, frame.height
+        )
         build_dir = self.build_dir(resolved_id)
         data_path = self.data_path(resolved_id)
         build_dir.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.mkdir(build_dir)
         except FileExistsError as exc:
+            logger.debug(
+                "gold parquet build failed build_id=%s error_type=%s",
+                resolved_id,
+                type(exc).__name__,
+            )
             raise FileExistsError(f"Gold build already exists: {resolved_id}") from exc
 
         temp_path: Path | None = None
@@ -121,7 +131,7 @@ class GoldBuildStore:
                 raise TypeError("Gold min timestamp must be datetime")
             if maximum is not None and not isinstance(maximum, datetime):
                 raise TypeError("Gold max timestamp must be datetime")
-            return GoldBuildArtifact(
+            artifact = GoldBuildArtifact(
                 build_id=resolved_id,
                 data_path=data_path,
                 data_sha256=data_sha256,
@@ -129,23 +139,53 @@ class GoldBuildStore:
                 min_timestamp=minimum,
                 max_timestamp=maximum,
             )
-        except BaseException:
+            logger.debug(
+                "gold parquet build completed build_id=%s row_count=%d",
+                resolved_id,
+                artifact.row_count,
+            )
+            return artifact
+        except BaseException as exc:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
             shutil.rmtree(build_dir, ignore_errors=True)
+            logger.debug(
+                "gold parquet build failed build_id=%s error_type=%s",
+                resolved_id,
+                type(exc).__name__,
+            )
             raise
 
     def read_build(self, build_id: str) -> pl.DataFrame:
         """Read exactly the requested build id; never infer newest/current from the filesystem."""
         self._validate_build_id(build_id)
-        return self.read_path(self.data_path(build_id))
+        logger.debug("gold parquet build read started build_id=%s", build_id)
+        try:
+            frame = self.read_path(self.data_path(build_id))
+        except Exception as exc:
+            logger.debug(
+                "gold parquet build read failed build_id=%s error_type=%s",
+                build_id,
+                type(exc).__name__,
+            )
+            raise
+        logger.debug(
+            "gold parquet build read completed build_id=%s row_count=%d", build_id, frame.height
+        )
+        return frame
 
     def read_path(self, path: Path) -> pl.DataFrame:
         """Read exactly one explicit data path."""
-        if not path.is_file():
-            raise FileNotFoundError(path)
-        frame = pl.read_parquet(path)
-        self._validate_frame(frame)
+        logger.debug("gold parquet path read started")
+        try:
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            frame = pl.read_parquet(path)
+            self._validate_frame(frame)
+        except Exception as exc:
+            logger.debug("gold parquet path read failed error_type=%s", type(exc).__name__)
+            raise
+        logger.debug("gold parquet path read completed row_count=%d", frame.height)
         return frame
 
     @staticmethod
