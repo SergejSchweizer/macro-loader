@@ -778,6 +778,8 @@ they omit hashes, paths, report payloads, secrets, and exception text.
 Canonical Gold frame assembly logs input-series count, output row/column counts, semantic
 versions, and exception classes; it never logs source values, observation dates, provenance
 hashes, or exception text.
+Macro-feature catalog validation records source-series/feature counts and the OHLC-scope flag;
+it excludes formulas, feature values, fingerprints, dates, and exception text.
 
 Install it for the service account after reviewing the absolute project path:
 

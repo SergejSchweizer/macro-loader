@@ -941,6 +941,9 @@ text; logging does not authorize or execute reconstruction.
 Canonical Silver-to-Gold frame assembly records safe start/completion counts and logs only
 exception classes on failure; source values, observation dates, provenance hashes, and error
 messages remain outside debug records.
+The macro transformation catalog records validation start/completion counts and error classes
+when catalog metadata is requested; formulas, values, fingerprints, and exception messages
+remain outside debug records.
 The PostgreSQL conformance and reconstruction application use cases record their start,
 stage/result counts, canonical build identity, safe stage names, statuses, and exception
 classes. They do not log report payloads, hashes, paths, secrets, or exception messages.
