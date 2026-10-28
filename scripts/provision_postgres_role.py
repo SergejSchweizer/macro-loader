@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
+from api.logging_config import configure_debug_logging
 from application.postgres_sync import POSTGRES_FEATURE_VALUES_TABLE, POSTGRES_RAW_TABLES
+
+logger = logging.getLogger(__name__)
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
@@ -239,27 +244,47 @@ def sanitized(text: str, config: ProvisioningConfig) -> str:
 
 
 def run(config: ProvisioningConfig) -> None:
+    logger.debug("PostgreSQL role provisioning started")
     environment = dict(os.environ)
     environment["PGPASSWORD"] = config.admin_password
-    completed = subprocess.run(
-        psql_command(config),
-        input=provision_sql(config.database, config.app_password, config.admin_user),
-        text=True,
-        capture_output=True,
-        env=environment,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            psql_command(config),
+            input=provision_sql(config.database, config.app_password, config.admin_user),
+            text=True,
+            capture_output=True,
+            env=environment,
+            check=False,
+        )
+    except Exception as exc:
+        logger.debug("PostgreSQL role provisioning failed error_type=%s", type(exc).__name__)
+        raise
     if completed.returncode != 0:
         detail = sanitized(completed.stderr.strip(), config)
+        logger.debug("PostgreSQL role provisioning failed error_type=RuntimeError")
         raise RuntimeError(f"PostgreSQL role provisioning failed: {detail or 'psql failed'}")
+    logger.debug(
+        "PostgreSQL role provisioning completed schema_count=%d table_count=%d "
+        "materialized_view_count=%d",
+        len(POSTGRES_SCHEMAS),
+        len(POSTGRES_TABLES),
+        len(POSTGRES_MATERIALIZED_VIEWS),
+    )
 
 
 def main() -> int:
+    configure_debug_logging(Path.cwd())
+    logger.debug("PostgreSQL role provisioning command started")
     try:
         run(ProvisioningConfig.from_env(os.environ))
     except (OSError, ValueError, RuntimeError) as exc:
+        logger.debug(
+            "PostgreSQL role provisioning command failed error_type=%s",
+            type(exc).__name__,
+        )
         print(str(exc), file=sys.stderr)
         return 2
+    logger.debug("PostgreSQL role provisioning command completed")
     return 0
 
 
