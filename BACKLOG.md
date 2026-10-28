@@ -5,18 +5,50 @@ contracts, and compact historical context for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-10-27
+Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
+
+### PR-202: Central Debug Logging And 90-Day Operational Log Retention
+
+PR name: `central-debug-logs-retention`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-202/central-debug-logs-retention`
+Git status: active-dirty: central debug logging and 90-day operational log retention
+Agent lane: central application debug output and cron log lifecycle
+Commit: `feat(pr-202): add central debug logging and 90-day retention`
+Design patterns: Logging Adapter, bounded retention policy.
+Depends on: PR-201 (merged to `origin/main`)
+
+Description:
+- R1: Route Python debug records, including sanitized structured operational events, to
+  `${PROJECT_ROOT}/.logs/macro-loader-debug.log`; rotate at UTC midnight and retain at most
+  90 daily archives. Keep ordinary cron stdout/stderr in the existing operator logs.
+- R2: Rotate the daily and Sunday-copy wrapper logs by calendar date and prune only their
+  own dated archives older than 90 days. Never overwrite an existing archive or touch
+  unrelated files in `.logs`.
+- R3: Configure the shared rotation at both cron entry points and document debug-log,
+  rotation, retention, and failure behavior.
+
+Acceptance:
+- A1 unit tests verify module debug routing, 90-day handler retention, date rotation,
+  exact filename scoping, expiry pruning, and no-overwrite behavior.
+- A2 shell-runner tests verify both jobs rotate before appending and preserve existing
+  cron execution order/locks and failure semantics.
+- A3 `make quality-gate` passes locally; GitHub Actions remain unused.
+- A4 inspect the installed crontab and local log directory after controlled test runs;
+  do not run the production ingestion cron or modify production data for this PR.
 
 ### PR-201: Copy Gold To NAS Every Sunday
 
 PR name: `sunday-gold-copy-cron`
-Status: PR #201 open — local quality gate passed; host schedule installed and live copy verified
+Status: Merged — PR #201; host schedule installed and live copy verified
 Updated: 2026-10-27
 Git branch: `pr-201/sunday-gold-copy-cron`
 PR: [#201](https://github.com/SergejSchweizer/macro-loader/pull/201) (open)
-Git status: pushed-local-checks-passed
+Git status: merged
 Commit: `feat(pr-201): add weekly gold copy cron`
 Design patterns: Architectural baseline only.
 Depends on: PR-200 (merged to `origin/main`)
