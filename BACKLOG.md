@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-216: Add Debug Telemetry To Bounded Parallelism
 
 PR name: `parallelism-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#216](https://github.com/SergejSchweizer/macro-loader/pull/216) (open)
 Git branch: `pr-216/parallelism-debug-logs`
-Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/parallelism.py, tests/unit/test_parallelism.py
+Git status: pushed-local-checks-passed
 Agent lane: bounded concurrent execution of independent application work units
 Commit: `feat(pr-216): instrument bounded parallel execution`
 Design patterns: Logging Adapter; preserve the shared bounded concurrency policy.
