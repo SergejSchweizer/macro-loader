@@ -9,6 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-227: Align PostgreSQL Math QA With The Long-Form Feature View
+
+PR name: `align-postgres-math-qa-to-long-view`
+Status: Pushed — local quality gate and all 46 disposable PostgreSQL integration tests passed; awaiting PR review/merge
+Updated: 2026-10-28
+PR: [#227](https://github.com/SergejSchweizer/macro-loader/pull/227) (open)
+Git branch: `pr-227/align-postgres-math-qa-to-long-view`
+Git status: pushed-local-checks-passed
+Agent lane: independent PostgreSQL formula parity and long-view contract QA
+Commit: `56dd3a9 fix(pr-227): rebuild long view with null-reset math`
+Design patterns: Independent Reference; Materialized View contract; disposable integration fixture.
+Depends on: PR-226 (merged to `origin/main`)
+
+Description:
+- R1: Update integration QA that still selects wide transformation columns from
+  `macro_loader.macro_features` to query `(timestamp_m1, feature_name, value)` rows and assert
+  the current four-column long-form contract.
+- R2: Preserve independent mathematical oracles, warm-up/null semantics, per-series
+  observation ordering, and future-extension/truncation causality checks across returns,
+  trend/momentum, statistical, EMA/MACD, OHLC, stochastic, and Donchian outputs.
+- R3: Reconcile current delivery documentation with merged PR-226, migration 37, and the
+  guarded 2026-10-28 cron acceptance result; keep historical snapshots labeled by date.
+- R4: Preserve explicit NULL source observations in raw-table EMA/MACD recurrences, make
+  positive-domain logarithm evaluation safe for zero-underflow ratios, and add migration 38
+  to rebuild the long-form view for existing installations. Historical migration definitions
+  remain unchanged.
+
+Acceptance:
+- A1 disposable PostgreSQL integration checks pass for current long-form schema and exact
+  SQL-vs-independent-reference values; no superseded wide-view relation or columns are added.
+- A2 formula and causality tests cover each named family and validate sparse long-form rows,
+  including NULL outputs represented by absent `(timestamp_m1, feature_name)` rows.
+- A3 documentation records PR-226 as merged and current migration/view/row-count evidence
+  without changing prior dated source-history snapshots.
+- A4 `make quality-gate` and the PostgreSQL integration suite pass locally; no GitHub Actions,
+  production mutation, or production cron run.
+- A5 Regression coverage proves EMA and MACD warm-up restarts after an explicit NULL row in
+  an extended raw series, while exact formula parity remains intact for valid observations.
+
+
 ### PR-225: Parallelize Independent PostgreSQL Feature Conformance
 
 PR name: `parallel-postgres-feature-verification`
@@ -49,12 +89,13 @@ Acceptance:
 ### PR-226: Close Idle Transactions During Long PostgreSQL Verification
 
 PR name: `close-idle-conformance-transactions`
-Status: In progress — live acceptance exposed an idle-transaction timeout after all source groups passed
+Status: Merged
 Updated: 2026-10-28
+PR: [#226](https://github.com/SergejSchweizer/macro-loader/pull/226) (merged)
 Git branch: `pr-226/close-idle-conformance-transactions`
-Git status: local-work-in-progress
+Git status: merged
 Agent lane: read-only PostgreSQL live conformance transaction lifecycle
-Commit: `fix(pr-226): close idle verification transaction before scans`
+Commit: `de2da8a fix(pr-226): close idle verification transactions` (squash merge)
 Design patterns: Unit of Work; short-lived read-only transaction boundaries; Dependency Injection.
 Depends on: PR-225 (merged to `origin/main`)
 
@@ -72,8 +113,9 @@ Acceptance:
   population groups execute and final metadata checks use a fresh connection.
 - A2 failure tests prove all connections are rolled back and closed even if a worker or final
   metadata check fails.
-- A3 guarded production cron acceptance passes both wrappers, zero-change replay, and the
-  independent verifier after migration 37; retain its sanitized report.
+- A3 passed 2026-10-28: guarded cron acceptance passed both wrappers, zero-change replay, and
+  independent verification after migration 37; its report has 12,189,132 feature rows,
+  16,805 consumer/digest rows, 28 schema tables, and all 26 source groups passed.
 - A4 `make quality-gate` passes locally; no GitHub Actions or remote checks are used.
 
 ### PR-224: Bound Parallelism In Full-History Acceptance Runs

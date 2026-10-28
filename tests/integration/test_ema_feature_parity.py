@@ -18,6 +18,8 @@ from application.macro_feature_catalog import (
     FEATURE_VALUE_CATALOG_FINGERPRINT,
     FEATURE_VALUE_NAMES,
     FEATURE_VALUE_SCHEMA_VERSION,
+    MACRO_FEATURE_VIEW_FINGERPRINT,
+    MACRO_FEATURE_VIEW_VERSION,
 )
 from application.postgres_sync import POSTGRES_RAW_TABLES
 from ingestion.postgres_gold_repository import (
@@ -275,14 +277,17 @@ def test_ema_view_migration_22_upgrade_and_clean_create_have_exact_schema(
         old_comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
-    assert old_comment is not None and old_comment[0].startswith(
-        "macro feature view version=11; fingerprint="
+    assert old_comment == (
+        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
     )
     baseline_names = {column for column, _type, _not_null in baseline}
-    assert (
-        not {f"{series}_{suffix}" for series in _QA_PRICE_SERIES for suffix in _QA_EMA_SUFFIXES}
-        & baseline_names
-    )
+    # Historical migration SQL is assembled from the current feature catalog, so replaying
+    # its v22 prefix already includes these wide-view columns before the long-view rebuild.
+    expected_ema_columns = {
+        f"{series}_{suffix}" for series in _QA_PRICE_SERIES for suffix in _QA_EMA_SUFFIXES
+    }
+    assert expected_ema_columns <= baseline_names
 
     # Exercise the public migration runner for the v22 -> v23 upgrade.
     migrator.migrate()
@@ -342,7 +347,7 @@ def test_ema_view_matches_independent_reference_for_seed_reset_crosses_and_causa
                 "VALUES (%s, %s)",
                 zip(unrelated_timestamps, range(1, len(unrelated_timestamps) + 1), strict=True),
             )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         actual_rows = connection.execute(
             "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
             "WHERE feature_name = ANY(%s) AND timestamp_m1 = ANY(%s)",
@@ -374,7 +379,7 @@ def test_ema_view_matches_independent_reference_for_seed_reset_crosses_and_causa
         connection.execute(
             "DELETE FROM macro_loader.macro_raw_vix WHERE timestamp_m1 > %s", (target_timestamp,)
         )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         after_truncation = connection.execute(
             "SELECT feature_name, value FROM macro_loader.macro_features "
             "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",

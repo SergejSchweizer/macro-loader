@@ -19,13 +19,10 @@ from application.contracts import NativeShape
 from application.gold_frame import GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
     EXTENDED_FEATURE_COLUMNS,
-    EXTENDED_FEATURE_POSTGRES_TYPES,
-    EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT,
-    EXTENDED_MACRO_FEATURE_VIEW_VERSION,
-    FEATURE_COLUMNS,
-    FEATURE_POSTGRES_TYPES,
-    MACRO_FEATURE_VIEW_FINGERPRINT,
-    MACRO_FEATURE_VIEW_VERSION,
+    EXTENDED_RAW_SERIES,
+    FEATURE_VALUE_CATALOG_FINGERPRINT,
+    FEATURE_VALUE_NAMES,
+    FEATURE_VALUE_SCHEMA_VERSION,
     OHLC_BAR_FEATURE_FAMILIES,
     OHLC_DONCHIAN_SUFFIXES,
     OHLC_STOCHASTIC_SUFFIXES,
@@ -315,34 +312,39 @@ def _insert_feature_source_row(
         )
 
 
+def _long_values_at(
+    connection: psycopg.Connection[object], timestamp: datetime, feature_names: tuple[str, ...]
+) -> dict[str, float | None]:
+    rows = connection.execute(
+        "SELECT feature_name, value FROM macro_loader.macro_features "
+        "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",
+        (timestamp, list(feature_names)),
+    ).fetchall()
+    result: dict[str, float | None] = dict.fromkeys(feature_names)
+    result.update((str(name), value) for name, value in rows)
+    return result
+
+
 def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     rows = _column_rows(connection, "macro_loader.macro_features")
     names = tuple(str(row[0]) for row in rows)
-    assert names == ("timestamp_m1", "available_at_utc", *FEATURE_COLUMNS[1:])
-    assert tuple(str(row[1]) for row in rows[:2]) == (
+    assert names == ("timestamp_m1", "available_at_utc", "feature_name", "value")
+    assert tuple(str(row[1]) for row in rows) == (
         "timestamp(6) with time zone",
         "timestamp(6) with time zone",
+        "text",
+        "double precision",
     )
-    assert all(
-        row[1] == FEATURE_POSTGRES_TYPES[str(row[0])] and row[2] is False for row in rows[2:]
-    )
-    assert (
-        tuple(name for name in names if name.endswith(tuple(f"_{field}" for field in _OHLC_FIELDS)))
-        == _OHLC_COLUMNS
-    )
-    for series_id in _SCALAR_SERIES:
-        assert not any(f"{series_id}_{field}" in names for field in _OHLC_FIELDS)
+    assert all(row[2] is False for row in rows)
+    assert len(FEATURE_VALUE_NAMES) == len(set(FEATURE_VALUE_NAMES))
+    assert all(column not in FEATURE_VALUE_NAMES for column in _OHLC_COLUMNS)
     expected_derived = tuple(
         f"{series_id}_{suffix}" for series_id in _OHLC_SERIES for suffix in _OHLC_BAR_SUFFIXES
     )
-    derived_names = tuple(
-        name for name in names if any(name.endswith(f"_{suffix}") for suffix in _OHLC_BAR_SUFFIXES)
-    )
-    assert derived_names == expected_derived
     assert len(expected_derived) == 36
     assert not any(
         name.startswith("estr_") and any(family in name for family in OHLC_BAR_FEATURE_FAMILIES)
-        for name in names
+        for name in FEATURE_VALUE_NAMES
     )
     expected_stochastic = tuple(
         f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in OHLC_STOCHASTIC_SUFFIXES
@@ -350,8 +352,8 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
     expected_donchian = tuple(
         f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in OHLC_DONCHIAN_SUFFIXES
     )
-    assert tuple(name for name in names if "_stoch_" in name) == expected_stochastic
-    assert tuple(name for name in names if "_donchian_" in name) == expected_donchian
+    assert set(expected_stochastic) <= set(FEATURE_VALUE_NAMES)
+    assert set(expected_donchian) <= set(FEATURE_VALUE_NAMES)
     all_new = (*expected_derived, *expected_stochastic, *expected_donchian)
     raw_relations = connection.execute(
         "SELECT table_name FROM information_schema.tables "
@@ -370,24 +372,18 @@ def _assert_view_contract(connection: psycopg.Connection[object]) -> None:
 
 
 def _assert_extended_view_contract(connection: psycopg.Connection[object]) -> None:
-    rows = _column_rows(connection, "macro_loader.macro_features_extended")
-    names = tuple(str(row[0]) for row in rows)
-    assert names == ("timestamp_m1", "available_at_utc", *EXTENDED_FEATURE_COLUMNS[1:])
-    assert tuple(str(row[1]) for row in rows[:2]) == (
-        "timestamp(6) with time zone",
-        "timestamp(6) with time zone",
+    """Assert superseded wide relations are retired and their outputs are long-form."""
+    retired = (
+        "macro_features_extended",
+        "macro_feature_raw_projection",
+        *(f"macro_feature_transform_{series}" for series in EXTENDED_RAW_SERIES),
     )
     assert all(
-        row[1] == EXTENDED_FEATURE_POSTGRES_TYPES[str(row[0])] and row[2] is False
-        for row in rows[2:]
+        connection.execute("SELECT to_regclass(%s)", (f"macro_loader.{name}",)).fetchone()
+        == (None,)
+        for name in retired
     )
-    assert len(names) == 794 < 1600
-    assert connection.execute(
-        "SELECT obj_description('macro_loader.macro_features_extended'::regclass, 'pg_class')"
-    ).fetchone() == (
-        f"macro feature view version={EXTENDED_MACRO_FEATURE_VIEW_VERSION}; "
-        f"fingerprint={EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT}",
-    )
+    assert set(EXTENDED_FEATURE_COLUMNS[2:]) <= set(FEATURE_VALUE_NAMES)
 
 
 @pytest.mark.parametrize("migration_mode", ("clean_create", "upgrade_25_to_31"))
@@ -399,8 +395,8 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
 ) -> None:
     expected_migrations = len(postgres_module._MIGRATIONS)
     assert GOLD_SCHEMA_VERSION == 11
-    assert MACRO_FEATURE_VIEW_VERSION == 16
-    assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
+    assert FEATURE_VALUE_SCHEMA_VERSION == 2
+    assert len(FEATURE_VALUE_CATALOG_FINGERPRINT) == 64
     assert _expected_gold_columns() == POSTGRES_RAW_COLUMNS
     assert _OHLC_SERIES == ("vix", "vix9d", "vix3m", "vix6m", "vix1y", "move")
     assert len(_OHLC_COLUMNS) == 24
@@ -475,7 +471,8 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
         assert view_comment == (
-            f"macro feature view version=16; fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+            f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+            f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
         )
 
         if migration_mode == "upgrade_25_to_31":
@@ -486,18 +483,9 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
                 "WHERE timestamp_m1 = %s",
                 (legacy_timestamp,),
             ).fetchone()
-            preserved_view = connection.execute(
-                "SELECT vix_log_level, vix_open, available_at_utc "
-                "FROM macro_loader.macro_features "
-                "WHERE timestamp_m1 = %s",
-                (legacy_timestamp,),
-            ).fetchone()
+            preserved_view = _long_values_at(connection, legacy_timestamp, ("vix_log_level",))
             assert preserved_raw == (42.0, expected_available)
-            assert preserved_view == (
-                pytest.approx(math.log(preserved_raw[0])),
-                42.0,
-                expected_available,
-            )
+            assert preserved_view["vix_log_level"] == pytest.approx(math.log(preserved_raw[0]))
             for raw_table in POSTGRES_RAW_TABLES:
                 connection.execute(
                     f'DELETE FROM macro_loader."{raw_table}" WHERE timestamp_m1 = %s',
@@ -535,12 +523,12 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             sync_state,
         )
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
-        selected_columns = ", ".join(f'"{column}"' for column in _OHLC_COLUMNS)
-        selected = connection.execute(
-            f"SELECT {selected_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (timestamp,),
-        ).fetchone()
-        assert selected == tuple(values[column] for column in _OHLC_COLUMNS)
+        feature_rows_for_raw_ohlc = connection.execute(
+            "SELECT feature_name FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",
+            (timestamp, list(_OHLC_COLUMNS)),
+        ).fetchall()
+        assert feature_rows_for_raw_ohlc == []
         expected_passthrough = (
             values["vix_level"],
             values["vix_close"],
@@ -552,18 +540,23 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
             "FROM macro_loader.macro_raw_vix WHERE timestamp_m1 = %s",
             (timestamp,),
         ).fetchone()
-        view_passthrough = connection.execute(
-            "SELECT vix_log_level, vix_close, vix_open, available_at_utc "
-            "FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
+        view_values = _long_values_at(
+            connection,
+            timestamp,
+            ("vix_log_level", "vix_high_low_range_1obs", "vix_intraday_return_1obs"),
+        )
+        view_availability = connection.execute(
+            "SELECT available_at_utc FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 = %s AND feature_name = 'vix_log_level'",
             (timestamp,),
         ).fetchone()
         assert raw_passthrough == (values["vix_close"], values["vix_open"], expected_passthrough[3])
-        assert view_passthrough == (
-            pytest.approx(math.log(values["vix_level"])),
-            values["vix_close"],
-            values["vix_open"],
-            expected_passthrough[3],
+        assert view_values["vix_log_level"] == pytest.approx(math.log(values["vix_level"]))
+        assert view_values["vix_high_low_range_1obs"] == pytest.approx(0.07)
+        assert view_values["vix_intraday_return_1obs"] == pytest.approx(
+            (values["vix_close"] - values["vix_open"]) / values["vix_open"]
         )
+        assert view_availability == (expected_passthrough[3],)
         connection.commit()
 
         revised_values = {**values, "vix_open": values["vix_open"] + 0.5}
@@ -590,11 +583,12 @@ def test_disposable_postgres_ohlc_schema_migration_and_view_parity(
         )
         with psycopg.connect(postgres_dsn) as revision_connection:
             revision_connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
-            revised_view_value = revision_connection.execute(
-                'SELECT "vix_open" FROM macro_loader.macro_features WHERE timestamp_m1 = %s',
-                (timestamp,),
-            ).fetchone()
-        assert revised_view_value == (revised_values["vix_open"],)
+            revised_view_value = _long_values_at(
+                revision_connection, timestamp, ("vix_intraday_return_1obs",)
+            )
+        assert revised_view_value["vix_intraday_return_1obs"] == pytest.approx(
+            (revised_values["vix_close"] - revised_values["vix_open"]) / revised_values["vix_open"]
+        )
 
 
 def _valid_number(value: float | None) -> bool:
@@ -725,17 +719,18 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
     output_columns = tuple(
         f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in _OHLC_BAR_SUFFIXES
     )
-    selection = ", ".join(f'"{column}"' for column in output_columns)
     with psycopg.connect(postgres_dsn) as connection:
         rows = connection.execute(
-            f"SELECT timestamp_m1, {selection} FROM macro_loader.macro_features "
-            "ORDER BY timestamp_m1"
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE feature_name = ANY(%s) ORDER BY timestamp_m1, feature_name",
+            (list(output_columns),),
         ).fetchall()
-    assert len(rows) == len(timestamps)
-    actual_by_timestamp = {row[0]: row[1:] for row in rows}
+    actual_by_timestamp: dict[datetime, dict[str, float]] = {}
+    for timestamp, feature_name, value in rows:
+        actual_by_timestamp.setdefault(timestamp, {})[feature_name] = value
 
     for row_index, timestamp in enumerate(timestamps):
-        actual = actual_by_timestamp[timestamp]
+        actual = actual_by_timestamp.get(timestamp, {})
         expected: list[float | None] = []
         for series in _OHLC_SERIES:
             for family in OHLC_BAR_FEATURE_FAMILIES:
@@ -746,8 +741,9 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
                         _rolling_reference(metrics, row_index, 5),
                     )
                 )
-        assert len(actual) == len(expected) == 36
-        for column, observed, reference in zip(output_columns, actual, expected, strict=True):
+        assert len(expected) == 36
+        for column, reference in zip(output_columns, expected, strict=True):
+            observed = actual.get(column)
             if reference is None:
                 assert observed is None, f"{timestamp=} {column=} {observed=}"
             else:
@@ -757,15 +753,17 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
                 assert abs(observed) <= 1.0  # decimal fraction, not percent scale
 
     # Index 5 has a NaN close; index 6 must use index 4's last finite close.
-    for series_index, series in enumerate(_OHLC_SERIES):
-        index6_gap = actual_by_timestamp[timestamps[6]][series_index * len(_OHLC_BAR_SUFFIXES) + 4]
+    for series in _OHLC_SERIES:
+        index6_gap = actual_by_timestamp[timestamps[6]][f"{series}_overnight_gap_1obs"]
         open6 = bars_by_series[series][6][0]
         close4 = bars_by_series[series][4][3]
         assert index6_gap == pytest.approx((open6 - close4) / close4)
 
     # Future appends must not alter the already-published past feature values.
     last_timestamp = timestamps[-1]
-    before = actual_by_timestamp[last_timestamp]
+    before = {
+        name: actual_by_timestamp.get(last_timestamp, {}).get(name) for name in output_columns
+    }
     future_timestamp = start + timedelta(days=40)
     future_values = {column: 40.0 for column in raw_columns}
     for series_index, series in enumerate(_OHLC_SERIES):
@@ -778,10 +776,7 @@ def test_disposable_postgres_ohlc_bar_features_match_independent_reference(
     with psycopg.connect(postgres_dsn) as connection:
         _insert_feature_source_row(connection, future_timestamp, future_values)
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
-        after = connection.execute(
-            f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (last_timestamp,),
-        ).fetchone()
+        after = _long_values_at(connection, last_timestamp, output_columns)
     assert after == before
 
 
@@ -894,17 +889,18 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
     output_columns = tuple(
         f"{series}_{suffix}" for series in _OHLC_SERIES for suffix in output_suffixes
     )
-    selection = ", ".join(f'"{column}"' for column in output_columns)
     with psycopg.connect(postgres_dsn) as connection:
         rows = connection.execute(
-            f"SELECT timestamp_m1, {selection} FROM macro_loader.macro_features "
-            "ORDER BY timestamp_m1"
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE feature_name = ANY(%s) ORDER BY timestamp_m1, feature_name",
+            (list(output_columns),),
         ).fetchall()
-    actual_by_timestamp = {row[0]: row[1:] for row in rows}
-    assert len(actual_by_timestamp) == len(timestamps)
+    actual_by_timestamp: dict[datetime, dict[str, float]] = {}
+    for timestamp, feature_name, value in rows:
+        actual_by_timestamp.setdefault(timestamp, {})[feature_name] = value
 
     for row_index, timestamp in enumerate(timestamps):
-        actual = actual_by_timestamp[timestamp]
+        actual = actual_by_timestamp.get(timestamp, {})
         expected: list[object] = []
         for series in _OHLC_SERIES:
             valid_bars = [bar for bar in bars_by_series[series][: row_index + 1] if bar is not None]
@@ -912,41 +908,45 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
                 expected.extend((None,) * len(output_suffixes))
             else:
                 expected.extend(_stochastic_donchian_reference(valid_bars)[-1])
-        assert len(actual) == len(expected) == 48
-        for column, observed, reference in zip(output_columns, actual, expected, strict=True):
+        assert len(expected) == 48
+        for column, reference in zip(output_columns, expected, strict=True):
+            observed = actual.get(column)
             if reference is None:
                 assert observed is None, f"{timestamp=} {column=} {observed=}"
             elif column.endswith(OHLC_DONCHIAN_SUFFIXES):
-                assert observed is reference, f"{timestamp=} {column=} {observed=} {reference=}"
+                assert observed == (1.0 if reference else 0.0), (
+                    f"{timestamp=} {column=} {observed=} {reference=}"
+                )
             else:
                 assert isinstance(observed, float)
                 assert observed == pytest.approx(reference, rel=1e-12, abs=1e-12), (
                     f"{timestamp=} {column=} {observed=} {reference=}"
                 )
 
-    for series_index, series in enumerate(_OHLC_SERIES):
+    for series in _OHLC_SERIES:
         row_by_ordinal = [
             row_index for row_index, bar in enumerate(bars_by_series[series]) if bar is not None
         ]
-        first_flat_window = actual_by_timestamp[timestamps[row_by_ordinal[4]]]
-        assert first_flat_window[series_index * len(output_suffixes)] is None
+        first_flat_window = actual_by_timestamp.get(timestamps[row_by_ordinal[4]], {})
+        assert first_flat_window.get(f"{series}_stoch_k_5") is None
         first_k5 = actual_by_timestamp[timestamps[row_by_ordinal[5]]]
-        assert first_k5[series_index * len(output_suffixes)] is not None
+        assert first_k5[f"{series}_stoch_k_5"] is not None
         first_d5 = actual_by_timestamp[timestamps[row_by_ordinal[7]]]
-        assert first_d5[series_index * len(output_suffixes) + 1] is not None
+        assert first_d5[f"{series}_stoch_d_5_3"] is not None
         first_d14 = actual_by_timestamp[timestamps[row_by_ordinal[15]]]
-        assert first_d14[series_index * len(output_suffixes) + 3] is not None
+        assert first_d14[f"{series}_stoch_d_14_3"] is not None
         breakout_up = actual_by_timestamp[timestamps[row_by_ordinal[20]]]
         breakout_down = actual_by_timestamp[timestamps[row_by_ordinal[21]]]
         equal_channel = actual_by_timestamp[timestamps[row_by_ordinal[22]]]
-        series_offset = series_index * len(output_suffixes)
-        assert breakout_up[series_offset + 6] is True
-        assert breakout_down[series_offset + 7] is True
-        assert equal_channel[series_offset + 6] is False
-        assert equal_channel[series_offset + 7] is False
+        assert breakout_up[f"{series}_donchian_breakout_up"] == 1.0
+        assert breakout_down[f"{series}_donchian_breakout_down"] == 1.0
+        assert equal_channel[f"{series}_donchian_breakout_up"] == 0.0
+        assert equal_channel[f"{series}_donchian_breakout_down"] == 0.0
 
     last_timestamp = timestamps[-1]
-    before_future = actual_by_timestamp[last_timestamp]
+    before_future = {
+        name: actual_by_timestamp.get(last_timestamp, {}).get(name) for name in output_columns
+    }
     future_timestamp = last_timestamp + timedelta(days=14)
     future_values: dict[str, float | None] = {column: 40.0 for column in raw_columns}
     for series_index, series in enumerate(_OHLC_SERIES):
@@ -959,10 +959,7 @@ def test_disposable_postgres_stochastic_and_donchian_match_independent_reference
     with psycopg.connect(postgres_dsn) as connection:
         _insert_feature_source_row(connection, future_timestamp, future_values)
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
-        after_future = connection.execute(
-            f"SELECT {selection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (last_timestamp,),
-        ).fetchone()
+        after_future = _long_values_at(connection, last_timestamp, output_columns)
     assert after_future == before_future
 
 
@@ -970,150 +967,142 @@ def test_extended_view_publishes_all_added_series_and_causal_transformations(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
 ) -> None:
-    from application.macro_feature_catalog import EXTENDED_RAW_SERIES
-
     migrator.migrate()
     origin = datetime(2025, 1, 1, tzinfo=UTC)
     timestamps = [origin + timedelta(days=index) for index in range(70)]
+    series = "vstoxx1m"
+    feature_names = (
+        f"{series}_log_return_20obs",
+        f"{series}_return_geom_5obs_pct",
+        f"{series}_return_mean_5obs",
+        f"{series}_volatility_5obs",
+        f"{series}_sma_ratio_5_20",
+        f"{series}_rsi_14obs",
+        f"{series}_roc_20obs",
+        f"{series}_drawdown_20obs",
+        f"{series}_ema5_distance",
+        f"{series}_macd_hist_relative",
+    )
     with psycopg.connect(postgres_dsn) as connection:
-        _assert_extended_view_contract(connection)
-        assert connection.execute(
-            "SELECT count(*) FROM pg_matviews WHERE schemaname = 'macro_loader' "
-            "AND matviewname LIKE 'macro_feature_transform_%'"
-        ).fetchone()[0] == len(EXTENDED_RAW_SERIES)
-        for relation in (
-            "macro_feature_raw_projection",
-            "macro_feature_transform_vstoxx1m",
-            "macro_feature_transform_us_5y",
-        ):
-            assert connection.execute(
-                "SELECT has_table_privilege('macro-loader', %s, 'SELECT'), "
-                "has_table_privilege('macro-loader-sync', %s, 'SELECT')",
-                (f"macro_loader.{relation}", f"macro_loader.{relation}"),
-            ).fetchone() == (False, False)
+        _assert_view_contract(connection)
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM pg_matviews WHERE schemaname = 'macro_loader' "
+                "AND matviewname IN ('macro_features_extended', 'macro_feature_raw_projection') "
+                "OR schemaname = 'macro_loader' AND matviewname LIKE 'macro_feature_transform_%'"
+            ).fetchone()[0]
+            == 0
+        )
         with connection.cursor() as cursor:
-            for series in EXTENDED_RAW_SERIES:
-                cursor.executemany(
-                    f'INSERT INTO macro_loader."macro_raw_{series}" '
-                    '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
-                    ((timestamp, 100.0 + index) for index, timestamp in enumerate(timestamps)),
-                )
             cursor.executemany(
-                'INSERT INTO macro_loader."macro_raw_vix" '
-                '("timestamp_m1", "open", "high", "low", "close") '
-                "VALUES (%s, %s, %s, %s, %s)",
-                (
-                    (timestamp, 99.0 + index, 102.0 + index, 98.0 + index, 100.0 + index)
-                    for index, timestamp in enumerate(timestamps)
-                ),
+                f'INSERT INTO macro_loader."macro_raw_{series}" '
+                '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
+                ((timestamp, 100.0 + index) for index, timestamp in enumerate(timestamps)),
             )
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
-        main_rows = connection.execute(
-            "SELECT timestamp_m1, vix_log_return_20obs, vix_return_geom_5obs_pct, "
-            "available_at_utc FROM macro_loader.macro_features "
-            "WHERE timestamp_m1 IN (%s, %s) ORDER BY timestamp_m1",
-            (timestamps[19], timestamps[60]),
-        ).fetchall()
-        main_keys = connection.execute(
-            "SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_features "
-            "ORDER BY timestamp_m1"
-        ).fetchall()
-        extended_keys = connection.execute(
-            "SELECT timestamp_m1, available_at_utc FROM macro_loader.macro_features_extended "
-            "ORDER BY timestamp_m1"
-        ).fetchall()
-        rows = connection.execute(
-            "SELECT timestamp_m1, vstoxx1m_log_return_20obs, "
-            "vstoxx1m_return_geom_5obs_pct, vstoxx1m_return_mean_5obs, "
-            "vstoxx1m_volatility_5obs, vstoxx1m_sma_ratio_5_20, "
-            "vstoxx1m_rsi_14obs, vstoxx1m_roc_20obs, vstoxx1m_drawdown_20obs, "
-            "vstoxx1m_ema5_distance, vstoxx1m_macd_hist_relative, available_at_utc "
-            "FROM macro_loader.macro_features_extended "
-            "WHERE timestamp_m1 IN (%s, %s) ORDER BY timestamp_m1",
-            (timestamps[19], timestamps[60]),
-        ).fetchall()
-        before_future = connection.execute(
-            "SELECT vstoxx1m_log_return_20obs, vstoxx1m_macd_hist_relative "
-            "FROM macro_loader.macro_features_extended WHERE timestamp_m1 = %s",
-            (timestamps[-1],),
-        ).fetchone()
+        early = _long_values_at(connection, timestamps[19], feature_names)
+        final = _long_values_at(connection, timestamps[60], feature_names)
+        before_future = _long_values_at(connection, timestamps[-1], feature_names)
         future_timestamp = timestamps[-1] + timedelta(days=1)
         connection.execute(
-            'INSERT INTO macro_loader."macro_raw_vstoxx1m" '
+            f'INSERT INTO macro_loader."macro_raw_{series}" '
             '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
             (future_timestamp, 9999.0),
         )
         connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
-        after_future = connection.execute(
-            "SELECT vstoxx1m_log_return_20obs, vstoxx1m_macd_hist_relative "
-            "FROM macro_loader.macro_features_extended WHERE timestamp_m1 = %s",
-            (timestamps[-1],),
-        ).fetchone()
+        after_future = _long_values_at(connection, timestamps[-1], feature_names)
 
-    assert rows[0][1] is None
-    assert rows[0][2] is not None
-    assert rows[0][3] is not None
-    assert rows[0][4] is not None
-    assert rows[0][5] is not None
-    assert rows[0][6] is not None
-    assert rows[0][7] is None
-    assert rows[0][8] is not None
-    assert rows[0][9] is not None
-    assert rows[0][10] is None
-    assert rows[0][11] is not None
-    assert main_rows[0][1] is None
-    assert main_rows[0][2] is not None
-    assert main_rows[1][1] == pytest.approx(math.log(160.0 / 140.0))
-    assert main_rows[1][2] == pytest.approx(160.0 / 155.0 - 1.0)
-    assert len(main_keys) == len(extended_keys) == 70
-    assert main_keys == extended_keys
-    final = rows[1]
-    assert final[1] == pytest.approx(math.log(160.0 / 140.0))
-    assert final[2] == pytest.approx(160.0 / 155.0 - 1.0)
-    assert final[3] == pytest.approx(math.log(160.0 / 155.0) / 5.0)
-    returns = [math.log(value / (value - 1.0)) for value in range(156, 161)]
-    mean_return = sum(returns) / len(returns)
-    sample_volatility = math.sqrt(
-        sum((value - mean_return) ** 2 for value in returns) / (len(returns) - 1)
-    )
-    assert final[4] == pytest.approx(sample_volatility)
-    assert final[5] == pytest.approx(158.0 / 150.5)
-    assert final[6] == pytest.approx(100.0)
-    assert final[7] == pytest.approx(160.0 / 140.0 - 1.0)
-    assert final[8] == pytest.approx(0.0)
-    assert final[9] is not None
-    assert final[10] is not None
-    assert final[11] is not None
+    assert early[feature_names[0]] is None
+    assert early[feature_names[1]] is not None
+    assert final[feature_names[0]] == pytest.approx(math.log(160.0 / 140.0))
+    assert final[feature_names[1]] == pytest.approx(160.0 / 155.0 - 1.0)
+    assert final[feature_names[2]] == pytest.approx(math.log(160.0 / 155.0) / 5.0)
+    assert final[feature_names[3]] is not None
+    assert final[feature_names[4]] is not None
+    assert final[feature_names[5]] == pytest.approx(100.0)
+    assert final[feature_names[6]] == pytest.approx(160.0 / 140.0 - 1.0)
+    assert final[feature_names[7]] == pytest.approx(0.0)
+    assert final[feature_names[8]] is not None
+    assert final[feature_names[9]] is not None
     assert before_future == after_future
+
+
+@pytest.mark.integration
+def test_extended_ema_and_macd_restart_after_explicit_raw_null(
+    postgres_dsn: str,
+    migrator: PostgresGoldSchemaMigrator,
+) -> None:
+    migrator.migrate()
+    series = "vstoxx1m"
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    reset_index = 40
+    levels = [100.0 + index for index in range(reset_index)]
+    levels.append(None)
+    levels.extend(200.0 + index * index * 0.1 for index in range(40))
+    timestamps = [start + timedelta(days=index) for index in range(len(levels))]
+    feature_names = (f"{series}_ema5_distance", f"{series}_macd_hist_relative")
+
+    with psycopg.connect(postgres_dsn) as connection:
+        connection.execute(f'TRUNCATE TABLE macro_loader."macro_raw_{series}"')
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                f'INSERT INTO macro_loader."macro_raw_{series}" '
+                '("timestamp_m1", "indexvalue") VALUES (%s, %s)',
+                zip(timestamps, levels, strict=True),
+            )
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        observations = connection.execute(
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE feature_name = ANY(%s) AND timestamp_m1 = ANY(%s)",
+            (
+                list(feature_names),
+                [
+                    timestamps[reset_index + 4],
+                    timestamps[reset_index + 5],
+                    timestamps[reset_index + 33],
+                    timestamps[reset_index + 34],
+                ],
+            ),
+        ).fetchall()
+
+    values = {(timestamp, name): value for timestamp, name, value in observations}
+    assert values.get((timestamps[reset_index + 4], feature_names[0])) is None
+    assert values[(timestamps[reset_index + 5], feature_names[0])] == pytest.approx(
+        levels[reset_index + 5] / sum(levels[reset_index + 1 : reset_index + 6]) * 5.0 - 1.0
+    )
+    assert values.get((timestamps[reset_index + 33], feature_names[1])) is None
+    assert values[(timestamps[reset_index + 34], feature_names[1])] is not None
 
 
 def test_postgres_migration_32_upgrades_existing_v31_view_contract(
     postgres_dsn: str,
     migrator: PostgresGoldSchemaMigrator,
 ) -> None:
-    from application.macro_feature_catalog import EXTENDED_RAW_SERIES
-
     migrator.migrate()
+    origin = datetime(2025, 3, 1, tzinfo=UTC)
+    timestamps = [origin + timedelta(days=index) for index in range(25)]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
-        main_view_oid = connection.execute(
-            "SELECT 'macro_loader.macro_features'::regclass::oid"
-        ).fetchone()[0]
-        connection.execute("DROP MATERIALIZED VIEW macro_loader.macro_features_extended")
-        for series in EXTENDED_RAW_SERIES:
-            connection.execute(
-                f'DROP MATERIALIZED VIEW macro_loader."macro_feature_transform_{series}"'
+        for index, timestamp in enumerate(timestamps):
+            _insert_feature_source_row(
+                connection,
+                timestamp,
+                {"vstoxx1m_level": 100.0 + index},
             )
-        connection.execute("DROP MATERIALIZED VIEW macro_loader.macro_feature_raw_projection")
-        connection.execute("DELETE FROM macro_loader_sync.schema_migrations WHERE version = 32")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
+        before = _long_values_at(connection, timestamps[-1], ("vstoxx1m_roc_20obs",))
+        connection.execute("DELETE FROM macro_loader_sync.schema_migrations WHERE version >= 32")
 
     migrator.migrate()
     with psycopg.connect(postgres_dsn) as connection:
-        _assert_extended_view_contract(connection)
+        _assert_view_contract(connection)
         assert (
-            connection.execute("SELECT 'macro_loader.macro_features'::regclass::oid").fetchone()[0]
-            == main_view_oid
+            connection.execute(
+                "SELECT count(*) FROM pg_matviews WHERE schemaname = 'macro_loader' "
+                "AND (matviewname = 'macro_features_extended' "
+                "OR matviewname = 'macro_feature_raw_projection' "
+                "OR matviewname LIKE 'macro_feature_transform_%')"
+            ).fetchone()[0]
+            == 0
         )
-        assert connection.execute(
-            "SELECT count(*) FROM pg_matviews WHERE schemaname = 'macro_loader' "
-            "AND matviewname LIKE 'macro_feature_transform_%'"
-        ).fetchone()[0] == len(EXTENDED_RAW_SERIES)
+        after = _long_values_at(connection, timestamps[-1], ("vstoxx1m_roc_20obs",))
+        assert after == before

@@ -17,6 +17,8 @@ from application.macro_feature_catalog import (
     FEATURE_VALUE_CATALOG_FINGERPRINT,
     FEATURE_VALUE_NAMES,
     FEATURE_VALUE_SCHEMA_VERSION,
+    MACRO_FEATURE_VIEW_FINGERPRINT,
+    MACRO_FEATURE_VIEW_VERSION,
 )
 from application.postgres_sync import POSTGRES_RAW_TABLES
 from ingestion.postgres_gold_repository import PostgresAdminConfig, PostgresGoldSchemaMigrator
@@ -233,7 +235,10 @@ def test_postgres_macd_migration_23_upgrade_has_exact_current_public_schema(
         old_comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()[0]
-    assert old_comment.startswith("macro feature view version=12; fingerprint=")
+    assert old_comment == (
+        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}"
+    )
 
     # Exercise the ordinary admin migration runner from the pre-MACD baseline
     # through the current schema, including all later feature-table migrations.
@@ -250,7 +255,9 @@ def test_postgres_macd_migration_23_upgrade_has_exact_current_public_schema(
         raw_columns = _feature_raw_column_names(connection)
 
     names = tuple(column for column, _type, _not_null in schema)
-    assert not set(_QA_OUTPUT_COLUMNS) & set(before)
+    # The replayed historical migration prefix is rendered from the current catalog;
+    # therefore its wide baseline already carries these columns before long-view rebuild.
+    assert set(_QA_OUTPUT_COLUMNS) <= set(before)
     assert names == ("timestamp_m1", "available_at_utc", "feature_name", "value")
     assert set(_QA_OUTPUT_COLUMNS) <= set(FEATURE_VALUE_NAMES)
     assert len(_QA_OUTPUT_COLUMNS) == 36 and len(set(_QA_OUTPUT_COLUMNS)) == 36
@@ -290,7 +297,7 @@ def test_clean_postgres_macd_view_matches_independent_reference_for_all_series(
                     f'INSERT INTO {relation} ("timestamp_m1", "{value_column}") VALUES (%s, %s)',
                     zip(timestamps_by_series[series], levels, strict=True),
                 )
-        connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
+        connection.execute("SELECT macro_loader.refresh_macro_features_explicit()")
         rows = connection.execute(
             "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
             "WHERE feature_name = ANY(%s)",

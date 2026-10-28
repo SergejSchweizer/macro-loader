@@ -12,15 +12,23 @@ The reviewed medallion architecture is implemented through the atomic PR sequenc
 
 The repository includes native OHLC inputs and OHLC-derived transformations in PostgreSQL.
 Production migration 36 renamed the raw-derived long transformation materialized view to
-`macro_loader.macro_features` and retired the superseded views on 2026-10-27. All 25
+`macro_loader.macro_features` and retired the superseded views on 2026-10-27. Migration 37
+rebuilt the view with corrected per-series EMA/MACD recurrences on 2026-10-28. All 25
 `macro_raw_<feature>` tables contain source rows; the wide `macro_raw` and orphaned retired
-Fed table are absent. The long view has 11,794,988 rows across 1,720 features. PostgreSQL
-sync state is schema 11 / feature 6, with 16,805 consumer rows and matching row digests.
-The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full acceptance on
-2026-10-27, including a zero-change PostgreSQL replay and independent verification.
+Fed table are absent. The long view has 12,189,132 rows across 1,720 features. PostgreSQL
+sync state is schema 11 / feature 6, with 16,805 consumer rows and matching row digests. The
+guarded daily acceptance passed both cron-wrapper runs, zero-change replay, and independent
+PostgreSQL schema/population verification on 2026-10-28. Population conformance does not
+prove numeric formula parity; use the disposable PostgreSQL integration suite for formula QA.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.
+
+Pending PR-227 adds migration 38 to rebuild the long-form view from the raw-series tables.
+An explicit NULL source observation resets that series' EMA/MACD recurrence; a missing
+timestamp is not an observation and does not reset state. Logarithm inputs are checked for a
+positive representable ratio before evaluation. Production remains on migration 37 until
+migration 38 is explicitly deployed.
 
 The current Gold semantic contract is schema version **11** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
@@ -513,8 +521,10 @@ private-recursive EMA intermediates and six series-prefixed nullable outputs for
 `(EMA5-EMA21)/level`; normalized three-source-row EMA9 slope; and an EMA5/EMA9 crossover
 value (`1`, `-1`, or `0`). Each EMA seeds from the arithmetic mean of its first `n`
 consecutive positive levels, then recurs with alpha `2/(n+1)`; missing or nonpositive
-levels reset the seed. EMA intermediates are not view columns, and outputs remain NULL until
-the seed/endpoints exist. This follows XETRA's `exponential_moving_average` recurrence.
+levels reset the seed. An explicit raw row with a NULL level also resets the recurrence; an
+absent source row neither advances nor resets it. EMA intermediates are not view columns, and
+outputs remain NULL until the seed/endpoints exist. This follows XETRA's
+`exponential_moving_average` recurrence.
 PR-173 adds three relative MACD outputs to the version-13 merged view. Their formulas are
 `(EMA12-EMA26)/level`,
 `(MACD_line-EMA9_signal)/level`, and the three-source-row difference of the relative
@@ -522,6 +532,8 @@ histogram. The signal EMA accepts signed and zero MACD-line values and resets on
 NULL MACD line, matching XETRA's `allow_nonpositive` EMA mode. See the
 [XETRA MACD CTEs](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2270-L2333)
 and [output formulas](https://github.com/SergejSchweizer/xetra-loader/blob/main/sql/schema/004_xetra_features.sql#L2776-L2785).
+An explicit NULL raw observation produces a NULL MACD line and resets the signal recurrence;
+timestamps absent from that series do not affect it.
 Volume transformations, market breadth, and cross-instrument dispersion are excluded by
 the current user scope. The raw contract has no applicable `volume_level` field or
 cross-instrument panel.
