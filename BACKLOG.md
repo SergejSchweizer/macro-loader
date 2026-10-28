@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-220: Add Debug Telemetry To Cron Support Utilities
 
 PR name: `cron-support-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: pending
+PR: [#220](https://github.com/SergejSchweizer/macro-loader/pull/220) (open)
 Git branch: `pr-220/cron-support-debug-logs`
-Git status: active-local-checks-pending
+Git status: pushed-local-checks-passed
 Agent lane: safe log-retention and cron-configuration helper lifecycle
 Commit: `feat(pr-220): instrument cron support utilities`
 Design patterns: Logging Adapter; preserve cron Command boundaries and secret-safe config export.
