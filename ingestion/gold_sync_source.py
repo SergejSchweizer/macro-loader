@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from application.paths import LakePaths
 from ingestion.gold_build_store import GoldBuildStore
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+logger = logging.getLogger(__name__)
 
 
 class FilesystemGoldFrameSource:
@@ -32,13 +34,33 @@ class FilesystemGoldFrameSource:
         self._build_store = build_store
 
     def sha256_path(self, relative_data_path: str) -> str:
-        path = self._resolve(relative_data_path)
-        if not path.is_file():
-            raise FileNotFoundError(path)
-        return hashlib.sha256(path.read_bytes()).hexdigest()
+        logger.debug("gold sync source digest read started")
+        try:
+            path = self._resolve(relative_data_path)
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except Exception as exc:
+            logger.debug("gold sync source digest read failed error_type=%s", type(exc).__name__)
+            raise
+        logger.debug("gold sync source digest read completed")
+        return digest
 
     def validate_bundle(self, record: GoldCatalogRecord) -> None:
         """Verify the catalog-selected immutable bundle before PostgreSQL is contacted."""
+        logger.debug("gold sync source bundle validation started build_id=%s", record.build_id)
+        try:
+            self._validate_bundle(record)
+        except Exception as exc:
+            logger.debug(
+                "gold sync source bundle validation failed build_id=%s error_type=%s",
+                record.build_id,
+                type(exc).__name__,
+            )
+            raise
+        logger.debug("gold sync source bundle validation completed build_id=%s", record.build_id)
+
+    def _validate_bundle(self, record: GoldCatalogRecord) -> None:
         data_relative = record.data_path
         manifest_relative = record.build_manifest_path
         plot_relative = record.plot_path
@@ -165,7 +187,14 @@ class FilesystemGoldFrameSource:
         return value.astimezone(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
     def read_path(self, relative_data_path: str) -> pl.DataFrame:
-        return self._build_store.read_path(self._resolve(relative_data_path))
+        logger.debug("gold sync source frame read started")
+        try:
+            frame = self._build_store.read_path(self._resolve(relative_data_path))
+        except Exception as exc:
+            logger.debug("gold sync source frame read failed error_type=%s", type(exc).__name__)
+            raise
+        logger.debug("gold sync source frame read completed row_count=%d", frame.height)
+        return frame
 
     def _resolve(self, relative_data_path: str) -> Path:
         relative = Path(relative_data_path)

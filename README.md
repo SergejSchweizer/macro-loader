@@ -762,6 +762,10 @@ absolute paths, feature values, artifact digests, and exception text.
 Shared Parquet, Silver, ingestion-state, inventory, and run-audit repositories log operation
 outcomes and row/partition counts using canonical provider/series IDs. They do not log row
 payloads, stored error messages, absolute paths, or secrets.
+The live PostgreSQL conformance inspector logs verification stages, safe schema/population
+counts, temporal probe counts, and exception classes. The catalog-selected Gold input reader
+logs bundle validation and frame/digest read outcomes, row counts, canonical build IDs, and
+exception classes without filesystem paths, feature values, digests, or exception text.
 
 Install it for the service account after reviewing the absolute project path:
 

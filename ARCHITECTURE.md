@@ -929,6 +929,11 @@ absolute paths, or exception text.
 Shared Parquet, Silver, ingestion-state, inventory, and run-audit repositories record
 read/write/upsert outcomes and row/partition counts with canonical provider/series IDs;
 they never include row payloads, persisted error text, absolute paths, or secret values.
+The live PostgreSQL conformance inspector records verification start/completion, schema and
+population counts, temporal probes, and exception classes. The catalog-selected Gold input
+adapter records bundle validation, digest/read outcomes, row counts, canonical build IDs,
+and exception classes; it never logs filesystem paths, feature values, digests, or exception
+text.
 Failure logs contain only exception class names, never exception messages. These workflow
 logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are

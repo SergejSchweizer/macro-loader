@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from application.macro_feature_catalog import (
@@ -194,29 +196,45 @@ def _config() -> PostgresSyncConfig:
     return PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "secret")
 
 
-def test_live_inspector_independently_checks_schema_roles_session_and_temporal_probes() -> None:
+def test_live_inspector_independently_checks_schema_roles_session_and_temporal_probes(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     cursor = FakeCursor()
     connection = FakeConnection(cursor)
     inspector = PostgresLiveDatabaseConformanceInspector(
         _config(), connection_factory=lambda _: connection
     )
 
-    assert inspector.inspect() == PostgresDatabaseConformanceEvidence(28, 3, 2, 100)
+    with caplog.at_level(logging.DEBUG, logger="ingestion.postgres_conformance_verifier"):
+        evidence = inspector.inspect()
+
+    assert evidence == PostgresDatabaseConformanceEvidence(28, 3, 2, 100)
+    assert "postgres live conformance inspection started" in caplog.text
+    assert "schema_table_count=28 feature_value_row_count=100 temporal_probe_count=2" in caplog.text
+    assert "secret" not in caplog.text
     assert connection.rollbacks == 1
     assert connection.closed
     assert cursor.queries.count("SELECT %s::TIMESTAMPTZ(6)") == 2
 
 
-def test_live_inspector_fails_closed_and_rolls_back_when_session_timezone_drifts() -> None:
+def test_live_inspector_fails_closed_and_rolls_back_when_session_timezone_drifts(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     connection = FakeConnection(FakeCursor(timezone="Europe/Berlin"))
     inspector = PostgresLiveDatabaseConformanceInspector(
         _config(), connection_factory=lambda _: connection
     )
 
-    with pytest.raises(PostgresGoldRepositoryError, match="live conformance inspection failed"):
+    with (
+        caplog.at_level(logging.DEBUG, logger="ingestion.postgres_conformance_verifier"),
+        pytest.raises(PostgresGoldRepositoryError, match="live conformance inspection failed"),
+    ):
         inspector.inspect()
     assert connection.rollbacks == 1
     assert connection.closed
+    assert "error_type=ValueError" in caplog.text
+    assert "session timezone differs" not in caplog.text
+    assert "secret" not in caplog.text
 
 
 def test_live_inspector_rejects_duplicate_primary_key_metadata() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -80,6 +81,46 @@ def test_selected_bundle_verification_accepts_exact_certified_artifacts(tmp_path
     source, record, _ = _bundle(tmp_path)
 
     source.validate_bundle(record)
+
+
+def test_gold_sync_source_logs_safe_bundle_and_frame_lifecycle(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    source, record, _ = _bundle(tmp_path)
+
+    with caplog.at_level(logging.DEBUG, logger="ingestion.gold_sync_source"):
+        source.validate_bundle(record)
+        source.sha256_path(record.data_path or "")
+        frame = source.read_path(record.data_path or "")
+
+    assert frame.height == 2
+    assert f"gold sync source bundle validation completed build_id={BUILD_ID}" in caplog.text
+    assert "gold sync source frame read completed row_count=2" in caplog.text
+    assert "gold sync source digest read completed" in caplog.text
+    assert "feature_profile.png" not in caplog.text
+    assert "0.0" not in caplog.text
+
+
+def test_gold_sync_source_failure_logs_only_exception_type(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    source, record, manifest_path = _bundle(tmp_path)
+    payload = json.loads(manifest_path.read_bytes())
+    payload["data_sha256"] = "0" * 64
+    manifest_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="ingestion.gold_sync_source"),
+        pytest.raises(ValueError),
+    ):
+        source.validate_bundle(record)
+
+    assert "error_type=ValueError" in caplog.text
+    assert "SHA-256 differs" not in caplog.text
+    assert "0" * 64 not in caplog.text
+    assert str(tmp_path) not in caplog.text
 
 
 @pytest.mark.parametrize("mutation", ["legacy", "wrong_hash", "invalid_input_date"])
