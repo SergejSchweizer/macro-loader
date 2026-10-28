@@ -16,7 +16,7 @@ Status: In Progress
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-204/application-workflow-debug-logs`
-Git status: active-dirty: application workflow logging, tests, and documentation
+Git status: active-clean
 Agent lane: daily pipeline, Silver canonicalization, Gold publication and retention logs
 Commit: `feat(pr-204): instrument application workflow debug logs`
 Design patterns: Logging Adapter; existing injected event and repository boundaries remain unchanged.
