@@ -12,9 +12,9 @@ Last reviewed: 2026-10-28
 ### PR-210: Add Debug Telemetry To Guarded Reconstruction Operations
 
 PR name: `reconstruction-operations-debug-logs`
-Status: In progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#210](https://github.com/SergejSchweizer/macro-loader/pull/210) (open)
 Git branch: `pr-210/reconstruction-operations-debug-logs`
 Git status: pushed-local-checks-passed
 Agent lane: explicitly guarded production reconstruction orchestration adapter
