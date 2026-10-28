@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from io import BytesIO
@@ -16,6 +17,7 @@ from application.registry import SERIES_REGISTRY
 
 Clock = Callable[[], datetime]
 _DEFAULT_BASE_URL = "https://data-api.ecb.europa.eu/service/data"
+_LOGGER = logging.getLogger(__name__)
 _ECB_SERIES = frozenset(
     series_id
     for series_id, contract in SERIES_REGISTRY.items()
@@ -47,6 +49,13 @@ class EcbProvider:
 
     def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
         self._validate_contract(series)
+        _LOGGER.debug(
+            "provider fetch started provider=ecb series=%s operation=%s start=%s end=%s",
+            series.series_id,
+            request.operation,
+            request.logical_start,
+            request.logical_end,
+        )
         flow, key = series.source_id.split(".", 1)
         url = f"{self._base_url}/{flow}/{key}"
         params: dict[str, str | int | float] = {"format": "csvdata", "detail": "dataonly"}
@@ -64,9 +73,17 @@ class EcbProvider:
             # ECB anti-bot/rate-limit failures are source unavailability for
             # this update. Preserve the canonical row with NULL-derived
             # features instead of aborting unrelated providers and Gold sync.
+            _LOGGER.debug(
+                "provider fetch completed provider=ecb series=%s rows=0 unavailable=true",
+                series.series_id,
+            )
             return self._empty_frame()
         if response.status_code != 200:
             if self._is_no_result(response.status_code, response.content):
+                _LOGGER.debug(
+                    "provider fetch completed provider=ecb series=%s rows=0 unavailable=true",
+                    series.series_id,
+                )
                 return self._empty_frame()
             raise ProviderHttpError(
                 context=context,
@@ -85,7 +102,13 @@ class EcbProvider:
                 )
             ).height:
                 raise ValueError("ECB bounded response contains out-of-window observations")
-        return frame.sort("observation_date")
+        result = frame.sort("observation_date")
+        _LOGGER.debug(
+            "provider fetch completed provider=ecb series=%s rows=%d",
+            series.series_id,
+            result.height,
+        )
+        return result
 
     @staticmethod
     def _is_no_result(status_code: int, content: bytes) -> bool:

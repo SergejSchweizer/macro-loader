@@ -9,14 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-203: Add Debug Telemetry To Source Ingestion Modules
+
+PR name: `source-ingestion-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-203/source-ingestion-debug-logs`
+Git status: active-dirty: source-ingestion debug telemetry
+Agent lane: instrument provider, transport, orchestration, and Bronze persistence boundaries
+Commit: `feat(pr-203): instrument source-ingestion debug logs`
+Design patterns: Logging Adapter; constructor-injected application boundaries remain unchanged.
+Depends on: PR-202 (merged to `origin/main`)
+
+Description:
+- R1: Emit debug records from each source provider, shared HTTP adapter, Bronze orchestration,
+  and Bronze unit-of-work adapter, covering bounded request identity, response counts,
+  retries, diff sizes, and durable write outcomes.
+- R2: Log only canonical IDs, logical dates, counts, attempt numbers, and safe HTTP paths;
+  never log raw payloads, query parameters, credentials, or exception text.
+- R3: Route records through PR-202's central `.logs/macro-loader-debug.log` handler and
+  preserve normal behavior when debug logging is disabled or no handler is configured.
+
+Acceptance:
+- A1 deterministic provider/transport/UoW/orchestrator tests assert useful debug records
+  on success, empty-result, retry, and failure paths without network access.
+- A2 regression tests prove URL query strings, API keys, exception text, and raw values are
+  absent from debug messages.
+- A3 `make quality-gate` passes locally; no GitHub Actions or production run.
+- A4 source-update bounds, persisted rows, and failure recovery remain unchanged in the
+  existing offline ingestion integration suite.
+
 ### PR-202: Central Debug Logging And 90-Day Operational Log Retention
 
 PR name: `central-debug-logs-retention`
-Status: In Progress
+Status: Merged
 Updated: 2026-10-28
-PR: [#202](https://github.com/SergejSchweizer/macro-loader/pull/202) (open)
+PR: [#202](https://github.com/SergejSchweizer/macro-loader/pull/202) (merged)
 Git branch: `pr-202/central-debug-logs-retention`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: central application debug output and cron log lifecycle
 Commit: `feat(pr-202): add central debug logging and 90-day retention`
 Design patterns: Logging Adapter, bounded retention policy.

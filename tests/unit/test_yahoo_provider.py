@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
@@ -84,6 +85,20 @@ def test_update_sends_exact_bounded_request_and_normalizes_only_ohlc() -> None:
     assert frame.get_column("observation_date").to_list() == [START, END]
     assert "volume" not in frame.columns
     assert frame.columns[-4:] == ["open", "high", "low", "close"]
+
+
+def test_provider_debug_log_records_bounds_and_empty_observation_count(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.yahoo_provider")
+    transport = FakeTransport(HttpResponse(200, payload([]), {}))
+
+    frame = YahooMoveProvider(transport, clock=lambda: NOW).fetch(
+        series_contract("move"), update_request()
+    )
+
+    assert frame.is_empty()
+    assert "provider=yahoo series=move operation=update" in caplog.text
+    assert "provider fetch completed provider=yahoo series=move rows=0" in caplog.text
+    assert "query1.finance.yahoo.com" not in caplog.text
 
 
 def test_bootstrap_and_reconcile_are_explicit_max_history_requests() -> None:

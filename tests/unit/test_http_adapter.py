@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import traceback
 from collections.abc import Callable
 from datetime import date
@@ -118,6 +119,35 @@ def test_success_and_explicit_timeout_config() -> None:
     transport.close()
 
 
+def test_debug_log_records_retries_with_safe_path_only(caplog) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(503 if attempts == 1 else 200, content=b"private payload")
+
+    caplog.set_level(logging.DEBUG, logger="ingestion.httpx_adapter")
+    transport = HttpxTransport(
+        retry_policy=RetryPolicy(max_attempts=2, initial_delay_seconds=0),
+        sleeper=lambda _seconds: None,
+        transport=mock_transport(handler),
+    )
+
+    response = transport.send(
+        HttpRequest("GET", "https://example.test/data?token=private-token"),
+        context=CONTEXT,
+    )
+
+    assert response.status_code == 200
+    assert "HTTP request started provider=fred series=us_10y method=GET" in caplog.text
+    assert "path=https://example.test/data attempt=1" in caplog.text
+    assert "HTTP retry scheduled provider=fred series=us_10y status=503" in caplog.text
+    assert "private-token" not in caplog.text
+    assert "private payload" not in caplog.text
+    transport.close()
+
+
 def test_non_retryable_4xx_returns_after_one_attempt() -> None:
     attempts = 0
 
@@ -186,7 +216,8 @@ def test_invalid_retry_after_falls_back_to_exponential_delay() -> None:
     transport.close()
 
 
-def test_transport_error_retries_then_raises_sanitized_error() -> None:
+def test_transport_error_retries_then_raises_sanitized_error(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.httpx_adapter")
     sleeps: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -217,6 +248,9 @@ def test_transport_error_retries_then_raises_sanitized_error() -> None:
     assert error.category == "transport_exhausted"
     assert sleeps == [0.25]
     assert "https://example.test/data" in rendered_error
+    assert "HTTP transport failed provider=fred series=us_10y attempt=1" in caplog.text
+    assert "HTTP transport failed provider=fred series=us_10y attempt=2" in caplog.text
+    assert "DO-NOT-LEAK" not in caplog.text
     assert error.__cause__ is None
     assert error.__context__ is None
     for secret in ("SECRET", "HIDDEN", "password", "ALSO-SECRET", "DO-NOT-LEAK"):

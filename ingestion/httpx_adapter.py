@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -11,6 +12,8 @@ import httpx
 from application.errors import ProviderHttpError
 from application.ports.http import HttpRequest, HttpResponse, RequestContext, Sleeper
 from application.retry import RetryPolicy
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,14 @@ class HttpxTransport:
         safe_path = _safe_request_path(request.url)
         transport_exhausted = False
         for attempt in range(1, self._retry_policy.max_attempts + 1):
+            _LOGGER.debug(
+                "HTTP request started provider=%s series=%s method=%s path=%s attempt=%d",
+                context.provider.value,
+                context.series_id,
+                request.method,
+                safe_path,
+                attempt,
+            )
             try:
                 response = self._client.request(
                     request.method,
@@ -89,12 +100,25 @@ class HttpxTransport:
                     headers=request.headers,
                 )
             except httpx.TransportError:
+                _LOGGER.debug(
+                    "HTTP transport failed provider=%s series=%s attempt=%d",
+                    context.provider.value,
+                    context.series_id,
+                    attempt,
+                )
                 if attempt >= self._retry_policy.max_attempts:
                     transport_exhausted = True
                     break
                 self._sleeper(self._retry_policy.delay_after(attempt))
                 continue
 
+            _LOGGER.debug(
+                "HTTP response received provider=%s series=%s status=%d attempt=%d",
+                context.provider.value,
+                context.series_id,
+                response.status_code,
+                attempt,
+            )
             if self._retry_policy.retryable_status(response.status_code):
                 if attempt >= self._retry_policy.max_attempts:
                     raise ProviderHttpError(
@@ -103,12 +127,19 @@ class HttpxTransport:
                         request_path=safe_path,
                         status_code=response.status_code,
                     )
-                self._sleeper(
-                    self._retry_policy.delay_after(
-                        attempt,
-                        _retry_after_seconds(response),
-                    )
+                delay = self._retry_policy.delay_after(
+                    attempt,
+                    _retry_after_seconds(response),
                 )
+                _LOGGER.debug(
+                    "HTTP retry scheduled provider=%s series=%s status=%d attempt=%d delay=%.3f",
+                    context.provider.value,
+                    context.series_id,
+                    response.status_code,
+                    attempt,
+                    delay,
+                )
+                self._sleeper(delay)
                 continue
 
             return HttpResponse(

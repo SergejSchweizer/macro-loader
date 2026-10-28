@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from threading import Barrier, Event, Lock
@@ -134,6 +135,44 @@ def test_run_many_is_bounded_and_isolates_failures_in_input_order() -> None:
     assert [item.series_id for item in result.successes] == ["us_2y", "euro_hy_oas"]
     assert result.failures == ("us_10y", "usd_broad")
     assert uow.peak_mutations == 1
+
+
+def test_debug_log_records_bounded_series_run_counts_without_failure_text(caplog) -> None:
+    class DebugProvider:
+        provider = Provider.FRED
+
+        def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
+            del request
+            if series.series_id == "us_10y":
+                raise RuntimeError("injected provider error")
+            return pl.DataFrame()
+
+    uow = RecordingUnitOfWork()
+    service = BronzeOrchestrator(
+        series_registry=SERIES_REGISTRY,
+        providers={Provider.FRED: DebugProvider()},
+        unit_of_work=uow,  # type: ignore[arg-type]
+        clock=lambda: NOW,
+        run_id_factory=lambda series_id: f"run-{series_id}",
+        execution_policy=PolarsExecutionPolicy(1),
+    )
+    caplog.set_level(logging.DEBUG, logger="application.bronze_orchestration")
+
+    result = service.run_series("us_2y", today=TODAY)
+
+    assert result.inserted_rows == 0
+    assert "series ingestion started provider=fred series=us_2y mode=bootstrap" in caplog.text
+    assert (
+        "series ingestion committed provider=fred series=us_2y fetched=0 accepted=0" in caplog.text
+    )
+    assert "injected provider error" not in caplog.text
+
+    with pytest.raises(RuntimeError, match="injected provider error"):
+        service.run_series("us_10y", today=TODAY)
+    assert "series ingestion failed provider=fred series=us_10y category=RuntimeError" in (
+        caplog.text
+    )
+    assert "injected provider error" not in caplog.text
 
 
 def test_run_many_serializes_success_and_failure_manifest_mutations() -> None:

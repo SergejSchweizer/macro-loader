@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, date, datetime
 
 import pytest
@@ -68,6 +69,19 @@ def test_registered_series_send_exact_delta_and_scalar_schema() -> None:
         assert frame.columns[-1] == "value"
         assert API_KEY not in frame.get_column("source_url").unique().item()
         assert API_KEY not in repr(provider)
+
+
+def test_provider_debug_log_never_contains_api_key_or_payload_values(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.fred_provider")
+    transport = FakeTransport(HttpResponse(200, fred_payload([("2026-08-19", "4.25")]), {}))
+
+    frame = make_provider(transport).fetch(series_contract("us_10y"), update_request())
+
+    assert frame.height == 1
+    assert "provider=fred series=us_10y operation=update" in caplog.text
+    assert "rows=1" in caplog.text
+    assert API_KEY not in caplog.text
+    assert "4.25" not in caplog.text
 
 
 def test_euro_hy_bootstrap_preserves_exposed_history_and_source_values() -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 from collections.abc import Callable
@@ -28,6 +29,7 @@ from ingestion.state_repository import read_states, upsert_state
 
 FaultInjector = Callable[[str], None]
 _KEY = ("provider", "series_id", "observation_date")
+_LOGGER = logging.getLogger(__name__)
 
 
 def _no_fault(stage: str) -> None:
@@ -148,11 +150,23 @@ class FilesystemBronzeUnitOfWork:
 
     def prepare(self, contract: SeriesContract, incoming: pl.DataFrame) -> PreparedBronze:
         existing = read_monthly(self._series_paths(contract), sort_by=_KEY)
+        existing_rows = existing.height
         if not existing.columns:
             existing = incoming.head(0)
         normalized = _stable_incoming(existing, incoming)
         merged, diff = merge_frames(existing, normalized, key=_KEY)
         months = _changed_months(diff.changed)
+        _LOGGER.debug(
+            "Bronze prepare completed provider=%s series=%s existing=%d incoming=%d "
+            "inserted=%d revised=%d partitions=%d",
+            contract.provider.value,
+            contract.series_id,
+            existing_rows,
+            incoming.height,
+            diff.inserts.height,
+            diff.revisions.height,
+            len(months),
+        )
         return PreparedBronze(
             contract=contract,
             merged=merged,
@@ -168,6 +182,12 @@ class FilesystemBronzeUnitOfWork:
         state: IngestionState,
     ) -> None:
         months = _changed_months(prepared.diff.changed)
+        _LOGGER.debug(
+            "Bronze commit started provider=%s series=%s partitions=%d",
+            prepared.contract.provider.value,
+            prepared.contract.series_id,
+            len(months),
+        )
         bronze_targets = [
             self._paths.bronze_month(
                 prepared.contract.provider,
@@ -195,10 +215,33 @@ class FilesystemBronzeUnitOfWork:
             self._fault("after_run")
             upsert_state(self._paths.ingestion_state(), state)
             self._fault("after_state")
+            _LOGGER.debug(
+                "Bronze commit completed provider=%s series=%s partitions=%d",
+                prepared.contract.provider.value,
+                prepared.contract.series_id,
+                len(months),
+            )
         except BaseException:
+            _LOGGER.debug(
+                "Bronze commit rollback started provider=%s series=%s targets=%d",
+                prepared.contract.provider.value,
+                prepared.contract.series_id,
+                len(backups),
+            )
             for item in reversed(backups):
                 _restore(item)
+            _LOGGER.debug(
+                "Bronze commit rollback completed provider=%s series=%s",
+                prepared.contract.provider.value,
+                prepared.contract.series_id,
+            )
             raise
 
     def record_failure(self, run: IngestionRunRecord) -> None:
+        _LOGGER.debug(
+            "Bronze failure recorded provider=%s series=%s category=%s",
+            run.provider.value,
+            run.series_id,
+            run.error_category,
+        )
         upsert_run(self._paths.ingestion_runs(), run, secrets=self._secrets)

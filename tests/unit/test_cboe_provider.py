@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 import polars as pl
@@ -63,6 +64,18 @@ def test_all_registered_routes_use_registry_source_and_exact_delta_filter() -> N
         assert sent.url.endswith(f"/{contract.source_id}")
         assert not sent.params
         assert context.series_id == series_id
+
+
+def test_provider_debug_log_records_bounded_request_and_row_count(caplog) -> None:
+    caplog.set_level(logging.DEBUG, logger="ingestion.cboe_provider")
+    provider = CboeProvider(FakeTransport(HttpResponse(200, CSV, {})), clock=lambda: NOW)
+
+    provider.fetch(series_contract("vix"), update_request())
+
+    assert "provider=cboe series=vix operation=update" in caplog.text
+    assert "start=2026-08-11 end=2026-08-19" in caplog.text
+    assert "provider fetch completed provider=cboe series=vix rows=2" in caplog.text
+    assert "cdn.cboe.com" not in caplog.text
 
 
 def test_bootstrap_and_reconcile_accept_full_exposed_payload() -> None:

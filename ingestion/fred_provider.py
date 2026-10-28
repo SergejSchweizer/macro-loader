@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Callable
 from datetime import UTC, date, datetime
@@ -17,6 +18,7 @@ from application.registry import SERIES_REGISTRY
 
 Clock = Callable[[], datetime]
 _DEFAULT_URL = "https://api.stlouisfed.org/fred/series/observations"
+_LOGGER = logging.getLogger(__name__)
 _FRED_SERIES = frozenset(
     series_id
     for series_id, contract in SERIES_REGISTRY.items()
@@ -52,6 +54,13 @@ class FredProvider:
 
     def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
         self._validate_contract(series)
+        _LOGGER.debug(
+            "provider fetch started provider=fred series=%s operation=%s start=%s end=%s",
+            series.series_id,
+            request.operation,
+            request.logical_start,
+            request.logical_end,
+        )
         params: dict[str, str | int | float] = {
             "series_id": series.source_id,
             "api_key": self._api_key,
@@ -85,7 +94,13 @@ class FredProvider:
                 )
             ).height:
                 raise ValueError("FRED bounded response contains out-of-window observations")
-        return frame.sort("observation_date")
+        result = frame.sort("observation_date")
+        _LOGGER.debug(
+            "provider fetch completed provider=fred series=%s rows=%d",
+            series.series_id,
+            result.height,
+        )
+        return result
 
     def __repr__(self) -> str:
         return f"FredProvider(endpoint={self._endpoint!r}, api_key=<redacted>)"

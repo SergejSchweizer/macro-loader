@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from io import BytesIO
@@ -16,6 +17,7 @@ from application.ports.market_data import ProviderRequest
 Clock = Callable[[], datetime]
 _CBOE_SERIES = frozenset({"vix", "vix9d", "vix3m", "vix6m", "vix1y"})
 _DEFAULT_BASE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices"
+_LOGGER = logging.getLogger(__name__)
 
 
 def _system_utc_now() -> datetime:
@@ -56,6 +58,13 @@ class CboeProvider:
 
     def fetch(self, series: SeriesContract, request: ProviderRequest) -> pl.DataFrame:
         self._validate_contract(series)
+        _LOGGER.debug(
+            "provider fetch started provider=cboe series=%s operation=%s start=%s end=%s",
+            series.series_id,
+            request.operation,
+            request.logical_start,
+            request.logical_end,
+        )
         url = f"{self._base_url}/{series.source_id}"
         context = RequestContext(self.provider, series.series_id, series.source_id)
         response = self._transport.send(HttpRequest("GET", url), context=context)
@@ -77,7 +86,13 @@ class CboeProvider:
                     closed="both",
                 )
             )
-        return frame.sort("observation_date")
+        result = frame.sort("observation_date")
+        _LOGGER.debug(
+            "provider fetch completed provider=cboe series=%s rows=%d",
+            series.series_id,
+            result.height,
+        )
+        return result
 
     def _validate_contract(self, series: SeriesContract) -> None:
         if series.provider is not self.provider or series.series_id not in _CBOE_SERIES:
