@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-212: Add Debug Telemetry To Application Verification Use Cases
 
 PR name: `application-verification-debug-logs`
-Status: In progress
+Status: Pushed — local quality gate passed
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-212/application-verification-debug-logs`
-Git status: local-changes
+Git status: pushed-local-checks-passed
 Agent lane: application-level PostgreSQL conformance and guarded reconstruction use cases
 Commit: `feat(pr-212): instrument application verification use cases`
 Design patterns: Logging Adapter; preserve application use-case and fail-closed boundaries.
