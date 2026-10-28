@@ -955,6 +955,10 @@ request and filter bounds, and completion/failure lifecycle using canonical prov
 identity. Failure records contain only the exception class; fetched/source values and
 exception messages are excluded. Instrumentation does not alter bootstrap, delta, or explicit
 reconcile decisions.
+Cron support utilities record only safe counts for configuration export and wrapper-log
+rotation/pruning. Failures record exception classes only; configuration values, credentials,
+paths, and exception text are excluded. Their command-line entry points configure the shared
+`.logs` handler before doing work.
 The PostgreSQL conformance and reconstruction application use cases record their start,
 stage/result counts, canonical build identity, safe stage names, statuses, and exception
 classes. They do not log report payloads, hashes, paths, secrets, or exception messages.
