@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from subprocess import CompletedProcess
 
 import pytest
@@ -117,15 +118,24 @@ def test_git_subjects_reads_non_empty_lines(monkeypatch: pytest.MonkeyPatch) -> 
     assert contract.git_subjects("origin/main") == ["feat(pr-01): add thing"]
 
 
-def test_main_skips_merge_group() -> None:
+def test_main_skips_merge_group(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.validate_git_contract")
     assert contract.main(["--branch", "queue", "--event", "merge_group"]) == 0
+    assert "event=merge_group main_branch=False" in caplog.text
+    assert "skipped reason=merge_group" in caplog.text
+    assert "subject_count=" not in caplog.text
 
 
-def test_main_validates_git_subjects(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_validates_git_subjects(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.validate_git_contract")
+    private_base = "/private/repository/main"
+    private_subject = "chore(pr-01): add repository bootstrap"
     monkeypatch.setattr(
         contract,
         "git_subjects",
-        lambda base: ["chore(pr-01): add repository bootstrap"],
+        lambda base: [private_subject],
     )
     assert (
         contract.main(
@@ -133,16 +143,22 @@ def test_main_validates_git_subjects(monkeypatch: pytest.MonkeyPatch) -> None:
                 "--branch",
                 "pr-01/repository-bootstrap-quality-gates",
                 "--base",
-                "origin/main",
+                private_base,
             ]
         )
         == 0
     )
+    assert "subject_count=1" in caplog.text
+    assert "result=passed" in caplog.text
+    assert private_base not in caplog.text
+    assert private_subject not in caplog.text
+    assert "pr-01/repository-bootstrap-quality-gates" not in caplog.text
 
 
 def test_main_allows_staged_precommit_without_candidate_commit_subject(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.validate_git_contract")
     monkeypatch.setattr(contract, "git_subjects", lambda base: [])
     monkeypatch.setattr(
         contract.subprocess,
@@ -154,11 +170,13 @@ def test_main_allows_staged_precommit_without_candidate_commit_subject(
         contract.main(["--branch", "pr-01/repository-bootstrap-quality-gates", "--event", "local"])
         == 0
     )
+    assert "deferred reason=staged_precommit_changes" in caplog.text
 
 
 def test_main_still_rejects_empty_history_without_staged_changes(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    caplog.set_level(logging.DEBUG, logger="scripts.validate_git_contract")
     monkeypatch.setattr(contract, "git_subjects", lambda base: [])
     monkeypatch.setattr(
         contract.subprocess,
@@ -168,3 +186,5 @@ def test_main_still_rejects_empty_history_without_staged_changes(
 
     with pytest.raises(ValueError, match="no implementation commits"):
         contract.main(["--branch", "pr-01/repository-bootstrap-quality-gates", "--event", "local"])
+    assert "failed error_type=ValueError" in caplog.text
+    assert "no implementation commits" not in caplog.text

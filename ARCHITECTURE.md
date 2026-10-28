@@ -963,6 +963,10 @@ The guarded full-history and daily-cron acceptance runners log only fixed stage 
 counts/status, replay mutation counts, and exception classes. They exclude subprocess commands,
 paths, credentials, captured output, and exception text; the explicit `--execute` guard and
 sanitized report schema are unchanged.
+The local Git contract validator records only an allow-listed event category, main-branch
+status, candidate subject count, fixed outcome/reason categories, and exception class. It never
+logs branch names, base refs/paths, commit subjects, or exception text; validation, bypass, and
+pre-commit deferral behavior are unchanged.
 Cron support utilities record only safe counts for configuration export and wrapper-log
 rotation/pruning. Failures record exception classes only; configuration values, credentials,
 paths, and exception text are excluded. Their command-line entry points configure the shared

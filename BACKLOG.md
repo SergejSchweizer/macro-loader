@@ -9,16 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-223: Add Safe Debug Telemetry To Git Contract Validation
+
+PR name: `git-contract-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#223](https://github.com/SergejSchweizer/macro-loader/pull/223) (open)
+Git branch: `pr-223/git-contract-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: local pre-commit and quality-gate Git contract validator
+Commit: `feat(pr-223): instrument git contract validation`
+Design patterns: Logging Adapter; preserve deterministic local policy validation.
+Depends on: PR-222 (merged to `origin/main`)
+
+Description:
+- R1: Record safe start, skip/defer, candidate-count, pass, and failure lifecycle events
+  through the shared `.logs` debug handler.
+- R2: Log only an allow-listed event category, a main-branch boolean, subject count, fixed
+  outcome/reason categories, and exception class; never log branch names, base refs/paths,
+  commit subjects, or exception messages.
+- R3: Preserve merge-group/main bypasses, staged pre-commit deferral, contract validation,
+  and exception propagation exactly.
+
+Acceptance:
+- A1 tests cover skip, candidate success, staged deferral, and failure telemetry.
+- A2 tests prove branch/base/subject/error text is absent from debug logs.
+- A3 existing tests continue to prove exact Git contract behavior and failure semantics.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-222: Add Debug Telemetry To Guarded Acceptance Runners
 
 PR name: `acceptance-runner-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#222](https://github.com/SergejSchweizer/macro-loader/pull/222) (open)
+PR: [#222](https://github.com/SergejSchweizer/macro-loader/pull/222) (merged)
 Git branch: `pr-222/acceptance-runner-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: dry-run planning and explicitly gated full-run/daily-cron acceptance commands
 Commit: `feat(pr-222): instrument acceptance runners`
+Merge commit: `713547338ee801eee6688e321e4e97dce74a1637`
 Design patterns: Logging Adapter; preserve guarded Command boundary and sanitized reports.
 Depends on: PR-221 (merged to `origin/main`)
 
