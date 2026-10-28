@@ -16,9 +16,9 @@ Status: In Progress
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-207/gold-storage-adapter-debug-logs`
-Git status: active-dirty: AGENTS.md, ARCHITECTURE.md, README.md, ingestion/gold_*.py, tests/integration/test_gold_publication.py
+Git status: active-clean
 Agent lane: immutable Gold artifact, catalog, sidecar, materialized-view, and mirror persistence
-Commit: `feat(pr-207): instrument Gold storage adapters`
+Commit: `cdbeece feat(pr-207): instrument Gold storage adapters`
 Design patterns: Logging Adapter; existing Repository, Materialized View, and Mark-and-Sweep boundaries remain unchanged.
 Depends on: PR-206 (merged to `origin/main`)
 
