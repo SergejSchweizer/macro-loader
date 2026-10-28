@@ -66,6 +66,36 @@ def test_planner_validates_overlap_and_reverse_time() -> None:
         build_plan(series_contract("us_10y"), BOUNDS, today=date(2026, 8, 17))
 
 
+def test_planner_logs_safe_delta_plan_lifecycle(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.DEBUG, logger="application.planner")
+
+    plan = build_plan(series_contract("us_10y"), BOUNDS, today=TODAY)
+
+    assert plan.request_start == date(2026, 8, 11)
+    assert "source fetch planning started provider=fred series_id=us_10y" in caplog.text
+    assert (
+        "source fetch planning completed provider=fred series_id=us_10y mode=update "
+        "fetch_capability=date_range request_start=2026-08-11 request_end=2026-08-19 "
+        "maximum_history=False filter_start=2026-08-11 filter_end=2026-08-19"
+    ) in caplog.text
+    assert "2000-01-03" not in caplog.text
+
+
+def test_planner_logs_error_class_without_exception_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="application.planner")
+
+    with pytest.raises(ValueError, match="today cannot be earlier"):
+        build_plan(series_contract("us_10y"), BOUNDS, today=date(2026, 8, 17))
+
+    assert (
+        "source fetch planning failed provider=fred series_id=us_10y error_type=ValueError"
+        in caplog.text
+    )
+    assert "today cannot be earlier" not in caplog.text
+
+
 def test_state_cache_never_overrides_authoritative_bronze_max() -> None:
     stale = IngestionState(
         provider=series_contract("us_10y").provider,
