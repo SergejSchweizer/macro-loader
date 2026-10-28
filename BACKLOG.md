@@ -14,6 +14,7 @@ Last reviewed: 2026-10-28
 PR name: `align-postgres-math-qa-to-long-view`
 Status: Pushed — local quality gate and all 46 disposable PostgreSQL integration tests passed; awaiting PR review/merge
 Updated: 2026-10-28
+PR: [#227](https://github.com/SergejSchweizer/macro-loader/pull/227) (open)
 Git branch: `pr-227/align-postgres-math-qa-to-long-view`
 Git status: pushed-local-checks-passed
 Agent lane: independent PostgreSQL formula parity and long-view contract QA
