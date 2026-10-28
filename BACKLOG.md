@@ -9,14 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-210: Add Debug Telemetry To Guarded Reconstruction Operations
+
+PR name: `reconstruction-operations-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#210](https://github.com/SergejSchweizer/macro-loader/pull/210) (open)
+Git branch: `pr-210/reconstruction-operations-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: explicitly guarded production reconstruction orchestration adapter
+Commit: `feat(pr-210): instrument guarded reconstruction operations`
+Design patterns: Logging Adapter; existing guarded-operation state and lock ownership remain unchanged.
+Depends on: PR-209 (merged to `origin/main`)
+
+Description:
+- R1: Record lifecycle and elapsed milliseconds for each guarded reconstruction operation,
+  including lock/preflight, backup, lake rebuild, PostgreSQL publish/verify/replay, wrapper
+  verification, and scheduling release.
+- R2: Log only fixed operation names, elapsed time, safe counts/status, and exception class;
+  never log credentials, endpoints, paths, feature values, subprocess output, or error text.
+- R3: Preserve the explicit authorization boundary, lock/maintenance-marker ordering,
+  backup validation, failure propagation, and existing operation semantics.
+- R4: Do not execute guarded operations, production PostgreSQL/cron, or GitHub Actions.
+
+Acceptance:
+- A1 caplog tests cover successful stages and failures with accurate elapsed-time fields,
+  safe operation identifiers, and exception class only.
+- A2 failure tests prove paths, connection details, passwords, subprocess output, and
+  exception text are absent from debug records.
+- A3 existing tests continue to prove lock contention handling, production endpoint
+  preflight, backup validation, marker semantics, and delegation ordering.
+- A4 `make quality-gate` passes locally; no guarded runner or production operation executes.
+
 ### PR-209: Add Debug Telemetry To PostgreSQL Verification Inputs
 
 PR name: `postgres-verifier-input-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#209](https://github.com/SergejSchweizer/macro-loader/pull/209) (open)
+PR: [#209](https://github.com/SergejSchweizer/macro-loader/pull/209) (merged)
 Git branch: `pr-209/postgres-verifier-input-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: PostgreSQL conformance inspection and catalog-selected Gold input adapters
 Commit: `feat(pr-209): instrument PostgreSQL verification inputs`
 Design patterns: Logging Adapter; existing read-only Repository/Adapter boundaries remain unchanged.
