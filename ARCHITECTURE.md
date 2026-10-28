@@ -950,6 +950,11 @@ The inventory CLI serializer records only text/JSON format, record count, and ex
 the rendered inventory payload and error text remain in their existing user-facing channels.
 The PostgreSQL delta planner records source/target and mutation counts; canonical hashes,
 timestamps, source values, and exception messages are excluded.
+The provider-neutral source planner records planning start, selected mode/capability, logical
+request and filter bounds, and completion/failure lifecycle using canonical provider/series
+identity. Failure records contain only the exception class; fetched/source values and
+exception messages are excluded. Instrumentation does not alter bootstrap, delta, or explicit
+reconcile decisions.
 The PostgreSQL conformance and reconstruction application use cases record their start,
 stage/result counts, canonical build identity, safe stage names, statuses, and exception
 classes. They do not log report payloads, hashes, paths, secrets, or exception messages.

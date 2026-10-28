@@ -9,16 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-219: Add Debug Telemetry To Daily Source Planning
+
+PR name: `planner-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: pending
+Git branch: `pr-219/planner-debug-logs`
+Git status: active-local-checks-pending
+Agent lane: provider-neutral bootstrap, bounded update, and explicit reconcile planning
+Commit: `feat(pr-219): instrument daily source planning`
+Design patterns: Logging Adapter; preserve pure deterministic update planning.
+Depends on: PR-218 (merged to `origin/main`)
+
+Description:
+- R1: Record source-fetch planning start, completion, and failure through the standard
+  `.logs` handler.
+- R2: Limit records to canonical provider/series identity, selected mode, capability,
+  request/filter bounds, maximum-history flag, and exception class; never log source values
+  or exception text.
+- R3: Preserve the pure bootstrap/update/reconcile planner and strict max-observation delta
+  semantics exactly.
+
+Acceptance:
+- A1 tests assert safe planner start/result records and exact canonical delta bounds.
+- A2 failure tests prove exception text is absent while the exception class is recorded.
+- A3 existing planner tests continue to prove explicit reconciliation, full-file logical
+  filtering, and use of the newest Bronze observation rather than historical minimum.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-218: Add Debug Telemetry To PostgreSQL Delta Planning
 
 PR name: `postgres-delta-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#218](https://github.com/SergejSchweizer/macro-loader/pull/218) (open)
+PR: [#218](https://github.com/SergejSchweizer/macro-loader/pull/218) (merged)
 Git branch: `pr-218/postgres-delta-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: complete-state Gold digest preparation and serving-delta classification
 Commit: `feat(pr-218): instrument PostgreSQL delta planning`
+Merge commit: `ad41794f8ce42eda9d67f66323aada219aeaaa7c`
 Design patterns: Logging Adapter; retain deterministic complete-state delta planning.
 Depends on: PR-217 (merged to `origin/main`)
 
