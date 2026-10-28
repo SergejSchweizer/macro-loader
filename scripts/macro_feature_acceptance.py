@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from api.logging_config import configure_debug_logging
 from application.paths import LakePaths
 from application.registry import SERIES_REGISTRY
 from ingestion.bronze_uow import FilesystemBronzeUnitOfWork
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,8 +59,20 @@ def _commands(lake_root: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    commands = _commands(args.lake_root)
+    configure_debug_logging(Path.cwd())
+    logger.debug("full-run acceptance planning started")
+    try:
+        commands = _commands(args.lake_root)
+    except Exception as exc:
+        logger.debug("full-run acceptance planning failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug(
+        "full-run acceptance plan completed command_count=%d execute=%s",
+        len(commands),
+        args.execute,
+    )
     if not args.execute:
+        logger.debug("full-run acceptance stopped reason=execute_flag_required")
         print("Refusing to execute without --execute; planned stages:")
         for name, command in commands:
             print(name, " ".join(command))
@@ -64,11 +80,26 @@ def main(argv: list[str] | None = None) -> int:
     results: list[StageResult] = []
     passed = True
     for name, command in commands:
-        completed = subprocess.run(
-            command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        )
+        logger.debug("full-run acceptance stage started stage=%s", name)
+        try:
+            completed = subprocess.run(
+                command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+        except Exception as exc:
+            logger.debug(
+                "full-run acceptance stage failed stage=%s error_type=%s",
+                name,
+                type(exc).__name__,
+            )
+            raise
         status = "PASS" if completed.returncode == 0 else "FAIL"
         results.append(StageResult(name, command, status))
+        logger.debug(
+            "full-run acceptance stage completed stage=%s status=%s exit_code=%d",
+            name,
+            status,
+            completed.returncode,
+        )
         if status == "FAIL":
             passed = False
             break
@@ -78,8 +109,17 @@ def main(argv: list[str] | None = None) -> int:
         "result": "PASS" if passed and len(results) == len(commands) else "FAIL",
         "stages": [asdict(result) for result in results],
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    try:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    except Exception as exc:
+        logger.debug("full-run acceptance report failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug(
+        "full-run acceptance completed result=%s stage_count=%d",
+        payload["result"],
+        len(results),
+    )
     return 0 if payload["result"] == "PASS" else 1
 
 

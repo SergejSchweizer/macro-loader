@@ -959,6 +959,10 @@ request and filter bounds, and completion/failure lifecycle using canonical prov
 identity. Failure records contain only the exception class; fetched/source values and
 exception messages are excluded. Instrumentation does not alter bootstrap, delta, or explicit
 reconcile decisions.
+The guarded full-history and daily-cron acceptance runners log only fixed stage names, stage
+counts/status, replay mutation counts, and exception classes. They exclude subprocess commands,
+paths, credentials, captured output, and exception text; the explicit `--execute` guard and
+sanitized report schema are unchanged.
 Cron support utilities record only safe counts for configuration export and wrapper-log
 rotation/pruning. Failures record exception classes only; configuration values, credentials,
 paths, and exception text are excluded. Their command-line entry points configure the shared

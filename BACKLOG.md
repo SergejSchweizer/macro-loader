@@ -9,16 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-222: Add Debug Telemetry To Guarded Acceptance Runners
+
+PR name: `acceptance-runner-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#222](https://github.com/SergejSchweizer/macro-loader/pull/222) (open)
+Git branch: `pr-222/acceptance-runner-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: dry-run planning and explicitly gated full-run/daily-cron acceptance commands
+Commit: `feat(pr-222): instrument acceptance runners`
+Design patterns: Logging Adapter; preserve guarded Command boundary and sanitized reports.
+Depends on: PR-221 (merged to `origin/main`)
+
+Description:
+- R1: Add debug lifecycle telemetry to the explicitly gated full-history and daily-cron
+  acceptance runners.
+- R2: Log fixed stage names, stage counts/status, safe mutation counts, and exception classes
+  only; exclude commands, paths, credentials, raw output, and exception text.
+- R3: Preserve dry-run default, explicit `--execute` guard, stage ordering, stop-on-failure,
+  and existing sanitized report schemas.
+
+Acceptance:
+- A1 dry-run tests assert logged plan count without command/path disclosure and no subprocesses.
+- A2 mocked success/failure tests assert accurate stage lifecycle records and safe field limits.
+- A3 existing tests continue to prove explicit execution guard, stage order, replay no-op, and
+  fail-fast semantics.
+- A4 `make quality-gate` passes locally; guarded runners, production cron/database, and
+  GitHub Actions are not executed.
+
 ### PR-221: Add Debug Telemetry To PostgreSQL Role Provisioning
 
 PR name: `postgres-role-provisioning-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#221](https://github.com/SergejSchweizer/macro-loader/pull/221) (open)
+PR: [#221](https://github.com/SergejSchweizer/macro-loader/pull/221) (merged)
 Git branch: `pr-221/postgres-role-provisioning-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: admin-only least-privilege PostgreSQL role provisioning command
 Commit: `feat(pr-221): instrument PostgreSQL role provisioning`
+Merge commit: `1d66cf3948a1979d7c6bbeae9635e7badd3074ad`
 Design patterns: Logging Adapter; preserve the explicit Admin Command boundary and secret redaction.
 Depends on: PR-220 (merged to `origin/main`)
 

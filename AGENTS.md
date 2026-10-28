@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#220 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#221 are merged to `origin/main`.
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
@@ -30,7 +30,9 @@ provider-neutral source planner and merged as
 `1714c293ace2e84262e63d2edf8b8cc06da7be40`. PR-220 adds safe lifecycle telemetry to cron
 log-retention and protected-config export helpers and merged as
 `ca4b5c55d26cc1b977e3dae0b030bab8831aa342`. PR-221 instruments the admin-only PostgreSQL
-role provisioning command without exposing credentials or SQL.
+role provisioning command without exposing credentials or SQL and merged as
+`1d66cf3948a1979d7c6bbeae9635e7badd3074ad`. PR-222 instruments the guarded acceptance
+runners without executing them.
 Per the user's instruction, GitHub Actions must
 remain disabled and must not be triggered, re-enabled, rerun, or newly added; perform checks
 locally only.
