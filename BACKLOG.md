@@ -16,7 +16,7 @@ Status: In Progress
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-206/postgres-adapter-debug-logs`
-Git status: active-dirty: PostgreSQL adapter lifecycle logs and tests
+Git status: active-clean
 Agent lane: transactional PostgreSQL Repository Adapter and feature-view refresh
 Commit: `feat(pr-206): instrument postgres adapter debug logs`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
