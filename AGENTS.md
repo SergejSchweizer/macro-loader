@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#221 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#222 are merged to `origin/main`.
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
@@ -37,7 +37,9 @@ Per the user's instruction, GitHub Actions must
 remain disabled and must not be triggered, re-enabled, rerun, or newly added; perform checks
 locally only.
 The guarded acceptance runners document production-like verification but must only be
-executed with explicit deployment authorization.
+executed with explicit deployment authorization. PR-223 instruments the local Git contract
+validator with allow-listed, secret-safe debug lifecycle records while preserving its
+validation, bypass, and staged pre-commit deferral behavior.
 
 ## Source of truth
 

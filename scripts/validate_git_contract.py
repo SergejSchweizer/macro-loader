@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import subprocess
 from collections.abc import Sequence
+from pathlib import Path
+
+from api.logging_config import configure_debug_logging
 
 BRANCH_RE = re.compile(r"^pr-(?P<number>\d{2,3})/[a-z0-9][a-z0-9-]*$")
 REVIEW_BRANCH_RE = re.compile(r"^review/weekly-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})$")
@@ -14,6 +18,8 @@ SUBJECT_RE = re.compile(
     r"\(pr-(?P<number>\d{2,3})\): (?P<description>[a-z0-9].+)$"
 )
 SYNTHETIC_PR_MERGE_RE = re.compile(r"^Merge [0-9a-f]{40} into [0-9a-f]{40}$")
+LOGGER = logging.getLogger(__name__)
+_SAFE_EVENTS = frozenset({"local", "pull_request", "merge_group", "push"})
 
 
 def branch_pr_id(branch: str) -> str:
@@ -88,24 +94,46 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point."""
-    args = _parser().parse_args(argv)
-    if args.event == "merge_group" or args.branch == "main":
-        return 0
-    subjects = git_subjects(args.base)
-    if args.event == "local" and not subjects:
-        staged_changes = subprocess.run(
-            ["git", "diff", "--cached", "--quiet"],
-            check=False,
-            capture_output=True,
+    configure_debug_logging(Path.cwd())
+    try:
+        args = _parser().parse_args(argv)
+        event_category = args.event if args.event in _SAFE_EVENTS else "other"
+        is_main_branch = args.branch == "main"
+        LOGGER.debug(
+            "git contract validation started event=%s main_branch=%s",
+            event_category,
+            is_main_branch,
         )
-        if staged_changes.returncode == 1:
-            # A pre-commit hook runs before the candidate subject enters git history.
-            # The next local gate (after commit) validates the actual commit subject.
+        if args.event == "merge_group" or is_main_branch:
+            LOGGER.debug(
+                "git contract validation skipped reason=%s",
+                "merge_group" if args.event == "merge_group" else "main_branch",
+            )
             return 0
-        if staged_changes.returncode != 0:
-            raise RuntimeError("could not inspect staged changes for local validation")
-    validate_contract(args.branch, subjects, event=args.event)
-    return 0
+        subjects = git_subjects(args.base)
+        LOGGER.debug("git contract candidates loaded subject_count=%d", len(subjects))
+        if args.event == "local" and not subjects:
+            staged_changes = subprocess.run(
+                ["git", "diff", "--cached", "--quiet"],
+                check=False,
+                capture_output=True,
+            )
+            if staged_changes.returncode == 1:
+                # A pre-commit hook runs before the candidate subject enters git history.
+                # The next local gate (after commit) validates the actual commit subject.
+                LOGGER.debug("git contract validation deferred reason=staged_precommit_changes")
+                return 0
+            if staged_changes.returncode != 0:
+                raise RuntimeError("could not inspect staged changes for local validation")
+        validate_contract(args.branch, subjects, event=args.event)
+        LOGGER.debug("git contract validation completed result=passed")
+        return 0
+    except Exception as error:
+        LOGGER.debug(
+            "git contract validation failed error_type=%s",
+            type(error).__name__,
+        )
+        raise
 
 
 if __name__ == "__main__":

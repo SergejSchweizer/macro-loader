@@ -803,6 +803,9 @@ pruned archive counts. Neither logs paths or configuration values; failures repo
 exception class.
 Inventory text/JSON rendering logs the selected output format and record count, plus exception
 class on formatting failure; inventory rows and exception messages remain excluded.
+The local Git contract validator records an allow-listed event category, main-branch status,
+candidate count, fixed outcome/reason categories, and exception class only; branch names,
+base refs/paths, commit subjects, and exception text are excluded.
 
 Install it for the service account after reviewing the absolute project path:
 
