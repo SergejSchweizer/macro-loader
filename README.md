@@ -12,12 +12,14 @@ The reviewed medallion architecture is implemented through the atomic PR sequenc
 
 The repository includes native OHLC inputs and OHLC-derived transformations in PostgreSQL.
 Production migration 36 renamed the raw-derived long transformation materialized view to
-`macro_loader.macro_features` and retired the superseded views on 2026-10-27. All 25
+`macro_loader.macro_features` and retired the superseded views on 2026-10-27. Migration 37
+rebuilt the view with corrected per-series EMA/MACD recurrences on 2026-10-28. All 25
 `macro_raw_<feature>` tables contain source rows; the wide `macro_raw` and orphaned retired
-Fed table are absent. The long view has 11,794,988 rows across 1,720 features. PostgreSQL
-sync state is schema 11 / feature 6, with 16,805 consumer rows and matching row digests.
-The installed daily 09:00 `Europe/Vienna` cron wrapper passed its full acceptance on
-2026-10-27, including a zero-change PostgreSQL replay and independent verification.
+Fed table are absent. The long view has 12,189,132 rows across 1,720 features. PostgreSQL
+sync state is schema 11 / feature 6, with 16,805 consumer rows and matching row digests. The
+guarded daily acceptance passed both cron-wrapper runs, zero-change replay, and independent
+PostgreSQL schema/population verification on 2026-10-28. Population conformance does not
+prove numeric formula parity; use the disposable PostgreSQL integration suite for formula QA.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.

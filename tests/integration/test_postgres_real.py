@@ -19,10 +19,10 @@ import ingestion.postgres_gold_repository as postgres_module
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_COLUMNS, GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION
 from application.macro_feature_catalog import (
-    FEATURE_COLUMNS,
-    FEATURE_POSTGRES_TYPES,
-    MACRO_FEATURE_VIEW_FINGERPRINT,
-    MACRO_FEATURE_VIEW_VERSION,
+    FEATURE_VALUE_CATALOG,
+    FEATURE_VALUE_CATALOG_FINGERPRINT,
+    FEATURE_VALUE_NAMES,
+    FEATURE_VALUE_SCHEMA_VERSION,
     PRICE_FEATURE_SERIES,
 )
 from application.postgres_conformance import PostgresConformanceReport
@@ -118,6 +118,20 @@ def _insert_level_values(
 def _clear_feature_tables(connection: psycopg.Connection[object]) -> None:
     for table in POSTGRES_RAW_TABLES:
         connection.execute(f'DELETE FROM macro_loader."{table}"')
+
+
+def _long_feature_values_at(
+    connection: psycopg.Connection[object], timestamp: datetime, feature_names: Sequence[str]
+) -> dict[str, float | None]:
+    """Read sparse long-form values, mapping omitted NULL outputs back to ``None``."""
+    rows = connection.execute(
+        "SELECT feature_name, value FROM macro_loader.macro_features "
+        "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",
+        (timestamp, list(feature_names)),
+    ).fetchall()
+    values: dict[str, float | None] = dict.fromkeys(feature_names)
+    values.update((str(name), value) for name, value in rows)
+    return values
 
 
 def _runtime_dsn(dsn: str, user: str, password: str) -> str:
@@ -963,8 +977,8 @@ def test_real_postgres_pr172_upgrade_from_migration_22_uses_regular_runner(
         )
     }.issubset(view_columns)
     assert view_comment_after_upgrade == (
-        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+        f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+        f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
     )
 
 
@@ -1287,18 +1301,21 @@ def test_real_postgres_feature_view_catalog_and_unchanged_replay(
         assert tuple(row[0] for row in columns) == (
             "timestamp_m1",
             "available_at_utc",
-            *FEATURE_COLUMNS[1:],
+            "feature_name",
+            "value",
         )
         comment = connection.execute(
             "SELECT obj_description('macro_loader.macro_features'::regclass, 'pg_class')"
         ).fetchone()
         assert comment == (
-            f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-            f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+            f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+            f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
         )
-        assert connection.execute(
-            "SELECT count(*) FROM macro_loader.macro_features"
-        ).fetchone() == (1,)
+        populated_feature_count = connection.execute(
+            "SELECT count(DISTINCT feature_name) FROM macro_loader.macro_features"
+        ).fetchone()
+        assert populated_feature_count is not None
+        assert 0 < populated_feature_count[0] <= len(FEATURE_VALUE_NAMES)
 
 
 @pytest.mark.integration
@@ -1317,21 +1334,24 @@ def test_real_postgres_xetra_returns_match_independent_reference(
         with connection.cursor() as cursor:
             _insert_level_values(cursor.connection, timestamps, {"vix": levels})
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-        row = connection.execute(
-            """SELECT "vix_log_return_1obs", "vix_return_geom_5obs_pct",
-                      "vix_return_mean_5obs", "vix_volatility_5obs"
-               FROM macro_loader.macro_features
-               WHERE timestamp_m1 = %s""",
-            (timestamps[-1],),
-        ).fetchone()
+        feature_names = (
+            "vix_log_return_1obs",
+            "vix_return_geom_5obs_pct",
+            "vix_return_mean_5obs",
+            "vix_volatility_5obs",
+        )
+        actual = _long_feature_values_at(connection, timestamps[-1], feature_names)
 
     logs = [math.log(levels[index] / levels[index - 1]) for index in range(1, len(levels))]
-    assert row is not None
-    assert math.isclose(row[0], logs[-1])
-    assert math.isclose(row[1], levels[-1] / levels[0] - 1.0)
-    assert math.isclose(row[2], sum(logs[-5:]) / 5.0)
-    assert math.isclose(row[3], stdev(logs[-5:]))
-    assert not math.isclose(row[1], (levels[-1] / levels[0] - 1.0) * 100.0)
+    assert actual[feature_names[0]] is not None
+    assert actual[feature_names[1]] is not None
+    assert actual[feature_names[2]] is not None
+    assert actual[feature_names[3]] is not None
+    assert math.isclose(actual[feature_names[0]], logs[-1])
+    assert math.isclose(actual[feature_names[1]], levels[-1] / levels[0] - 1.0)
+    assert math.isclose(actual[feature_names[2]], sum(logs[-5:]) / 5.0)
+    assert math.isclose(actual[feature_names[3]], stdev(logs[-5:]))
+    assert not math.isclose(actual[feature_names[1]], (levels[-1] / levels[0] - 1.0) * 100.0)
 
 
 @pytest.mark.integration
@@ -1348,16 +1368,19 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
         with connection.cursor() as cursor:
             _insert_level_values(cursor.connection, timestamps, {"vix": levels})
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-        row = connection.execute(
-            """SELECT "vix_sma_ratio_5_20", "vix_rsi_7obs", "vix_rsi_14obs",
-                      "vix_roc_3obs", "vix_roc_5obs", "vix_roc_10obs",
-                      "vix_roc_20obs", "vix_drawdown_20obs", "vix_drawdown_60obs"
-               FROM macro_loader.macro_features
-               WHERE timestamp_m1 = %s""",
-            (timestamps[-1],),
-        ).fetchone()
+        feature_names = (
+            "vix_sma_ratio_5_20",
+            "vix_rsi_7obs",
+            "vix_rsi_14obs",
+            "vix_roc_3obs",
+            "vix_roc_5obs",
+            "vix_roc_10obs",
+            "vix_roc_20obs",
+            "vix_drawdown_20obs",
+            "vix_drawdown_60obs",
+        )
+        actual = _long_feature_values_at(connection, timestamps[-1], feature_names)
 
-    assert row is not None
     expected_values = (
         (sum(levels[-5:]) / 5.0) / (sum(levels[-20:]) / 20.0),
         100.0,
@@ -1369,9 +1392,9 @@ def test_real_postgres_xetra_trend_momentum_matches_independent_reference(
         0.0,
         0.0,
     )
-    for actual, expected_value in zip(row, expected_values, strict=True):
-        assert actual is not None
-        assert math.isclose(actual, expected_value)
+    for name, expected_value in zip(feature_names, expected_values, strict=True):
+        assert actual[name] is not None
+        assert math.isclose(actual[name], expected_value)
 
 
 @pytest.mark.integration
@@ -1397,14 +1420,15 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         counts = connection.execute(
             "SELECT (SELECT count(*) FROM macro_loader.macro_raw_vix), "
-            "(SELECT count(*) FROM macro_loader.macro_features)"
+            "(SELECT count(DISTINCT timestamp_m1) FROM macro_loader.macro_features)"
         ).fetchone()
-        row = connection.execute(
-            'SELECT "vix_rsi_7obs", "vix_rsi_14obs", '
-            '"vix_momentum_autocorr_1_60obs", "vix_roc_20obs" '
-            "FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (timestamps[-1],),
-        ).fetchone()
+        feature_names = (
+            "vix_rsi_7obs",
+            "vix_rsi_14obs",
+            "vix_momentum_autocorr_1_60obs",
+            "vix_roc_20obs",
+        )
+        values = _long_feature_values_at(connection, timestamps[-1], feature_names)
         columns = tuple(
             result[0]
             for result in connection.execute(
@@ -1415,18 +1439,15 @@ def test_real_postgres_populates_new_features_and_handles_long_invalid_history(
         )
 
     assert counts == (5_005, 5_005)
-    assert row is not None
     expected_7 = _independent_wilder_rsi(levels, 7)
     expected_14 = _independent_wilder_rsi(levels, 14)
     assert expected_7 is not None and expected_14 is not None
-    assert row[0] is not None and row[1] is not None
-    assert math.isclose(row[0], expected_7)
-    assert math.isclose(row[1], expected_14)
-    assert row[2] is None
-    assert math.isclose(row[3], levels[-1] / levels[-21] - 1.0)
-    assert "estr_level" not in columns
-    assert "estr_delta_1obs" in columns
-    assert "estr_rsi_7obs" not in columns
+    assert values[feature_names[0]] is not None and values[feature_names[1]] is not None
+    assert math.isclose(values[feature_names[0]], expected_7)
+    assert math.isclose(values[feature_names[1]], expected_14)
+    assert values[feature_names[2]] is None
+    assert math.isclose(values[feature_names[3]], levels[-1] / levels[-21] - 1.0)
+    assert columns == ("timestamp_m1", "available_at_utc", "feature_name", "value")
 
 
 @pytest.mark.integration
@@ -1650,17 +1671,15 @@ def test_real_postgres_xetra_view_contract_is_closed_world(
             "SELECT pg_get_viewdef('macro_loader.macro_features'::regclass, true)"
         ).fetchone()
 
-    assert tuple(column[1] for column in columns) == (
-        "timestamp_m1",
-        "available_at_utc",
-        *FEATURE_COLUMNS[1:],
+    assert tuple((column[1], column[2]) for column in columns) == (
+        ("timestamp_m1", "timestamp(6) with time zone"),
+        ("available_at_utc", "timestamp(6) with time zone"),
+        ("feature_name", "text"),
+        ("value", "double precision"),
     )
-    assert columns[0][2] == "timestamp(6) with time zone"
-    assert columns[1][2] == "timestamp(6) with time zone"
-    assert all(column[2] == FEATURE_POSTGRES_TYPES[column[1]] for column in columns[2:])
     assert comment == (
-        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+        f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+        f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
     )
     assert view_definition is not None
     definition = view_definition[0]
@@ -1690,37 +1709,36 @@ def test_real_postgres_pr171_view_has_exact_independent_column_contract(
 
     expected = _qa_expected_view_columns()
     assert len(expected) == len(set(expected)), "independent expected contract has duplicates"
-    assert actual == expected
+    assert actual == ("timestamp_m1", "available_at_utc", "feature_name", "value")
+    definition = " ".join(postgres_module._FEATURE_VALUE_SOURCE_SQL.split())
+    expected_features = set(expected[2:]) - set(_QA_OHLC_COLUMNS)
+    assert all(name in definition for name in expected_features)
     for series in _QA_PRICE_SERIES:
         for window in (2, 4, 8):
-            assert actual.count(f"{series}_log_return_{window}obs") == 1
+            assert f"{series}_log_return_{window}obs" in definition
         for window in (4, 8, 16):
-            assert actual.count(f"{series}_return_geom_{window}obs_pct") == 1
+            assert f"{series}_return_geom_{window}obs_pct" in definition
         for window in (8, 32, 96):
-            assert actual.count(f"{series}_volatility_{window}obs") == 1
-        assert actual.count(f"{series}_sma_ratio_5_15") == 1
+            assert f"{series}_volatility_{window}obs" in definition
+        assert f"{series}_sma_ratio_5_15" in definition
         for window in (3, 5):
-            assert actual.count(f"{series}_rsi_{window}obs") == 1
+            assert f"{series}_rsi_{window}obs" in definition
         for window in (1, 2, 4, 8):
-            assert actual.count(f"{series}_roc_{window}obs") == 1
+            assert f"{series}_roc_{window}obs" in definition
         for window in (32, 96):
-            assert actual.count(f"{series}_drawdown_{window}obs") == 1
-    assert not any(
-        column.startswith("estr_")
-        and any(
-            token in column
-            for token in (
-                "log_return_",
-                "return_geom_",
-                "return_mean_",
-                "volatility_",
-                "sma_ratio_",
-                "_rsi_",
-                "_roc_",
-                "drawdown_",
-            )
+            assert f"{series}_drawdown_{window}obs" in definition
+    assert all(
+        f"'estr_{family}" not in definition
+        for family in (
+            "log_return_",
+            "return_geom_",
+            "return_mean_",
+            "volatility_",
+            "sma_ratio_",
+            "rsi_",
+            "roc_",
+            "drawdown_",
         )
-        for column in actual
     )
 
 
@@ -1739,33 +1757,26 @@ def test_real_postgres_pr170_extended_windows_match_reference_and_ignore_future_
     target = timestamps[target_index]
     target_reference = _qa_reference_features(levels[: target_index + 1])
     feature_names = tuple(_qa_public_feature_column(name) for name in target_reference)
-    select_columns = ", ".join('"' + column + '"' for column in feature_names)
 
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             _insert_level_values(cursor.connection, timestamps, {"vix": levels})
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-        full_history_row = connection.execute(
-            f"SELECT {select_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (target,),
-        ).fetchone()
+        full_history_values = _long_feature_values_at(connection, target, feature_names)
         connection.execute(
             "DELETE FROM macro_loader.macro_raw_vix WHERE timestamp_m1 > %s", (target,)
         )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-        truncated_row = connection.execute(
-            f"SELECT {select_columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (target,),
-        ).fetchone()
+        truncated_values = _long_feature_values_at(connection, target, feature_names)
 
-    assert full_history_row is not None and truncated_row is not None
-    assert truncated_row == full_history_row, "future rows changed earlier view values"
-    for key, actual, column in zip(target_reference, full_history_row, feature_names, strict=True):
+    assert truncated_values == full_history_values, "future rows changed earlier view values"
+    for key, column in zip(target_reference, feature_names, strict=True):
+        actual = full_history_values[column]
         expected_value = target_reference[key]
         assert expected_value is not None, column
         assert actual is not None and math.isfinite(actual), column
         assert math.isclose(actual, expected_value, rel_tol=1e-10, abs_tol=1e-12), column
-    geometric = full_history_row[feature_names.index("vix_return_geom_8obs_pct")]
+    geometric = full_history_values["vix_return_geom_8obs_pct"]
     assert geometric is not None and abs(geometric) < 1.0
 
 
@@ -1791,13 +1802,9 @@ def test_real_postgres_pr170_wilder_rsi_flat_gain_and_loss_boundaries(
             with connection.cursor() as cursor:
                 _insert_level_values(cursor.connection, timestamps, {"vix": levels})
             connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-            actual = connection.execute(
-                'SELECT "vix_rsi_3obs", "vix_rsi_5obs", "vix_rsi_7obs", '
-                '"vix_rsi_14obs" FROM macro_loader.macro_features '
-                "WHERE timestamp_m1 = %s",
-                (timestamps[-1],),
-            ).fetchone()
-            assert actual == expected, _name
+            names = tuple(f"vix_rsi_{window}obs" for window in (3, 5, 7, 14))
+            actual = _long_feature_values_at(connection, timestamps[-1], names)
+            assert tuple(actual[name] for name in names) == expected, _name
 
 
 @pytest.mark.integration
@@ -2023,14 +2030,26 @@ def test_real_postgres_pr171_exact_schema_and_no_raw_or_gold_leakage(
         )
     }
     assert len(expected) == len(set(expected))
-    assert actual == expected
-    assert all(row[1] == FEATURE_POSTGRES_TYPES[row[0]] for row in view_columns[2:])
-    assert not any(column.endswith("_rsi_15obs") for column in actual)
+    assert actual == ("timestamp_m1", "available_at_utc", "feature_name", "value")
+    assert tuple(row[1] for row in view_columns) == (
+        "timestamp(6) with time zone",
+        "timestamp(6) with time zone",
+        "text",
+        "double precision",
+    )
+    long_view_definition = " ".join(postgres_module._FEATURE_VALUE_SOURCE_SQL.split())
+    expected_transformations = set(expected[2:]) - set(_QA_OHLC_COLUMNS)
+    assert expected_transformations <= set(FEATURE_VALUE_NAMES)
+    feature_types = {spec.name: spec.postgres_type for spec in FEATURE_VALUE_CATALOG}
+    assert set(feature_types) == set(FEATURE_VALUE_NAMES)
+    assert additions <= set(feature_types)
+    assert all(name in long_view_definition for name in expected_transformations)
+    assert not any(column.endswith("_rsi_15obs") for column in FEATURE_VALUE_NAMES)
     assert additions.isdisjoint(raw_columns)
     assert additions.isdisjoint(GOLD_COLUMNS)
     assert comment == (
-        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}",
+        f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+        f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}",
     )
 
 
@@ -2063,25 +2082,37 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
         series: _pr171_reference(series_values) for series, series_values in series_levels.items()
     }
     names = tuple(next(iter(references.values())))
-    select_list = ", ".join(
-        f'"{series}_{name}"' for series in PRICE_FEATURE_SERIES for name in names
-    )
+    feature_names = tuple(f"{series}_{name}" for series in PRICE_FEATURE_SERIES for name in names)
     target_index = count - 8
     target_timestamp = timestamps[target_index]
     with psycopg.connect(postgres_dsn, autocommit=True) as connection:
         _insert_level_values(connection, timestamps, series_levels)
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         full_rows = connection.execute(
-            f"SELECT timestamp_m1, {select_list} FROM macro_loader.macro_features "
-            "WHERE timestamp_m1 <= %s ORDER BY timestamp_m1",
-            (target_timestamp,),
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 <= %s AND feature_name = ANY(%s) "
+            "ORDER BY timestamp_m1, feature_name",
+            (target_timestamp, list(feature_names)),
         ).fetchall()
-        assert len(full_rows) == target_index + 1
-        for index, row in enumerate(full_rows):
-            actual_values = iter(row[1:])
+        actual_by_timestamp: dict[datetime, dict[str, float]] = {}
+        for timestamp, feature_name, value in full_rows:
+            actual_by_timestamp.setdefault(timestamp, {})[feature_name] = value
+        expected_timestamps = {
+            timestamp
+            for index, timestamp in enumerate(timestamps[: target_index + 1])
+            if any(
+                references[series][name][index] is not None
+                for series in PRICE_FEATURE_SERIES
+                for name in names
+            )
+        }
+        assert set(actual_by_timestamp) == expected_timestamps
+        for index, timestamp in enumerate(timestamps[: target_index + 1]):
+            actual_values = actual_by_timestamp.get(timestamp, {})
             for series in PRICE_FEATURE_SERIES:
                 for name in names:
-                    actual = next(actual_values)
+                    feature_name = f"{series}_{name}"
+                    actual = actual_values.get(feature_name)
                     expected_value = references[series][name][index]
                     if expected_value is None:
                         assert actual is None, (series, name, index, actual)
@@ -2100,17 +2131,16 @@ def test_real_postgres_pr171_features_match_independent_sparse_reference_and_are
                             expected_value,
                         )
 
-        full_target = full_rows[-1][1:]
+        full_target = {
+            name: actual_by_timestamp.get(target_timestamp, {}).get(name) for name in feature_names
+        }
         for table in POSTGRES_RAW_TABLES:
             connection.execute(
                 f'DELETE FROM macro_loader."{table}" WHERE timestamp_m1 > %s',
                 (target_timestamp,),
             )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-        truncated_target = connection.execute(
-            f"SELECT {select_list} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (target_timestamp,),
-        ).fetchone()
+        truncated_target = _long_feature_values_at(connection, target_timestamp, feature_names)
 
     assert truncated_target == full_target
     for series in PRICE_FEATURE_SERIES:
@@ -2138,7 +2168,6 @@ def test_real_postgres_pr171_negative_correlation_and_zero_variance_are_preserve
         "vix_momentum_autocorr_lag4_window96",
         "vix_momentum_autocorr_lag8_window192",
     )
-    projection = ", ".join(f'"{name}"' for name in names)
     timestamps = [datetime(2025, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(300)]
     alternating = [100.0]
     for index in range(1, len(timestamps)):
@@ -2154,16 +2183,12 @@ def test_real_postgres_pr171_negative_correlation_and_zero_variance_are_preserve
             _clear_feature_tables(connection)
             _insert_level_values(connection, timestamps, {"vix": levels})
             connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-            row = connection.execute(
-                f"SELECT {projection} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-                (timestamps[-1],),
-            ).fetchone()
-            assert row is not None
+            row = _long_feature_values_at(connection, timestamps[-1], names)
             if scenario == "flat":
-                assert row[0] is None
-                assert row[4] is None and row[5] is None
-                assert row[6] is None and row[7] is None and row[8] is None
+                assert row[names[0]] is None
+                assert row[names[4]] is None and row[names[5]] is None
+                assert row[names[6]] is None and row[names[7]] is None and row[names[8]] is None
             elif scenario == "all-loss":
-                assert row[0] is None  # RSI-15 is zero, so the ratio is undefined.
+                assert row[names[0]] is None  # RSI-15 is zero, so the ratio is undefined.
             else:
-                assert row[6] is not None and row[6] < 0.0
+                assert row[names[6]] is not None and row[names[6]] < 0.0

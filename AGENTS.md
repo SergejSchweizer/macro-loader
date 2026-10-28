@@ -2,13 +2,13 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#225 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#226 are merged to `origin/main`.
 Production PostgreSQL migration 37 completed; all 25 raw feature tables and the long-form
 `macro_loader.macro_features` materialized view contain 12,189,132 feature rows. The 2026-10-28
 guarded daily acceptance passed both wrapper runs, the zero-change replay, and all 26 raw-derived
-feature-group comparisons. Its final inspector then exposed an idle-transaction timeout after
-the long comparisons; PR-226, `pr-226/close-idle-conformance-transactions`, is fixing that
-connection lifecycle before the acceptance is rerun. PR-201,
+feature-group comparisons; the independent verifier completed after PR-226 closed its idle
+schema-inspection transaction before the long scans. The report confirmed 16,805 consumer and
+digest rows and 28 schema tables. PR-201,
 `pr-201/sunday-gold-copy-cron`, adds the installed Sunday 22:00 Europe/Vienna copy from
 `lake/gold/` to `/volume1/Temp/Quotes/macro/`; a live copy and checksum comparison passed.
 The installed daily 09:00 Europe/Vienna schedule and 60-calendar-day delta window remain
@@ -44,7 +44,11 @@ deployment authorization. PR-223 instruments the local Git contract
 validator with allow-listed, secret-safe debug lifecycle records while preserving its
 validation, bypass, and staged pre-commit deferral behavior. PR-224 batches independent
 full-history source operations through the bounded application-level `--cores` policy while
-keeping dependent publication and PostgreSQL stages sequential.
+keeping dependent publication and PostgreSQL stages sequential. PR-225 independently checks
+all raw-derived population groups and corrects per-series EMA/MACD recurrence; migration 37
+rebuilds the production view. PR-226 closes the verifier transaction before long scans. Current
+GOALS math-validation work is fixing legacy PostgreSQL tests that still assume a wide view; do
+not infer numeric correctness from row-count conformance alone.
 
 ## Source of truth
 

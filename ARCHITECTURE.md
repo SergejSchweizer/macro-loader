@@ -10,13 +10,17 @@ The repository includes causal feature transformations and native OHLC values in
 PostgreSQL. Retired Fed-policy runtime and serving code does not establish production
 database or installed host-crontab state. Production migration 36 renamed the populated
 raw-derived long transformation materialized view to `macro_loader.macro_features` and
-retired the superseded views on 2026-10-27. All 25 `macro_raw_<feature>` tables are
+retired the superseded views on 2026-10-27; migration 37 rebuilt it with corrected per-series
+EMA/MACD recurrence on 2026-10-28. All 25 `macro_raw_<feature>` tables are
 populated; the old wide `macro_raw` and orphaned Fed serving table are absent. The long
-view has 11,794,988 rows across 1,720 features. The sync checkpoint is schema 11 / feature
+view has 12,189,132 rows across 1,720 features. The sync checkpoint is schema 11 / feature
 6 with 16,805 consumer and digest rows. The daily cron contract is 09:00 `Europe/Vienna`
 with a 60-calendar-day bounded source overlap. The host crontab also copies Gold to the NAS
 each Sunday at 22:00 `Europe/Vienna`; the installed schedule and live copy were verified
-on 2026-10-27.
+on 2026-10-27. The 2026-10-28 guarded cron acceptance passed both wrapper runs, zero-change
+replay, and independent per-feature population verification. This verifies schema, types, and
+source-derived row counts; it is not a substitute for numeric SQL-versus-independent-formula
+parity tests.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
