@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-208: Add Debug Telemetry To Lake Repositories
 
 PR name: `lake-repository-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#208](https://github.com/SergejSchweizer/macro-loader/pull/208) (open)
 Git branch: `pr-208/lake-repository-debug-logs`
-Git status: active-clean
+Git status: pushed-local-checks-passed
 Agent lane: monthly Parquet, Silver, state, inventory, and run-audit persistence
 Commit: `bd89072 feat(pr-208): instrument lake repositories`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.
