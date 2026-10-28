@@ -827,20 +827,27 @@ If periodic maximum-history source reconciliation is desired, schedule `reconcil
 ### Feature-library acceptance runs
 
 Use the acceptance runners only on an explicitly authorized host with the normal
-runtime configuration already exported. They are dry-run by default:
+runtime configuration already exported. They are dry-run by default. The full-history
+runner accepts `--cores` (default 6) and submits each independent bootstrap/reconcile group
+through one multi-series command, reusing the bounded application worker policy; dependent
+Silver, Gold, migration, sync, and verification stages remain sequential:
 
 ```bash
 uv run python scripts/macro_feature_acceptance.py --lake-root /srv/market-regime/lake
 uv run python scripts/macro_feature_acceptance.py \
   --lake-root /srv/market-regime/lake --execute
+uv run python scripts/macro_feature_acceptance.py \
+  --lake-root /srv/market-regime/lake --cores 6 --execute
 uv run python scripts/macro_feature_cron_acceptance.py --project-root /home/dev_macro/macro-loader
 uv run python scripts/macro_feature_cron_acceptance.py \
   --project-root /home/dev_macro/macro-loader --execute
 ```
 
-The first runner plans maximum-history reconciliation for every registered series,
-then Silver/Gold publication, PostgreSQL migration/sync/verification, and an
-unchanged replay. The second executes the installed daily wrapper twice, explicitly
+The first runner groups empty Bronze series for bootstrap and existing series for
+maximum-history reconciliation, then performs Silver/Gold publication, PostgreSQL
+migration/sync/verification, and an unchanged replay. Source groups use the configured
+bounded worker limit; dependent stages remain ordered. It reports using the
+`macro-feature-full-run-v2` schema. The second executes the installed daily wrapper twice, explicitly
 checks a zero-change PostgreSQL replay, and runs independent `postgres-verify`. It writes
 only a sanitized JSON report under `artifacts/acceptance/`; no credentials or raw
 provider payloads are recorded. A report is `PASS` only when every stage passes.

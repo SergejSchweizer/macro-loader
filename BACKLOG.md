@@ -9,16 +9,50 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-224: Bound Parallelism In Full-History Acceptance Runs
+
+PR name: `parallel-full-history-reconcile`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#224](https://github.com/SergejSchweizer/macro-loader/pull/224) (open)
+Git branch: `pr-224/parallel-full-history-reconcile`
+Git status: pushed-local-checks-passed
+Agent lane: guarded full-history acceptance runner and source-series batch orchestration
+Commit: `perf(pr-224): parallelize guarded full-history ingestion`
+Design patterns: Bounded Concurrency Policy; reuse per-series Unit of Work through the CLI
+  application command; preserve dependency-ordered Command stages.
+Depends on: PR-223 (merged to `origin/main`)
+
+Description:
+- R1: Add a positive `--cores` setting (default 6) to the guarded full-history runner and
+  forward it to the existing multi-series CLI command.
+- R2: Group independent source series by required operation (empty Bronze bootstrap versus
+  explicit reconcile) and execute each group through one application command so the existing
+  bounded parallel policy and per-series durability boundaries are reused.
+- R3: Keep all Silver, Gold, PostgreSQL migration/sync/verification/replay stages sequential
+  behind source completion; these are dependency-ordered and remain fail-fast.
+- R4: Version the acceptance report schema for batch stage names; preserve dry-run default,
+  explicit `--execute`, sanitized logging, and stop-on-failure.
+
+Acceptance:
+- A1 planning tests prove mixed bootstrap/reconcile groups contain the correct series and
+  forward the requested core limit (default 6 and custom positive values).
+- A2 invalid core counts fail before planning/execution; dry-run never starts subprocesses.
+- A3 mocked runs prove grouped source stages precede unchanged sequential downstream stages,
+  and batch failures stop the run and produce a FAIL report.
+- A4 complete local `make quality-gate` passes; no guarded, production, or GitHub Actions run.
+
 ### PR-223: Add Safe Debug Telemetry To Git Contract Validation
 
 PR name: `git-contract-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#223](https://github.com/SergejSchweizer/macro-loader/pull/223) (open)
+PR: [#223](https://github.com/SergejSchweizer/macro-loader/pull/223) (merged)
 Git branch: `pr-223/git-contract-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: local pre-commit and quality-gate Git contract validator
 Commit: `feat(pr-223): instrument git contract validation`
+Merge commit: `0bc5cb06df092347e7df90c32fce81dea226f4ba`
 Design patterns: Logging Adapter; preserve deterministic local policy validation.
 Depends on: PR-222 (merged to `origin/main`)
 

@@ -30,19 +30,44 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lake-root", type=Path, required=True)
     parser.add_argument(
-        "--report", type=Path, default=Path("artifacts/acceptance/macro-feature-full-run-v1.json")
+        "--report", type=Path, default=Path("artifacts/acceptance/macro-feature-full-run-v2.json")
     )
+    parser.add_argument("--cores", type=_positive_cores, default=6)
     parser.add_argument("--execute", action="store_true", help="perform the authorized run")
     return parser
 
 
-def _commands(lake_root: Path) -> tuple[tuple[str, tuple[str, ...]], ...]:
+def _positive_cores(value: str) -> int:
+    try:
+        cores = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--cores must be a positive integer") from exc
+    if cores < 1:
+        raise argparse.ArgumentTypeError("--cores must be a positive integer")
+    return cores
+
+
+def _commands(lake_root: Path, *, cores: int = 6) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if cores < 1:
+        raise ValueError("--cores must be a positive integer")
     prefix = ("macro-loader", "--lake-root", str(lake_root))
     commands: list[tuple[str, tuple[str, ...]]] = []
     bronze = FilesystemBronzeUnitOfWork(LakePaths(lake_root))
+    operation_groups: dict[str, list[str]] = {}
     for series, contract in SERIES_REGISTRY.items():
         operation = "bootstrap" if bronze.bounds(contract).maximum is None else "reconcile"
-        commands.append((f"{operation}:{series}", (*prefix, operation, "--series", series)))
+        operation_groups.setdefault(operation, []).append(series)
+    for operation, series_ids in operation_groups.items():
+        stage_name = f"{operation}:{','.join(series_ids)}"
+        series_arguments = tuple(
+            argument for series in series_ids for argument in ("--series", series)
+        )
+        commands.append(
+            (
+                stage_name,
+                (*prefix, "--cores", str(cores), operation, *series_arguments),
+            )
+        )
     commands.extend(
         (
             ("silver-build", (*prefix, "silver-build")),
@@ -62,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     configure_debug_logging(Path.cwd())
     logger.debug("full-run acceptance planning started")
     try:
-        commands = _commands(args.lake_root)
+        commands = _commands(args.lake_root, cores=args.cores)
     except Exception as exc:
         logger.debug("full-run acceptance planning failed error_type=%s", type(exc).__name__)
         raise
@@ -104,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             passed = False
             break
     payload = {
-        "schema": "macro-feature-full-run-v1",
+        "schema": "macro-feature-full-run-v2",
         "generated_at_utc": datetime.now(UTC).isoformat(),
         "result": "PASS" if passed and len(results) == len(commands) else "FAIL",
         "stages": [asdict(result) for result in results],
