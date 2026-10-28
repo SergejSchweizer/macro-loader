@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-218: Add Debug Telemetry To PostgreSQL Delta Planning
 
 PR name: `postgres-delta-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#218](https://github.com/SergejSchweizer/macro-loader/pull/218) (open)
 Git branch: `pr-218/postgres-delta-debug-logs`
-Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/postgres_delta.py, tests/unit/test_postgres_delta.py
+Git status: pushed-local-checks-passed
 Agent lane: complete-state Gold digest preparation and serving-delta classification
 Commit: `feat(pr-218): instrument PostgreSQL delta planning`
 Design patterns: Logging Adapter; retain deterministic complete-state delta planning.
