@@ -9,16 +9,59 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-228: Record Production Migration 38 Verification
+
+PR name: `record-production-migration38-verification`
+Status: Pushed — local quality gate passed; awaiting PR review
+Updated: 2026-10-28
+PR: [#228](https://github.com/SergejSchweizer/macro-loader/pull/228) (open)
+Git branch: `pr-228/record-production-migration38-verification`
+Git status: pushed-local-checks-passed
+Agent lane: factual production deployment and verification documentation only
+Commit: `955955f docs(pr-228): record production migration 38 verification`
+Design patterns: Architectural baseline only.
+Depends on: PR-227 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-227's merge identity and the production deployment of PostgreSQL
+  migration 38 in BACKLOG.md, README.md, and AGENTS.md, replacing their stale statements
+  that production remains on migration 37.
+- R2: Record the supplied production row/name/finite-value counts, read-only verifier
+  PASS results, and the complete value-by-value comparison across 26 raw-derived groups,
+  including its stated tolerances and the fact it is not an independent math oracle.
+- R3: Distinguish the 46 passing disposable-PostgreSQL formula/causality tests and the
+  passing PR-227 local quality gate from production checks; state that no daily cron was
+  started for this deployment. Change documentation only.
+- R4: Pass the local repository quality gate, push this exact branch, and open PR-228
+  with an acceptance summary; do not merge it.
+
+Acceptance:
+- A1 BACKLOG.md, README.md, and AGENTS.md agree that PR-227 merged as
+  `6a3fca88fdbd02bcb2fdaf70ec3891d8ca23229d` on 2026-10-28 and production migration 38
+  is deployed; none of these three documents says production remains at migration 37.
+- A2 docs record 12,189,132 production feature rows, 1,720 distinct names, zero
+  NaN/infinities, the exact read-only verifier PASS categories and reported counts, and
+  zero missing actual rows/numeric mismatches across 26 raw-derived groups using
+  `1e-12` absolute and `1e-10` relative tolerances. They do not characterize this
+  comparison as an independently coded mathematical oracle.
+- A3 docs separately record 46 passing disposable-PostgreSQL independent formula/
+  causality tests and the PR-227 `make quality-gate` result; they state no daily cron was
+  started for deployment. Only the three named documentation files change; no
+  production/cron command or GitHub Action runs.
+- A4 `make quality-gate` passes locally; the exact branch is pushed and this PR is
+  opened without merging.
+
 ### PR-227: Align PostgreSQL Math QA With The Long-Form Feature View
 
 PR name: `align-postgres-math-qa-to-long-view`
-Status: Pushed — local quality gate and all 46 disposable PostgreSQL integration tests passed; awaiting PR review/merge
+Status: Merged — migration 38 deployed and production parity verification recorded in PR-228
 Updated: 2026-10-28
-PR: [#227](https://github.com/SergejSchweizer/macro-loader/pull/227) (open)
+PR: [#227](https://github.com/SergejSchweizer/macro-loader/pull/227) (merged)
 Git branch: `pr-227/align-postgres-math-qa-to-long-view`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: independent PostgreSQL formula parity and long-view contract QA
-Commit: `56dd3a9 fix(pr-227): rebuild long view with null-reset math`
+Commit: `56dd3a9 fix(pr-227): rebuild long view with null-reset math`; merge
+`6a3fca88fdbd02bcb2fdaf70ec3891d8ca23229d`
 Design patterns: Independent Reference; Materialized View contract; disposable integration fixture.
 Depends on: PR-226 (merged to `origin/main`)
 
@@ -47,6 +90,18 @@ Acceptance:
   production mutation, or production cron run.
 - A5 Regression coverage proves EMA and MACD warm-up restarts after an explicit NULL row in
   an extended raw series, while exact formula parity remains intact for valid observations.
+
+Post-merge production deployment and verification (2026-10-28): migration 38 is deployed.
+`macro_loader.macro_features` contains 12,189,132 rows and 1,720 distinct feature names,
+with zero NaN/infinite values. Read-only `postgres-verify` returned PASS for consumer,
+digest_index, feature_values, roles, schema, session, source, state, summary, and temporal;
+consumer/digest each had 16,805 rows, the schema contained 28 tables, and both temporal
+probes passed. A sequential/index-driven value-by-value comparison of all 26 raw-derived
+groups found zero missing actual rows and zero numeric mismatches at `1e-12` absolute /
+`1e-10` relative tolerance. This checks published values against raw-derived calculations;
+it is not an independently coded mathematical oracle. Separately, the disposable PostgreSQL
+independent formula/causality suite passed all 46 tests and PR-227's local
+`make quality-gate` passed. No daily cron was started for this deployment.
 
 
 ### PR-225: Parallelize Independent PostgreSQL Feature Conformance
@@ -1750,8 +1805,9 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-176 through PR-191 are merged; PR-192 is in progress. No production migration or
-installed-crontab change is asserted here. Historical Fed-policy acceptance artifacts
+PR-192 through PR-227 are merged to `origin/main`. Production migration 38 is deployed and
+its read-only conformance and raw-derived value comparison are recorded under PR-228.
+No daily cron was started for that deployment. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
 series.
 
