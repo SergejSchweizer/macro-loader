@@ -732,6 +732,8 @@ CRON_TZ=Europe/Vienna
 
 The daily job runs at 09:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from UTC+1 in winter to UTC+2 in summer. The runner resolves its project root, exports protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. It uses `--overlap-days 60`, a bounded calendar window spanning at least 30 normal weekday EOD observations for daily series, then synchronizes the complete canonical Gold snapshot to PostgreSQL. PostgreSQL sync runs only after `run-daily` succeeds.
 
+At exit, the daily wrapper records `[daily-cron] finished exit_code=<code> elapsed_seconds=<seconds>` in `macro-loader.log`. This duration covers the real wrapper execution, including `run-daily` and PostgreSQL sync, and is emitted on success or failure; failures before log redirection emit the same sanitized record to stderr. Verification-only runs do not emit a real-job duration. Use a later scheduled/manual run to measure actual runtime; acceptance fixtures do not predict production duration.
+
 A second cron entry runs Sundays at 22:00 `Europe/Vienna` and copies the contents of
 `/home/dev_macro/macro-loader/lake/gold/` to `/volume1/Temp/Quotes/macro/` using `rsync -a`.
 It requires `/volume1` to be mounted, uses a separate lock and log, and does not delete

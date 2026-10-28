@@ -2,6 +2,21 @@
 
 set -euo pipefail
 
+SECONDS=0
+DAILY_LOG_REDIRECTED=false
+log_daily_job_exit() {
+	local exit_code=$?
+	if [[ "${MACRO_LOADER_DAILY_VERIFY_ONLY:-}" == "true" ]]; then
+		return
+	fi
+	if [[ "$DAILY_LOG_REDIRECTED" == "true" ]]; then
+		printf '[daily-cron] finished exit_code=%d elapsed_seconds=%d\n' "$exit_code" "$SECONDS"
+	else
+		printf '[daily-cron] finished exit_code=%d elapsed_seconds=%d\n' "$exit_code" "$SECONDS" >&2
+	fi
+}
+trap log_daily_job_exit EXIT
+
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$PROJECT_ROOT"
@@ -44,6 +59,7 @@ if ! flock -n 9; then
 	exit 3
 fi
 exec >>"$LOG_PATH" 2>&1
+DAILY_LOG_REDIRECTED=true
 
 printf '\n[%s] Starting daily macro-loader job\n' "$(date --iso-8601=seconds)"
 
