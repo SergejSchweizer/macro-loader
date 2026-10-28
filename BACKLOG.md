@@ -9,14 +9,46 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-207: Add Debug Telemetry To Gold Storage Adapters
+
+PR name: `gold-storage-adapter-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#207](https://github.com/SergejSchweizer/macro-loader/pull/207) (open)
+Git branch: `pr-207/gold-storage-adapter-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: immutable Gold artifact, catalog, sidecar, materialized-view, and mirror persistence
+Commit: `cdbeece feat(pr-207): instrument Gold storage adapters`
+Design patterns: Logging Adapter; existing Repository, Materialized View, and Mark-and-Sweep boundaries remain unchanged.
+Depends on: PR-206 (merged to `origin/main`)
+
+Description:
+- R1: Add standard module debug lifecycle logs to Gold Parquet build, catalog, sidecar,
+  publication-bundle, root materialized-view, retention-sweeper, and mirror adapters.
+- R2: Limit fields to operation, build identity, artifact/count metadata, and exception
+  class; never log feature values, artifact digests, full paths, or exception text.
+- R3: Preserve immutable creation, catalog commit ownership, root-view recovery, and
+  catalog-tombstone-before-sweep ordering.
+- R4: Require local quality gates only; do not run GitHub Actions, production storage,
+  PostgreSQL, or cron.
+
+Acceptance:
+- A1 caplog tests verify start/success lifecycle and safe counts for Gold adapter reads,
+  writes, validation, refresh, sweep, and mirror operations.
+- A2 injected-failure tests verify error-class-only records and redact payload values,
+  digests, absolute paths, and exception messages.
+- A3 existing persistence/publication/retention tests continue to prove immutable writes,
+  atomic catalog/view behavior, retryability, and tombstone-before-delete semantics.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-206: Add Debug Telemetry To PostgreSQL Sync Adapter
 
 PR name: `postgres-adapter-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#206](https://github.com/SergejSchweizer/macro-loader/pull/206) (open)
+PR: [#206](https://github.com/SergejSchweizer/macro-loader/pull/206) (merged)
 Git branch: `pr-206/postgres-adapter-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: transactional PostgreSQL Repository Adapter and feature-view refresh
 Commit: `feat(pr-206): instrument postgres adapter debug logs`
 Design patterns: Logging Adapter; existing Repository and Unit-of-Work boundaries remain unchanged.

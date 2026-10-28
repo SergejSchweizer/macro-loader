@@ -922,6 +922,10 @@ The PostgreSQL Gold sync service records source-build/schema identity, preflight
 transaction stages, and insert/update/delete/no-op counts.
 The PostgreSQL Repository Adapter records schema-check, advisory-lock, delta, materialized-
 view refresh, commit, and rollback stages using only safe counts and exception classes.
+Gold Parquet, catalog, sidecar, bundle, root-view, retention-sweeper, and mirror adapters
+record their persistence lifecycle and row/artifact counts. Adapter logs may include a
+canonical build ID and exception class, but never artifact digests, raw feature values,
+absolute paths, or exception text.
 Failure logs contain only exception class names, never exception messages. These workflow
 logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are

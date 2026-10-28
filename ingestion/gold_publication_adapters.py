@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from ingestion.gold_sidecar_store import GoldSidecarArtifacts, GoldSidecarStore
 
 Clock = Callable[[], datetime]
 FaultInjector = Callable[[str], None]
+logger = logging.getLogger(__name__)
 
 
 def _system_utc_now() -> datetime:
@@ -61,30 +63,50 @@ class GoldBundleAdapter:
         started_at_utc: datetime,
         inputs: tuple[SilverInputSignature, ...],
     ) -> GoldPublicationBundle:
-        if not inputs:
-            raise ValueError("Gold publication requires certified Silver input provenance")
-        artifact = self._build_store.create(frame, build_id=build_id)
-        completed = _utc(self._clock())
-        sidecars = self._sidecar_store.create(
-            artifact,
-            started_at_utc=started_at_utc,
-            completed_at_utc=completed,
-            inputs=inputs,
+        logger.debug(
+            "gold bundle creation started build_id=%s row_count=%d input_count=%d",
+            build_id,
+            frame.height,
+            len(inputs),
         )
-        self._fault("after_bundle_create")
-        self._validate_candidate(artifact, sidecars, inputs)
-        return GoldPublicationBundle(
-            build_id=artifact.build_id,
-            completed_at_utc=completed,
-            schema_version=sidecars.manifest.schema_version,
-            feature_version=sidecars.manifest.feature_version,
-            row_count=artifact.row_count,
-            min_timestamp=artifact.min_timestamp,
-            max_timestamp=artifact.max_timestamp,
-            data_path=self._relative(artifact.data_path),
-            build_manifest_path=self._relative(sidecars.manifest_path),
-            plot_path=self._relative(sidecars.plot_path),
+        try:
+            if not inputs:
+                raise ValueError("Gold publication requires certified Silver input provenance")
+            artifact = self._build_store.create(frame, build_id=build_id)
+            completed = _utc(self._clock())
+            sidecars = self._sidecar_store.create(
+                artifact,
+                started_at_utc=started_at_utc,
+                completed_at_utc=completed,
+                inputs=inputs,
+            )
+            self._fault("after_bundle_create")
+            self._validate_candidate(artifact, sidecars, inputs)
+            bundle = GoldPublicationBundle(
+                build_id=artifact.build_id,
+                completed_at_utc=completed,
+                schema_version=sidecars.manifest.schema_version,
+                feature_version=sidecars.manifest.feature_version,
+                row_count=artifact.row_count,
+                min_timestamp=artifact.min_timestamp,
+                max_timestamp=artifact.max_timestamp,
+                data_path=self._relative(artifact.data_path),
+                build_manifest_path=self._relative(sidecars.manifest_path),
+                plot_path=self._relative(sidecars.plot_path),
+            )
+        except Exception as exc:
+            logger.debug(
+                "gold bundle creation failed build_id=%s error_type=%s",
+                build_id,
+                type(exc).__name__,
+            )
+            raise
+        logger.debug(
+            "gold bundle creation completed build_id=%s row_count=%d",
+            bundle.build_id,
+            bundle.row_count,
         )
+        return bundle
 
     def _validate_candidate(
         self,

@@ -755,6 +755,10 @@ exception class. PostgreSQL Gold sync logs record the selected build, schema pre
 locked delta counts, and completion state; the adapter records transaction, materialized-
 view refresh, commit, and rollback outcomes. Raw observations, digests, SQL parameters,
 connection configuration, credentials, and exception messages are intentionally excluded.
+Gold artifact adapters also log Parquet/catalog/sidecar creation and reads, bundle validation,
+root-view refresh, retention sweeps, and mirror completion with row or artifact counts where
+available. These records use canonical build IDs and exception classes only; they exclude
+absolute paths, feature values, artifact digests, and exception text.
 
 Install it for the service account after reviewing the absolute project path:
 

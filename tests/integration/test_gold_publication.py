@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
+import subprocess
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import polars as pl
 import pytest
@@ -16,7 +19,9 @@ from application.paths import LakePaths
 from ingestion.gold_build_store import GoldBuildStore
 from ingestion.gold_catalog_repository import GoldCatalogRepository
 from ingestion.gold_materialized_views import GoldMaterializedViewWriter
+from ingestion.gold_mirror import RsyncGoldMirror
 from ingestion.gold_publication_adapters import GoldBundleAdapter
+from ingestion.gold_retention_store import GoldBundleSweeper
 from ingestion.gold_sidecar_store import GoldSidecarStore
 
 START = datetime(2026, 8, 19, 2, tzinfo=UTC)
@@ -300,3 +305,82 @@ def test_materialized_view_writer_rejects_wrong_catalog_path_shape_and_clears_wi
     )
     with pytest.raises(ValueError, match="path shape mismatch"):
         writer.refresh([invalid])
+
+
+@pytest.mark.integration
+def test_gold_storage_adapters_log_safe_lifecycle_for_full_bundle(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    paths, catalog, _, _, _, views, publisher = _stack(
+        tmp_path,
+        build_times=[START],
+    )
+    caplog.set_level(logging.DEBUG, logger="ingestion")
+
+    bundle = publisher.publish(_frame(), inputs=_inputs())
+    catalog.read()
+    GoldBundleSweeper(paths).sweep("20260818T020000Z")
+    with patch("ingestion.gold_mirror.subprocess.run") as run:
+        RsyncGoldMirror(paths.gold_dataset_root(), tmp_path / "mirror").sync()
+
+    assert run.call_count == 1
+    assert "gold bundle creation started build_id=20260819T020000Z row_count=2" in caplog.text
+    assert "gold parquet build completed build_id=20260819T020000Z row_count=2" in caplog.text
+    assert "gold sidecar validation completed build_id=20260819T020000Z" in caplog.text
+    assert "gold catalog replace completed record_count=1" in caplog.text
+    assert "gold root views refreshed build_id=20260819T020000Z" in caplog.text
+    assert "gold bundle sweep completed build_id=20260818T020000Z artifact_count=3" in caplog.text
+    assert "gold mirror sync completed" in caplog.text
+    assert bundle.build_id in caplog.text
+    assert str(tmp_path) not in caplog.text
+    assert bundle.data_path not in caplog.text
+    assert bundle.row_count.__str__() in caplog.text
+    assert "data_sha256" not in caplog.text
+
+
+@pytest.mark.integration
+def test_gold_storage_adapter_failures_log_only_exception_class(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    paths, _, build_store, sidecar_store, _, _, _ = _stack(
+        tmp_path,
+        build_times=[START],
+    )
+
+    def fail_bundle(stage: str) -> None:
+        if stage == "after_bundle_create":
+            raise OSError("private /deployment/path and raw-value=91827")
+
+    bundle = GoldBundleAdapter(
+        paths,
+        build_store,
+        sidecar_store,
+        clock=lambda: START + timedelta(minutes=1),
+        fault_injector=fail_bundle,
+    )
+    caplog.set_level(logging.DEBUG, logger="ingestion")
+    with pytest.raises(OSError, match="private /deployment/path"):
+        bundle.create_and_validate(
+            _frame(),
+            build_id="20260819T020000Z",
+            started_at_utc=START,
+            inputs=_inputs(),
+        )
+
+    with (
+        patch(
+            "ingestion.gold_mirror.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "rsync", stderr="private mirror path"),
+        ),
+        pytest.raises(subprocess.CalledProcessError),
+    ):
+        RsyncGoldMirror(paths.gold_dataset_root(), tmp_path / "mirror").sync()
+
+    assert "gold bundle creation failed build_id=20260819T020000Z error_type=OSError" in caplog.text
+    assert "gold mirror sync failed error_type=CalledProcessError" in caplog.text
+    assert "private /deployment/path" not in caplog.text
+    assert "raw-value=91827" not in caplog.text
+    assert "private mirror path" not in caplog.text
+    assert str(tmp_path) not in caplog.text
