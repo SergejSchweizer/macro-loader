@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-219: Add Debug Telemetry To Daily Source Planning
 
 PR name: `planner-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: pending
+PR: [#219](https://github.com/SergejSchweizer/macro-loader/pull/219) (open)
 Git branch: `pr-219/planner-debug-logs`
-Git status: active-local-checks-pending
+Git status: pushed-local-checks-passed
 Agent lane: provider-neutral bootstrap, bounded update, and explicit reconcile planning
 Commit: `feat(pr-219): instrument daily source planning`
 Design patterns: Logging Adapter; preserve pure deterministic update planning.
