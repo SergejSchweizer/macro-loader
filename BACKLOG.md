@@ -14,9 +14,9 @@ Last reviewed: 2026-10-28
 PR name: `central-debug-logs-retention`
 Status: In Progress
 Updated: 2026-10-28
-PR: TBD
+PR: [#202](https://github.com/SergejSchweizer/macro-loader/pull/202) (open)
 Git branch: `pr-202/central-debug-logs-retention`
-Git status: active-dirty: central debug logging and 90-day operational log retention
+Git status: pushed-local-checks-passed
 Agent lane: central application debug output and cron log lifecycle
 Commit: `feat(pr-202): add central debug logging and 90-day retention`
 Design patterns: Logging Adapter, bounded retention policy.
@@ -38,8 +38,10 @@ Acceptance:
 - A2 shell-runner tests verify both jobs rotate before appending and preserve existing
   cron execution order/locks and failure semantics.
 - A3 `make quality-gate` passes locally; GitHub Actions remain unused.
-- A4 inspect the installed crontab and local log directory after controlled test runs;
-  do not run the production ingestion cron or modify production data for this PR.
+- A4 passed 2026-10-28: read-only crontab inspection confirmed the existing daily 09:00
+  and Sunday 22:00 schedules; `.logs` inspection found the debug and separate operator
+  files. Only isolated temporary directories were mutated by rotation tests; production
+  cron and database were not run or modified.
 
 ### PR-201: Copy Gold To NAS Every Sunday
 
@@ -47,7 +49,7 @@ PR name: `sunday-gold-copy-cron`
 Status: Merged — PR #201; host schedule installed and live copy verified
 Updated: 2026-10-27
 Git branch: `pr-201/sunday-gold-copy-cron`
-PR: [#201](https://github.com/SergejSchweizer/macro-loader/pull/201) (open)
+PR: [#201](https://github.com/SergejSchweizer/macro-loader/pull/201) (merged)
 Git status: merged
 Commit: `feat(pr-201): add weekly gold copy cron`
 Design patterns: Architectural baseline only.
