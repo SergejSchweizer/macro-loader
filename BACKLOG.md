@@ -9,16 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-215: Add Debug Telemetry To The Macro Feature Catalog
+
+PR name: `macro-feature-catalog-debug-logs`
+Status: In Progress
+Updated: 2026-10-28
+PR: TBD
+Git branch: `pr-215/macro-feature-catalog-debug-logs`
+Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/macro_feature_catalog.py, tests/unit/test_macro_feature_catalog.py
+Agent lane: closed-world transformation-catalog validation and payload generation
+Commit: `feat(pr-215): instrument macro feature catalog validation`
+Design patterns: Logging Adapter; retain the immutable catalog as the source of truth.
+Depends on: PR-214 (merged to `origin/main`)
+
+Description:
+- R1: Log transformation-catalog validation start, completion, and failure through the
+  standard `.logs` handler when the catalog is used to build serving metadata.
+- R2: Log only series/feature counts, the OHLC-inclusion flag, and exception class; never log
+  formulas, feature values, hashes, dates, or exception text.
+- R3: Preserve the closed-world catalog, validation errors, payload ordering, and fingerprints.
+
+Acceptance:
+- A1 caplog tests assert accurate safe validation counts on success and error-class-only
+  failure records.
+- A2 tests prove formulas, source values, hashes, dates, and exception messages are absent.
+- A3 existing catalog tests continue to prove exact family coverage, ordering, type, and
+  stable versioned fingerprints.
+- A4 `make quality-gate` passes locally; no GitHub Actions or production operation runs.
+
 ### PR-214: Add Debug Telemetry To Canonical Gold Frame Assembly
 
 PR name: `gold-frame-debug-logs`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#214](https://github.com/SergejSchweizer/macro-loader/pull/214) (open)
+PR: [#214](https://github.com/SergejSchweizer/macro-loader/pull/214) (merged)
 Git branch: `pr-214/gold-frame-debug-logs`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: canonical Silver-to-Gold frame assembly and validation
 Commit: `feat(pr-214): instrument canonical Gold frame assembly`
+Merge commit: `182b1c2a06dcfb5a9d93e91aa3a389caf796c6b7`
 Design patterns: Logging Adapter; keep canonical assembly deterministic and storage-neutral.
 Depends on: PR-213 (merged to `origin/main`)
 

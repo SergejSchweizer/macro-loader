@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 
 from application.macro_features import MACRO_POLICY, MACRO_SERIES, macro_delta_lags
@@ -36,6 +37,7 @@ from application.trend_features import (
 from application.volatility_features import VOLATILITY_SERIES
 
 MACRO_FEATURE_VIEW_VERSION = 16
+logger = logging.getLogger(__name__)
 
 RAW_SERIES: tuple[str, ...] = (*VOLATILITY_SERIES, *MACRO_SERIES)
 REGISTERED_RAW_SERIES: tuple[str, ...] = tuple(SERIES_REGISTRY)
@@ -459,7 +461,7 @@ FEATURE_VALUE_CATALOG_FINGERPRINT = hashlib.sha256(
 ).hexdigest()
 
 
-def validate_feature_catalog(
+def _validate_feature_catalog(
     catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,
     *,
     price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
@@ -520,6 +522,37 @@ def validate_feature_catalog(
         raise ValueError("retired Fed-policy output cannot be in the macro feature catalog")
     if RSI_COMPOSITE_INTERNAL_WINDOW in RSI_WINDOWS:
         raise ValueError("internal composite RSI period must not become a public RSI output")
+
+
+def validate_feature_catalog(
+    catalog: tuple[MacroFeatureSpec, ...] = FEATURE_CATALOG,
+    *,
+    price_feature_series: tuple[str, ...] = PRICE_FEATURE_SERIES,
+    raw_series: tuple[str, ...] = RAW_SERIES,
+    include_ohlc: bool = True,
+) -> None:
+    """Validate the closed-world catalog and report safe lifecycle diagnostics."""
+    logger.debug(
+        "macro feature catalog validation started series_count=%d feature_count=%d include_ohlc=%s",
+        len(raw_series),
+        len(catalog),
+        include_ohlc,
+    )
+    try:
+        _validate_feature_catalog(
+            catalog,
+            price_feature_series=price_feature_series,
+            raw_series=raw_series,
+            include_ohlc=include_ohlc,
+        )
+    except Exception as exc:
+        logger.debug("macro feature catalog validation failed error_type=%s", type(exc).__name__)
+        raise
+    logger.debug(
+        "macro feature catalog validation completed series_count=%d feature_count=%d",
+        len(raw_series),
+        len(catalog),
+    )
 
 
 def feature_catalog_payload(

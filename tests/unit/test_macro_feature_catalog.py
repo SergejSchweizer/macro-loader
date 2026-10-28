@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from application.macro_feature_catalog import (
@@ -76,6 +78,38 @@ def test_catalog_is_explicit_ordered_and_covers_all_raw_series() -> None:
     )
     assert len(FEATURE_COLUMNS) == len(set(FEATURE_COLUMNS))
     assert not any(name.startswith("foo_") for name in FEATURE_COLUMNS)
+
+
+def test_catalog_validation_logs_safe_counts(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.DEBUG, logger="application.macro_feature_catalog"):
+        validate_feature_catalog()
+
+    assert (
+        f"macro feature catalog validation started series_count={len(RAW_SERIES)} "
+        f"feature_count={len(FEATURE_CATALOG)} include_ohlc=True"
+    ) in caplog.text
+    assert (
+        f"macro feature catalog validation completed series_count={len(RAW_SERIES)} "
+        f"feature_count={len(FEATURE_CATALOG)}"
+    ) in caplog.text
+    assert all(spec.formula not in caplog.text for spec in FEATURE_CATALOG)
+    assert MACRO_FEATURE_VIEW_FINGERPRINT not in caplog.text
+
+
+def test_catalog_validation_logs_error_class_without_validation_text(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    invalid_catalog = FEATURE_CATALOG[:-1] + (FEATURE_CATALOG[0],)
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="application.macro_feature_catalog"),
+        pytest.raises(ValueError, match="duplicate columns"),
+    ):
+        validate_feature_catalog(invalid_catalog)
+
+    assert "macro feature catalog validation failed error_type=ValueError" in caplog.text
+    assert "duplicate columns" not in caplog.text
+    assert all(spec.formula not in caplog.text for spec in FEATURE_CATALOG)
 
 
 def test_catalog_contains_all_fixed_feature_families() -> None:
