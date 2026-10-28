@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 
 import polars as pl
@@ -76,6 +77,17 @@ def test_ohlc_maps_close_to_value_and_preserves_ohlc_exact_schema() -> None:
         date(2026, 8, 17),
         date(2026, 8, 19),
     ]
+
+
+def test_silver_debug_logs_counts_without_values_or_urls(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.DEBUG, logger="application.silver"):
+        result = canonicalize_silver(series_contract("us_10y"), _scalar())
+
+    assert result.height == 2
+    assert "silver canonicalization started series=us_10y" in caplog.text
+    assert "row_count=2" in caplog.text
+    assert "4.1" not in caplog.text
+    assert "https://source" not in caplog.text
 
 
 def test_scalar_maps_value_and_nullable_float_ohlc() -> None:

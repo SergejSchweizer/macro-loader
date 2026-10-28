@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -10,6 +11,8 @@ from typing import Protocol
 
 from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_publication import GoldCatalogPort, GoldMaterializedViewPort
+
+logger = logging.getLogger(__name__)
 
 Clock = Callable[[], datetime]
 
@@ -87,6 +90,11 @@ class GoldRetentionService:
     def run(self) -> GoldRetentionResult:
         records = self.catalog.read()
         mark_ids = self.policy.select_for_mark(records)
+        logger.debug(
+            "gold retention started catalog_rows=%d mark_count=%d",
+            len(records),
+            len(mark_ids),
+        )
         if mark_ids:
             marked_at = _utc(self.clock())
             mark_set = set(mark_ids)
@@ -96,6 +104,7 @@ class GoldRetentionService:
             ]
             self.catalog.replace(records)
             self.views.refresh(records)
+            logger.debug("gold retention marks committed marked_count=%d", len(mark_ids))
 
         marked = [
             record
@@ -112,9 +121,23 @@ class GoldRetentionService:
 
         swept: list[str] = []
         for record in sorted(marked, key=_marked_key):
-            self.sweeper.sweep(record.build_id)
+            try:
+                self.sweeper.sweep(record.build_id)
+            except Exception as error:
+                logger.debug(
+                    "gold retention sweep failed build_id=%s error_type=%s",
+                    record.build_id,
+                    type(error).__name__,
+                )
+                raise
             swept.append(record.build_id)
-        return GoldRetentionResult(marked_build_ids=mark_ids, swept_build_ids=tuple(swept))
+        result = GoldRetentionResult(marked_build_ids=mark_ids, swept_build_ids=tuple(swept))
+        logger.debug(
+            "gold retention completed marked_count=%d swept_count=%d",
+            len(result.marked_build_ids),
+            len(result.swept_build_ids),
+        )
+        return result
 
     @staticmethod
     def _mark(record: GoldCatalogRecord, marked_at: datetime) -> GoldCatalogRecord:

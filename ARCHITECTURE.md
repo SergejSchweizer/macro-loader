@@ -916,6 +916,10 @@ Provider adapters record canonical provider/series IDs, operation bounds, and ac
 counts; the shared HTTP adapter additionally records safe scheme/host/path, response status,
 attempt, and retry delay. Bronze orchestration and its filesystem Unit of Work record
 insert/revision counts, partition counts, commit/rollback stages, and failure categories.
+The daily pipeline, Silver canonicalizer, Gold publisher, and Gold retention service record
+command/stage lifecycle, canonical series IDs, row/build counts, and state transitions.
+Failure logs contain only exception class names, never exception messages. These workflow
+logs do not replace the structured event sink or change its persistence ordering.
 No raw values, response bodies, query parameters, credentials, or exception messages are
 included. These debug messages use each module's standard `__name__` logger and flow through
 the composition-root handler; they do not alter update bounds, retry decisions, or commit

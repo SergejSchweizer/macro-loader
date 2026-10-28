@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from application.gold_catalog import GoldBuildStatus, GoldCatalogRecord
 from application.gold_frame import GOLD_FEATURE_VERSION, GOLD_SCHEMA_VERSION, SilverInputSignature
 
 _DATASET_ID = "macro_features_daily"
+logger = logging.getLogger(__name__)
 Clock = Callable[[], datetime]
 EventSink = Callable[[str], None]
 
@@ -88,6 +90,7 @@ class GoldPublisher:
     def reconcile(self) -> list[GoldCatalogRecord]:
         """Finalize stale non-current building rows and rebuild root materialized views."""
         records = self.catalog.read()
+        logger.debug("gold publication reconciliation started catalog_rows=%d", len(records))
         if any(record.current and record.status is GoldBuildStatus.BUILDING for record in records):
             raise ValueError("current Gold building row is invalid and requires manual recovery")
         stale = [
@@ -96,6 +99,7 @@ class GoldPublisher:
             if record.status is GoldBuildStatus.BUILDING and not record.current
         ]
         if stale:
+            logger.debug("gold publication stale attempts found count=%d", len(stale))
             failed_at = _utc(self.clock())
             stale_ids = {record.build_id for record in stale}
             records = [
@@ -120,6 +124,7 @@ class GoldPublisher:
             self.event_sink("catalog:stale-building-failed")
         self.views.refresh(records)
         self.event_sink("views:reconciled")
+        logger.debug("gold publication reconciliation completed catalog_rows=%d", len(records))
         return records
 
     def publish(
@@ -129,6 +134,9 @@ class GoldPublisher:
         inputs: tuple[SilverInputSignature, ...] = (),
     ) -> GoldCatalogRecord:
         """Build, physically validate, atomically promote, then refresh materialized views."""
+        logger.debug(
+            "gold publication started row_count=%d input_count=%d", frame.height, len(inputs)
+        )
         records = self.reconcile()
         build_id = self.bundle.next_build_id()
         started_at = _utc(self.clock())
@@ -151,6 +159,7 @@ class GoldPublisher:
         )
         self.catalog.replace([*records, building])
         self.event_sink("catalog:building")
+        logger.debug("gold publication attempt registered build_id=%s", build_id)
         registered = [*records, building]
         try:
             self.views.refresh(registered)
@@ -162,10 +171,21 @@ class GoldPublisher:
                 inputs=inputs,
             )
             self.event_sink("bundle:validated")
+            logger.debug(
+                "gold publication bundle validated build_id=%s row_count=%d",
+                candidate.build_id,
+                candidate.row_count,
+            )
             promoted = self._promoted_records(registered, candidate)
             self.catalog.replace(promoted)
             self.event_sink("catalog:promoted")
-        except BaseException:
+            logger.debug("gold publication catalog promoted build_id=%s", build_id)
+        except BaseException as error:
+            logger.debug(
+                "gold publication failed before commit build_id=%s error_type=%s",
+                build_id,
+                type(error).__name__,
+            )
             self._finalize_failed_if_uncommitted(build_id)
             raise
 
@@ -173,12 +193,30 @@ class GoldPublisher:
         try:
             self.views.refresh(promoted)
             self.event_sink("views:promoted")
-        except BaseException:
+            logger.debug("gold publication views refreshed build_id=%s", build_id)
+        except BaseException as error:
+            logger.debug(
+                "gold publication view refresh failed after commit build_id=%s error_type=%s",
+                build_id,
+                type(error).__name__,
+            )
             self.event_sink("views:promoted-failed")
             raise
         if self.mirror is not None:
-            self.mirror.sync()
+            try:
+                self.mirror.sync()
+            except BaseException as error:
+                logger.debug(
+                    "gold publication mirror sync failed after commit build_id=%s error_type=%s",
+                    build_id,
+                    type(error).__name__,
+                )
+                raise
             self.event_sink("mirror:synchronized")
+            logger.debug("gold publication mirror synchronized build_id=%s", build_id)
+        logger.debug(
+            "gold publication completed build_id=%s row_count=%d", build_id, current.row_count or 0
+        )
         return current
 
     def _promoted_records(
@@ -246,8 +284,14 @@ class GoldPublisher:
         replaced = [failed if record.build_id == build_id else record for record in records]
         self.catalog.replace(replaced)
         self.event_sink("catalog:failed")
+        logger.debug("gold publication attempt finalized failed build_id=%s", build_id)
         try:
             self.views.refresh(replaced)
             self.event_sink("views:failed")
-        except BaseException:
+        except BaseException as error:
+            logger.debug(
+                "gold publication failure view refresh failed build_id=%s error_type=%s",
+                build_id,
+                type(error).__name__,
+            )
             self.event_sink("views:failed-refresh-error")
