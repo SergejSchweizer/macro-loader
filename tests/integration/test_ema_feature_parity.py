@@ -15,8 +15,9 @@ from psycopg.conninfo import conninfo_to_dict
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
-    MACRO_FEATURE_VIEW_FINGERPRINT,
-    MACRO_FEATURE_VIEW_VERSION,
+    FEATURE_VALUE_CATALOG_FINGERPRINT,
+    FEATURE_VALUE_NAMES,
+    FEATURE_VALUE_SCHEMA_VERSION,
 )
 from application.postgres_sync import POSTGRES_RAW_TABLES
 from ingestion.postgres_gold_repository import (
@@ -211,17 +212,21 @@ def _assert_ema_schema(
         f"{series}_{suffix}" for series in _QA_PRICE_SERIES for suffix in _QA_EMA_SUFFIXES
     }
     assert len(actual_names) == len(set(actual_names))
-    assert expected_outputs <= set(actual_names)
-    actual_ema_names = {
-        column
-        for column in actual_names
-        if any(column.startswith(f"{series}_ema") for series in (*_QA_PRICE_SERIES, "estr"))
-    }
-    assert actual_ema_names == expected_outputs
+    assert actual_names == (
+        "timestamp_m1",
+        "available_at_utc",
+        "feature_name",
+        "value",
+    )
+    assert expected_outputs <= set(FEATURE_VALUE_NAMES)
+    assert not any(name.startswith("estr_ema") for name in FEATURE_VALUE_NAMES)
     actual_by_name = {
         column: (postgres_type, not_null) for column, postgres_type, not_null in actual
     }
-    assert all(actual_by_name[column] == ("double precision", False) for column in expected_outputs)
+    assert actual_by_name["feature_name"][0] == "text"
+    assert actual_by_name["value"] == ("double precision", False)
+    assert actual_by_name["timestamp_m1"][0] == "timestamp(6) with time zone"
+    assert actual_by_name["available_at_utc"][0] == "timestamp(6) with time zone"
     assert all(f"estr_{suffix}" not in actual_names for suffix in _QA_EMA_SUFFIXES)
 
     raw_tables = {
@@ -250,12 +255,12 @@ def _assert_ema_schema(
     ).fetchone()
     assert comment is not None
     match = re.fullmatch(
-        rf"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
+        rf"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
         r"fingerprint=([0-9a-f]{64})",
         comment[0],
     )
     assert match is not None
-    assert match.group(1) == MACRO_FEATURE_VIEW_FINGERPRINT
+    assert match.group(1) == FEATURE_VALUE_CATALOG_FINGERPRINT
 
 
 @pytest.mark.integration
@@ -325,30 +330,30 @@ def test_ema_view_matches_independent_reference_for_seed_reset_crosses_and_causa
     features = _independent_ema_features(levels)
     start = datetime(2025, 1, 1, tzinfo=UTC)
     timestamps = [start + timedelta(days=index) for index in range(len(levels))]
-    columns = ", ".join(f'"vix_{suffix}"' for suffix in _QA_EMA_SUFFIXES)
+    feature_names = [f"vix_{suffix}" for suffix in _QA_EMA_SUFFIXES]
     insert = 'INSERT INTO macro_loader.macro_raw_vix ("timestamp_m1", "close") VALUES (%s, %s)'
+    unrelated_timestamps = [timestamp + timedelta(hours=12) for timestamp in timestamps]
 
     with psycopg.connect(dsn, autocommit=True) as connection:
         with connection.cursor() as cursor:
             cursor.executemany(insert, zip(timestamps, levels, strict=True))
+            cursor.executemany(
+                'INSERT INTO macro_loader.macro_raw_vstoxx ("timestamp_m1", "indexvalue") '
+                "VALUES (%s, %s)",
+                zip(unrelated_timestamps, range(1, len(unrelated_timestamps) + 1), strict=True),
+            )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         actual_rows = connection.execute(
-            f"SELECT {columns} FROM macro_loader.macro_features "
-            "WHERE timestamp_m1 <= %s ORDER BY timestamp_m1",
-            (timestamps[-3],),
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE feature_name = ANY(%s) AND timestamp_m1 = ANY(%s)",
+            (feature_names, timestamps[: len(levels) - 2]),
         ).fetchall()
+        actual_values = {(timestamp, name): value for timestamp, name, value in actual_rows}
 
-        expected_rows = [
-            tuple(features[suffix][index] for suffix in _QA_EMA_SUFFIXES)
-            for index in range(len(levels) - 2)
-        ]
-        assert len(actual_rows) == len(expected_rows)
-        for index, (actual_row, expected_row) in enumerate(
-            zip(actual_rows, expected_rows, strict=True)
-        ):
-            for suffix, actual, expected in zip(
-                _QA_EMA_SUFFIXES, actual_row, expected_row, strict=True
-            ):
+        for index, timestamp in enumerate(timestamps[:-2]):
+            for suffix, feature_name in zip(_QA_EMA_SUFFIXES, feature_names, strict=True):
+                actual = actual_values.get((timestamp, feature_name))
+                expected = features[suffix][index]
                 if expected is None:
                     assert actual is None, (suffix, index, actual)
                 else:
@@ -363,14 +368,19 @@ def test_ema_view_matches_independent_reference_for_seed_reset_crosses_and_causa
         # Future observations include extreme levels; deleting them and refreshing
         # must leave all earlier EMA results byte-for-byte identical.
         target_timestamp = timestamps[-3]
-        before_truncation = actual_rows[-1]
+        before_truncation = tuple(
+            actual_values.get((target_timestamp, name)) for name in feature_names
+        )
         connection.execute(
             "DELETE FROM macro_loader.macro_raw_vix WHERE timestamp_m1 > %s", (target_timestamp,)
         )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
         after_truncation = connection.execute(
-            f"SELECT {columns} FROM macro_loader.macro_features WHERE timestamp_m1 = %s",
-            (target_timestamp,),
-        ).fetchone()
+            "SELECT feature_name, value FROM macro_loader.macro_features "
+            "WHERE timestamp_m1 = %s AND feature_name = ANY(%s)",
+            (target_timestamp, feature_names),
+        ).fetchall()
+        after_values = {name: value for name, value in after_truncation}
+        after_truncation = tuple(after_values.get(name) for name in feature_names)
 
     assert after_truncation == before_truncation

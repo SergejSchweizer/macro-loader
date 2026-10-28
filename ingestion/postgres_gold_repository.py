@@ -503,22 +503,8 @@ def _feature_value_select_sql(
 _FEATURE_VALUE_BOOLEAN_NAMES = tuple(
     spec.name for spec in FEATURE_VALUE_CATALOG if spec.postgres_type == "boolean"
 )
-_FEATURE_VALUE_NUMERIC_NAMES = tuple(
-    spec.name for spec in FEATURE_VALUE_CATALOG if spec.postgres_type == "double precision"
-)
-_FEATURE_VALUE_NAMES_ARRAY = (
-    "ARRAY[" + ", ".join(_sql_literal(name) for name in FEATURE_VALUE_NAMES) + "]::text[]"
-)
 _FEATURE_VALUE_BOOLEAN_NAMES_ARRAY = (
     "ARRAY[" + ", ".join(_sql_literal(name) for name in _FEATURE_VALUE_BOOLEAN_NAMES) + "]::text[]"
-)
-_FEATURE_VALUE_NUMERIC_NAMES_ARRAY = (
-    "ARRAY[" + ", ".join(_sql_literal(name) for name in _FEATURE_VALUE_NUMERIC_NAMES) + "]::text[]"
-)
-_FEATURE_VALUE_TYPE_MATCH_SQL = (
-    f"(feature_name = ANY({_FEATURE_VALUE_NAMES_ARRAY}) AND value NOT IN "
-    "('NaN'::double precision, 'Infinity'::double precision, "
-    "'-Infinity'::double precision))"
 )
 _FEATURE_VALUES_COMMENT = (
     f"COMMENT ON MATERIALIZED VIEW {_FEATURE_VALUES} IS "
@@ -800,6 +786,9 @@ def _macro_features_view_query(
     ]
     joins: list[str] = []
     feature_select: list[str] = []
+    required_series = {
+        spec.series for spec in FEATURE_VALUE_CATALOG if spec.name in feature_columns
+    }
     macro_lags = macro_delta_lags(MACRO_POLICY)
     required_lags = tuple(sorted({1, 3, 5, 10, 20, *LOG_RETURN_WINDOWS, *ROC_WINDOWS}))
     rolling_windows = tuple(
@@ -816,6 +805,8 @@ def _macro_features_view_query(
         )
     )
     for series in raw_series:
+        if series not in required_series:
+            continue
         level = _quote(f"{series}_level")
         source = _quote(f"{series}_source")
         changes = _quote(f"{series}_changes")
@@ -1299,7 +1290,7 @@ def _macro_features_view_query(
 
             for period in MACD_PRICE_EMA_PERIODS:
                 source_ctes.append(
-                    _ema_state_cte(series, period, source_relation=source_projection)
+                    _ema_state_cte(series, period, source_relation=source, value_column="level")
                 )
             macd_input = _quote(f"{series}_macd_input")
             ema12_state = _quote(f"{series}_ema_12_state")
@@ -1308,7 +1299,7 @@ def _macro_features_view_query(
                 f"{macd_input} AS MATERIALIZED (SELECT raw.timestamp_m1, "
                 f"CASE WHEN ema12.ema IS NOT NULL AND ema26.ema IS NOT NULL "
                 f"THEN ema12.ema - ema26.ema END AS macd_line "
-                f"FROM {source_projection} AS raw "
+                f"FROM {source} AS raw "
                 f"LEFT JOIN {ema12_state} AS ema12 ON ema12.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema26_state} AS ema26 ON ema26.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1330,9 +1321,9 @@ def _macro_features_view_query(
             signal_state = _quote(signal_state_name)
             source_ctes.append(
                 f"{macd_base} AS MATERIALIZED (SELECT raw.timestamp_m1, "
-                f"raw.{_quote(f'{series}_level')} AS level, "
+                "raw.level AS level, "
                 f"macd_input.macd_line, signal.ema AS macd_signal "
-                f"FROM {source_projection} AS raw JOIN {macd_input} AS macd_input "
+                f"FROM {source} AS raw JOIN {macd_input} AS macd_input "
                 f"ON macd_input.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {signal_state} AS signal ON signal.timestamp_m1 = raw.timestamp_m1)"
             )
@@ -1444,7 +1435,7 @@ def _macro_features_view_query(
 
             for period in EMA_PERIODS:
                 source_ctes.append(
-                    _ema_state_cte(series, period, source_relation=source_projection)
+                    _ema_state_cte(series, period, source_relation=source, value_column="level")
                 )
             ema_aligned = _quote(f"{series}_ema_aligned")
             ema_history = _quote(f"{series}_ema_history")
@@ -1454,9 +1445,9 @@ def _macro_features_view_query(
             ema21_state = _quote(f"{series}_ema_21_state")
             source_ctes.append(
                 f"{ema_aligned} AS MATERIALIZED (SELECT raw.timestamp_m1, "
-                f"raw.{_quote(f'{series}_level')} AS level, "
+                "raw.level AS level, "
                 f"ema5.ema AS ema5, ema9.ema AS ema9, ema21.ema AS ema21 "
-                f"FROM {source_projection} AS raw "
+                f"FROM {source} AS raw "
                 f"LEFT JOIN {ema5_state} AS ema5 ON ema5.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema9_state} AS ema9 ON ema9.timestamp_m1 = raw.timestamp_m1 "
                 f"LEFT JOIN {ema21_state} AS ema21 ON ema21.timestamp_m1 = raw.timestamp_m1)"
@@ -1689,33 +1680,148 @@ WHERE source.value IS NOT NULL
   AND source.value NOT IN ('NaN'::double precision, 'Infinity'::double precision,
                            '-Infinity'::double precision)
 WITH NO DATA"""
-_FEATURE_VALUE_ALL_SOURCE_SQL = " UNION ALL ".join(
-    (
-        _feature_value_select_sql(
-            _FEATURE_VALUE_PRIMARY_SOURCE,
-            FEATURE_VALUE_PRIMARY_NAMES,
+_FEATURE_VALUE_CROSS_NAMES = tuple(
+    spec.name for spec in FEATURE_VALUE_CATALOG if spec.series is None
+)
+
+
+def _feature_value_source_groups() -> tuple[tuple[str, tuple[str, ...], str], ...]:
+    """Build independent, complete raw-derived verification sources by series."""
+    groups: list[tuple[str, tuple[str, ...], str]] = []
+    for series in RAW_SERIES:
+        names = tuple(spec.name for spec in FEATURE_VALUE_CATALOG if spec.series == series)
+        if not names:
+            continue
+        query = _macro_features_view_query(
+            raw_relation=_raw_feature_projection((series,)),
+            view_relation=f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."verify_{series}"',
+            raw_series=(series,),
+            price_feature_series=(series,) if series in PRICE_FEATURE_SERIES else (),
+            feature_columns=names,
+        )
+        source_sql = _feature_value_select_sql(
+            f"({_materialized_view_query_body(query)})",
+            names,
             supported_types_only=False,
             raw_values=True,
-        ),
-        _feature_value_select_sql(
-            _FEATURE_VALUE_EXTENDED_SOURCE,
-            FEATURE_VALUE_EXTENDED_NAMES,
+        )
+        groups.append((series, names, source_sql))
+
+    for series, query in zip(EXTENDED_RAW_SERIES, _EXTENDED_FEATURE_SERIES_DDLS, strict=True):
+        names = tuple(spec.name for spec in FEATURE_VALUE_CATALOG if spec.series == series)
+        if not names:
+            continue
+        source_sql = _feature_value_select_sql(
+            f"({_materialized_view_query_body(query)})",
+            names,
             supported_types_only=False,
             raw_values=True,
-        ),
+        )
+        groups.append((series, names, source_sql))
+
+    if _FEATURE_VALUE_CROSS_NAMES:
+        cross_query = _macro_features_view_query(
+            raw_relation=_RAW_PROJECTION,
+            view_relation=f'{_quote(POSTGRES_CONSUMER_SCHEMA)}."verify_cross_series"',
+            raw_series=RAW_SERIES,
+            price_feature_series=(),
+            feature_columns=_FEATURE_VALUE_CROSS_NAMES,
+        )
+        cross_source = _feature_value_select_sql(
+            f"({_materialized_view_query_body(cross_query)})",
+            _FEATURE_VALUE_CROSS_NAMES,
+            supported_types_only=False,
+            raw_values=True,
+        )
+        groups.append(("cross_series", _FEATURE_VALUE_CROSS_NAMES, cross_source))
+
+    covered_names = tuple(name for _, names, _ in groups for name in names)
+    if set(covered_names) != set(FEATURE_VALUE_NAMES) or len(covered_names) != len(
+        FEATURE_VALUE_NAMES
+    ):
+        raise ValueError("parallel feature verification sources do not cover the catalog")
+    return tuple(groups)
+
+
+def _feature_value_population_query(
+    source_sql: str,
+    feature_names: tuple[str, ...],
+) -> str:
+    """Compare one complete source group to published rows without recalculating it."""
+    feature_types = {spec.name: spec.postgres_type for spec in FEATURE_VALUE_CATALOG}
+    boolean_names = tuple(name for name in feature_names if feature_types[name] == "boolean")
+    numeric_names = tuple(
+        name for name in feature_names if feature_types[name] == "double precision"
     )
+    boolean_array = "ARRAY[" + ", ".join(_sql_literal(name) for name in boolean_names) + "]::text[]"
+    numeric_array = "ARRAY[" + ", ".join(_sql_literal(name) for name in numeric_names) + "]::text[]"
+    source_type_match = (
+        f"((feature_name = ANY({boolean_array}) AND jsonb_typeof(value) = 'boolean') OR "
+        f"(feature_name = ANY({numeric_array}) AND jsonb_typeof(value) = 'number'))"
+    )
+    finite_value_match = (
+        "value NOT IN ('NaN'::double precision, 'Infinity'::double precision, "
+        "'-Infinity'::double precision)"
+    )
+    return f"""WITH selected_names AS MATERIALIZED (
+    SELECT unnest(%s::text[]) AS feature_name
+), source_values AS MATERIALIZED (
+    {source_sql}
+), typed_source_values AS (
+    SELECT timestamp_m1, feature_name,
+           CASE WHEN feature_name = ANY({boolean_array})
+                THEN CASE value::text
+                     WHEN 'true' THEN 1.0::double precision
+                     WHEN 'false' THEN 0.0::double precision ELSE NULL END
+                ELSE (value #>> '{{}}')::double precision END AS value
+    FROM source_values
+    WHERE value <> 'null'::jsonb AND {source_type_match}
+), actual AS (
+    SELECT count(*) AS row_count,
+           count(DISTINCT feature_name) AS feature_count,
+           count(*) FILTER (WHERE NOT ({finite_value_match})) AS invalid_typed_rows
+    FROM {_PUBLISHED_FEATURES_VIEW}
+    WHERE feature_name = ANY(SELECT feature_name FROM selected_names)
+), expected AS (
+    SELECT count(*) AS row_count,
+           count(DISTINCT feature_name) AS feature_count,
+           count(*) FILTER (WHERE NOT ({finite_value_match})) AS invalid_typed_rows
+    FROM typed_source_values
+    WHERE feature_name = ANY(SELECT feature_name FROM selected_names)
+), actual_by_feature AS (
+    SELECT feature_name, count(*) AS row_count
+    FROM {_PUBLISHED_FEATURES_VIEW}
+    WHERE feature_name = ANY(SELECT feature_name FROM selected_names)
+    GROUP BY feature_name
+), expected_by_feature AS (
+    SELECT feature_name, count(*) AS row_count
+    FROM typed_source_values
+    WHERE feature_name = ANY(SELECT feature_name FROM selected_names)
+    GROUP BY feature_name
+), feature_count_differences AS (
+    SELECT count(*) AS count,
+           array_agg(coalesce(actual_feature.feature_name, expected_feature.feature_name)) AS names
+    FROM actual_by_feature AS actual_feature
+    FULL OUTER JOIN expected_by_feature AS expected_feature USING (feature_name)
+    WHERE actual_feature.row_count IS DISTINCT FROM expected_feature.row_count
+), invalid_source AS (
+    SELECT count(*) FROM source_values
+    WHERE value <> 'null'::jsonb AND NOT ({source_type_match})
+)
+SELECT actual.row_count, expected.row_count, actual.feature_count,
+       expected.feature_count, actual.invalid_typed_rows,
+       expected.invalid_typed_rows, invalid_source.count,
+       feature_count_differences.count, feature_count_differences.names
+FROM actual CROSS JOIN expected CROSS JOIN invalid_source
+CROSS JOIN feature_count_differences"""
+
+
+_FEATURE_VALUE_POPULATION_QUERIES = tuple(
+    (group_name, feature_names, _feature_value_population_query(source_sql, feature_names))
+    for group_name, feature_names, source_sql in _feature_value_source_groups()
 )
 _FEATURE_VALUE_INSERT_SQL = (
     f"INSERT INTO {_FEATURE_VALUES} (timestamp_m1, feature_name, value) {_FEATURE_VALUE_SOURCE_SQL}"
-)
-_FEATURE_VALUE_INVALID_SOURCE_SQL = (
-    "SELECT count(*) FROM ("
-    + _FEATURE_VALUE_ALL_SOURCE_SQL
-    + ") AS source_feature_values WHERE value <> 'null'::jsonb AND NOT (("
-    + f"feature_name = ANY({_FEATURE_VALUE_BOOLEAN_NAMES_ARRAY}) "
-    + "AND jsonb_typeof(value) = 'boolean') OR ("
-    + f"feature_name = ANY({_FEATURE_VALUE_NUMERIC_NAMES_ARRAY}) "
-    + "AND jsonb_typeof(value) = 'number'))"
 )
 _FEATURE_VALUE_STAGING_TABLE = "pg_temp.macro_feature_values_staging"
 _FEATURE_VALUE_BOOLEAN_CAST_SQL = (
@@ -1731,21 +1837,6 @@ SELECT staged.timestamp_m1, staged.feature_name,
             ELSE (staged.value #>> '{{}}')::double precision END
 FROM {_FEATURE_VALUE_STAGING_TABLE} AS staged
 WHERE staged.value <> 'null'::jsonb"""
-_FEATURE_VALUE_POPULATION_SQL = f"""WITH actual AS (
-    SELECT count(*) AS row_count,
-           count(DISTINCT feature_name) AS feature_count,
-           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
-    FROM {_PUBLISHED_FEATURES_VIEW}
-), expected AS (
-    SELECT count(*) AS row_count,
-           count(DISTINCT feature_name) AS feature_count,
-           count(*) FILTER (WHERE NOT ({_FEATURE_VALUE_TYPE_MATCH_SQL})) AS invalid_typed_rows
-    FROM ({_FEATURE_VALUE_SOURCE_SQL}) AS expected_feature_values
-), invalid_source AS ({_FEATURE_VALUE_INVALID_SOURCE_SQL})
-SELECT actual.row_count, expected.row_count, actual.feature_count,
-       expected.feature_count, actual.invalid_typed_rows,
-       expected.invalid_typed_rows, invalid_source.count
-FROM actual CROSS JOIN expected CROSS JOIN invalid_source"""
 _FEATURE_VALUE_REFRESH_FUNCTION = f"""CREATE OR REPLACE FUNCTION
 macro_loader.refresh_macro_feature_values()
 RETURNS void
@@ -1824,6 +1915,30 @@ _RETIRE_WIDE_FEATURE_VIEWS_MIGRATION = (
     "REVOKE ALL ON FUNCTION macro_loader.refresh_macro_features_explicit() FROM PUBLIC",
     "GRANT EXECUTE ON FUNCTION macro_loader.refresh_macro_features_explicit() "
     f"TO {_quote(POSTGRES_SYNC_USER)}",
+)
+_FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION = (
+    f"DROP MATERIALIZED VIEW {_PUBLISHED_FEATURES_VIEW}",
+    _FEATURE_VALUES_DDL.replace(_FEATURE_VALUES, _PUBLISHED_FEATURES_VIEW),
+    f"ALTER MATERIALIZED VIEW {_PUBLISHED_FEATURES_VIEW} OWNER TO {_quote(_POSTGRES_OWNER_ROLE)}",
+    _FEATURE_VALUES_UNIQUE_INDEX.replace(
+        "macro_feature_values_timestamp_feature_uidx",
+        "macro_features_timestamp_feature_uidx",
+    ).replace(_FEATURE_VALUES, _PUBLISHED_FEATURES_VIEW),
+    _FEATURE_VALUES_INDEX.replace(
+        "macro_feature_values_feature_timestamp_idx",
+        "macro_features_feature_timestamp_idx",
+    ).replace(_FEATURE_VALUES, _PUBLISHED_FEATURES_VIEW),
+    (
+        f"COMMENT ON MATERIALIZED VIEW {_PUBLISHED_FEATURES_VIEW} IS "
+        f"'macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+        f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}'"
+    ),
+    f"REVOKE ALL ON {_PUBLISHED_FEATURES_VIEW} FROM PUBLIC",
+    f"GRANT SELECT ON {_PUBLISHED_FEATURES_VIEW} "
+    f"TO {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON {_PUBLISHED_FEATURES_VIEW} "
+    f"FROM {_quote(POSTGRES_USER)}, {_quote(POSTGRES_SYNC_USER)}",
+    f"REFRESH MATERIALIZED VIEW {_PUBLISHED_FEATURES_VIEW}",
 )
 _FEATURE_VALUES_MIGRATION = (
     _FEATURE_VALUES_DDL,
@@ -2353,6 +2468,9 @@ _MIGRATIONS = (
     # Replace the superseded wide feature-view chain with the populated long view under
     # the stable public macro_features name without recomputing its contents.
     _RETIRE_WIDE_FEATURE_VIEWS_MIGRATION,
+    # Rebuild EMA/MACD outputs after aligning their recurrences to each source series' own
+    # observation sequence rather than the union timestamp axis.
+    _FEATURE_VALUES_SOURCE_OBSERVATION_REBUILD_MIGRATION,
 )
 _FEATURE_VIEW_PUBLICATION_VERSION = max(
     version

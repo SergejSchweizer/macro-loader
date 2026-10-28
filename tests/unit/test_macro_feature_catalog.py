@@ -230,7 +230,7 @@ def test_stochastic_and_donchian_catalog_is_registry_scoped_and_typed() -> None:
 
 
 def test_catalog_fingerprint_is_stable_and_versioned() -> None:
-    assert MACRO_FEATURE_VIEW_VERSION == 16
+    assert MACRO_FEATURE_VIEW_VERSION == 17
     assert feature_catalog_fingerprint() == MACRO_FEATURE_VIEW_FINGERPRINT
     assert len(MACRO_FEATURE_VIEW_FINGERPRINT) == 64
 
@@ -260,7 +260,7 @@ def test_extended_catalog_covers_every_additional_registered_positive_series() -
     assert len(EXTENDED_FEATURE_COLUMNS) == 793
     assert len(EXTENDED_FEATURE_CATALOG) == 792
     assert len(EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT) == 64
-    assert EXTENDED_MACRO_FEATURE_VIEW_VERSION == 1
+    assert EXTENDED_MACRO_FEATURE_VIEW_VERSION == 2
     assert (
         "timestamp_m1",
         "available_at_utc",
@@ -361,7 +361,9 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
         assert f"/ {period}.0" in _FEATURES_VIEW_DDL
     assert "WITH RECURSIVE input AS" in _FEATURES_VIEW_DDL
     assert "OR input.levels[state.observation_index + 1] <= 0 THEN NULL" in _FEATURES_VIEW_DDL
-    assert 'array_agg("vix_level" ORDER BY timestamp_m1)' in _FEATURES_VIEW_DDL
+    assert 'array_agg("level" ORDER BY timestamp_m1)' in _FEATURES_VIEW_DDL
+    assert 'FROM "vix_source" AS ema_input' in _FEATURES_VIEW_DDL
+    assert 'FROM "vix_source" AS raw' in _FEATURES_VIEW_DDL
     assert 'AS "vix_ema5_distance"' in _FEATURES_VIEW_DDL
     assert 'AS "vix_ema9_slope_3"' in _FEATURES_VIEW_DDL
     assert 'AS "vix_ema5_ema9_cross"' in _FEATURES_VIEW_DDL
@@ -373,21 +375,21 @@ def test_ema_view_uses_private_sma_seeded_resettable_recurrences() -> None:
     assert len([spec for spec in FEATURE_CATALOG if spec.family == "ema_trend"]) == (
         len(PRICE_FEATURE_SERIES) * len(EMA_OUTPUT_SUFFIXES)
     )
-    assert len(_MIGRATIONS) == 36
+    assert len(_MIGRATIONS) == 37
     previous_migration_sql = " ".join(_MIGRATIONS[24])
     assert 'ALTER TABLE "macro_loader"."macro_raw"' in previous_migration_sql
     assert 'ADD COLUMN IF NOT EXISTS "vix_open" DOUBLE PRECISION NULL' in previous_migration_sql
-    treasury_migration_sql = " ".join(_MIGRATIONS[-7])
+    treasury_migration_sql = " ".join(_MIGRATIONS[-8])
     assert 'ADD COLUMN IF NOT EXISTS "us_5y_level" DOUBLE PRECISION NULL' in treasury_migration_sql
     assert "DROP TABLE" not in treasury_migration_sql
     assert "DROP MATERIALIZED VIEW" in treasury_migration_sql
     assert f"version={MACRO_FEATURE_VIEW_VERSION}" in treasury_migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in treasury_migration_sql
-    cutover_migration_sql = " ".join(_MIGRATIONS[-6])
+    cutover_migration_sql = " ".join(_MIGRATIONS[-7])
     assert "DROP TABLE" in cutover_migration_sql
     assert 'CREATE TABLE IF NOT EXISTS "macro_loader"."macro_raw_vix"' in cutover_migration_sql
-    extended_view_migration_sql = " ".join(_MIGRATIONS[-5])
-    assert _EXTENDED_FEATURES_VIEW_DDL in _MIGRATIONS[-5]
+    extended_view_migration_sql = " ".join(_MIGRATIONS[-6])
+    assert _EXTENDED_FEATURES_VIEW_DDL in _MIGRATIONS[-6]
     assert "macro_features_extended" in extended_view_migration_sql
     assert EXTENDED_MACRO_FEATURE_VIEW_FINGERPRINT in extended_view_migration_sql
     assert (
@@ -419,6 +421,7 @@ def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> Non
     assert "2.0 / 27.0" in _FEATURES_VIEW_DDL
     assert "2.0 / 10.0" in _FEATURES_VIEW_DDL
     assert 'array_agg("macd_line" ORDER BY timestamp_m1)' in _FEATURES_VIEW_DDL
+    assert 'FROM "vix_source" AS raw' in _FEATURES_VIEW_DDL
     assert 'AS "vix_macd_line_relative"' in _FEATURES_VIEW_DDL
     assert 'AS "vix_macd_hist_relative"' in _FEATURES_VIEW_DDL
     assert 'AS "vix_macd_hist_delta_3"' in _FEATURES_VIEW_DDL
@@ -426,8 +429,8 @@ def test_macd_catalog_and_sql_keep_signed_signal_ema_private_and_causal() -> Non
     assert "lag(macd_hist_relative, 3) OVER ordered AS macd_hist_lag_3" in _FEATURES_VIEW_DDL
     signed_seed = "CASE WHEN input.levels[1] IS NOT NULL THEN 1 ELSE 0 END AS seed_count"
     assert signed_seed in _FEATURES_VIEW_DDL
-    assert len(_MIGRATIONS) == 36
-    migration_sql = " ".join(_MIGRATIONS[-6])
+    assert len(_MIGRATIONS) == 37
+    migration_sql = " ".join(_MIGRATIONS[-7])
     assert "DROP MATERIALIZED VIEW" in migration_sql
-    assert "version=16" in migration_sql
+    assert "version=17" in migration_sql
     assert MACRO_FEATURE_VIEW_FINGERPRINT in migration_sql

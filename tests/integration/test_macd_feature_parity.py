@@ -14,8 +14,9 @@ from psycopg.conninfo import conninfo_to_dict
 import ingestion.postgres_gold_repository as postgres_module
 from application.gold_frame import GOLD_COLUMNS
 from application.macro_feature_catalog import (
-    MACRO_FEATURE_VIEW_FINGERPRINT,
-    MACRO_FEATURE_VIEW_VERSION,
+    FEATURE_VALUE_CATALOG_FINGERPRINT,
+    FEATURE_VALUE_NAMES,
+    FEATURE_VALUE_SCHEMA_VERSION,
 )
 from application.postgres_sync import POSTGRES_RAW_TABLES
 from ingestion.postgres_gold_repository import PostgresAdminConfig, PostgresGoldSchemaMigrator
@@ -250,25 +251,19 @@ def test_postgres_macd_migration_23_upgrade_has_exact_current_public_schema(
 
     names = tuple(column for column, _type, _not_null in schema)
     assert not set(_QA_OUTPUT_COLUMNS) & set(before)
-    assert tuple(name for name in names if name in set(_QA_OUTPUT_COLUMNS)) == _QA_OUTPUT_COLUMNS
+    assert names == ("timestamp_m1", "available_at_utc", "feature_name", "value")
+    assert set(_QA_OUTPUT_COLUMNS) <= set(FEATURE_VALUE_NAMES)
     assert len(_QA_OUTPUT_COLUMNS) == 36 and len(set(_QA_OUTPUT_COLUMNS)) == 36
-    assert all(names.count(column) == 1 for column in _QA_OUTPUT_COLUMNS)
-    schema_by_name = {name: (postgres_type, not_null) for name, postgres_type, not_null in schema}
-    assert all(
-        schema_by_name[column] == ("double precision", False) for column in _QA_OUTPUT_COLUMNS
-    )
+    assert len(_QA_OUTPUT_COLUMNS) == 36 and len(set(_QA_OUTPUT_COLUMNS)) == 36
+    assert {name: postgres_type for name, postgres_type, _ in schema}["value"] == "double precision"
     assert not any(column in raw_columns for column in _QA_OUTPUT_COLUMNS)
     assert not any(column in GOLD_COLUMNS for column in _QA_OUTPUT_COLUMNS)
     assert not any(column.startswith("estr_") for column in names if column in _QA_OUTPUT_COLUMNS)
-    assert not any(
-        name.endswith(("_ema12", "_ema26", "_ema9_signal", "_macd_line", "_macd_signal"))
-        for name in names
+    assert comment == (
+        f"macro feature view version={FEATURE_VALUE_SCHEMA_VERSION}; "
+        f"fingerprint={FEATURE_VALUE_CATALOG_FINGERPRINT}"
     )
     assert ledger == [(version,) for version in range(1, len(postgres_module._MIGRATIONS) + 1)]
-    assert comment == (
-        f"macro feature view version={MACRO_FEATURE_VIEW_VERSION}; "
-        f"fingerprint={MACRO_FEATURE_VIEW_FINGERPRINT}"
-    )
 
 
 @pytest.mark.integration
@@ -280,9 +275,11 @@ def test_clean_postgres_macd_view_matches_independent_reference_for_all_series(
     levels = _fixture_levels()
     expected = _macd_reference(levels)
     ohlc_series = {"vix", "vix9d", "vix3m", "vix6m", "vix1y", "move"}
-    timestamps = [
-        datetime(2020, 1, 1, tzinfo=UTC) + timedelta(days=index) for index in range(len(levels))
-    ]
+    start = datetime(2020, 1, 1, tzinfo=UTC)
+    timestamps_by_series = {
+        series: [start + timedelta(days=index, hours=series_index) for index in range(len(levels))]
+        for series_index, series in enumerate(_QA_PRICE_SERIES)
+    }
 
     with psycopg.connect(dsn) as connection:
         with connection.cursor() as cursor:
@@ -291,26 +288,27 @@ def test_clean_postgres_macd_view_matches_independent_reference_for_all_series(
                 relation = f'macro_loader."macro_raw_{series}"'
                 cursor.executemany(
                     f'INSERT INTO {relation} ("timestamp_m1", "{value_column}") VALUES (%s, %s)',
-                    zip(timestamps, levels, strict=True),
+                    zip(timestamps_by_series[series], levels, strict=True),
                 )
         connection.execute("REFRESH MATERIALIZED VIEW macro_loader.macro_features")
-        selected_columns = ", ".join(f'"{column}"' for column in _QA_OUTPUT_COLUMNS)
         rows = connection.execute(
-            f"SELECT {selected_columns} FROM macro_loader.macro_features ORDER BY timestamp_m1"
+            "SELECT timestamp_m1, feature_name, value FROM macro_loader.macro_features "
+            "WHERE feature_name = ANY(%s)",
+            (list(_QA_OUTPUT_COLUMNS),),
         ).fetchall()
         view_names = tuple(column for column, _type, _not_null in _view_schema(connection))
         raw_names = _feature_raw_column_names(connection)
 
-    assert len(rows) == len(levels)
-    assert tuple(name for name in view_names if name in _QA_OUTPUT_COLUMNS) == _QA_OUTPUT_COLUMNS
+    assert view_names == ("timestamp_m1", "available_at_utc", "feature_name", "value")
+    actual = {(timestamp, name): value for timestamp, name, value in rows}
     assert not any(name in raw_names for name in _QA_OUTPUT_COLUMNS)
     assert not any(name in GOLD_COLUMNS for name in _QA_OUTPUT_COLUMNS)
-    for row_index, row in enumerate(rows):
-        for series_index, _series in enumerate(_QA_PRICE_SERIES):
-            for output_index, suffix in enumerate(_QA_OUTPUT_SUFFIXES):
-                actual = row[series_index * len(_QA_OUTPUT_SUFFIXES) + output_index]
-                wanted = expected[suffix][row_index]
+    for series in _QA_PRICE_SERIES:
+        for index, timestamp in enumerate(timestamps_by_series[series]):
+            for suffix in _QA_OUTPUT_SUFFIXES:
+                actual_value = actual.get((timestamp, f"{series}_{suffix}"))
+                wanted = expected[suffix][index]
                 if wanted is None:
-                    assert actual is None
+                    assert actual_value is None
                 else:
-                    assert actual == pytest.approx(wanted, rel=1e-11, abs=1e-12)
+                    assert actual_value == pytest.approx(wanted, rel=1e-11, abs=1e-12)

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import cast
 
+from application.macro_feature_catalog import FEATURE_VALUE_NAMES
 from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import (
     POSTGRES_CONSUMER_SCHEMA,
@@ -13,7 +15,7 @@ from application.postgres_sync import (
     POSTGRES_SYNC_SCHEMA,
 )
 from ingestion.postgres_gold_repository import (
-    _FEATURE_VALUE_POPULATION_SQL,
+    _FEATURE_VALUE_POPULATION_QUERIES,
     _SCHEMA_SPECIFICATION,
     POSTGRES_APPLICATION_NAME,
     POSTGRES_FEATURE_REFRESH_TIMEOUT_MS,
@@ -34,6 +36,10 @@ from scripts.provision_postgres_role import (
 )
 
 logger = logging.getLogger(__name__)
+
+_FEATURE_VALUE_CATALOG_DRIFT_SQL = f"""SELECT count(DISTINCT feature_name)
+FROM {POSTGRES_CONSUMER_SCHEMA}.{POSTGRES_FEATURE_VALUES_TABLE}
+WHERE feature_name IS NULL OR NOT (feature_name = ANY(%s))"""
 
 _TEMPORAL_PROBES = (
     datetime(2026, 3, 29, 0, 59, 59, 123456, tzinfo=UTC),
@@ -85,22 +91,32 @@ class PostgresLiveDatabaseConformanceInspector:
         config: PostgresSyncConfig,
         *,
         connection_factory: ConnectionFactory = _default_connection,
+        feature_query_workers: int = 6,
     ) -> None:
+        if feature_query_workers < 1:
+            raise ValueError("feature query worker count must be positive")
         self._config = config
         self._connection_factory = connection_factory
+        self._feature_query_workers = feature_query_workers
 
     def inspect(self) -> PostgresDatabaseConformanceEvidence:
         logger.debug("postgres live conformance inspection started")
         connection: ConnectionPort | None = None
         try:
             connection = self._connection_factory(self._config)
+            logger.debug("postgres live conformance connection opened")
             cursor = connection.cursor()
             try:
                 for statement in _session_configuration(self._config.timeout_policy):
                     cursor.execute(statement)
                 cursor.execute("SET TRANSACTION READ ONLY")
+                logger.debug("postgres live conformance session configured read_only=true")
                 self._assert_schema(cursor)
-                feature_value_row_count = self._assert_feature_values_population(cursor)
+                logger.debug("postgres live conformance schema checks passed")
+                feature_value_row_count = self._assert_feature_values_population()
+                logger.debug("postgres live conformance feature population checks passed")
+                self._assert_feature_value_catalog(cursor)
+                logger.debug("postgres live conformance feature catalog check passed")
                 self._assert_roles(cursor)
                 self._assert_session(cursor)
                 self._assert_temporal_round_trips(cursor)
@@ -111,8 +127,9 @@ class PostgresLiveDatabaseConformanceInspector:
             if connection is not None:
                 connection.rollback()
             logger.debug(
-                "postgres live conformance inspection failed error_type=%s",
+                "postgres live conformance inspection failed error_type=%s sqlstate=%s",
                 type(exc).__name__,
+                getattr(exc, "sqlstate", None) or "none",
             )
             raise PostgresGoldRepositoryError(
                 "PostgreSQL live conformance inspection failed"
@@ -185,42 +202,110 @@ class PostgresLiveDatabaseConformanceInspector:
         PostgresGoldSyncRepository._assert_feature_values_table_contract(cursor)
         PostgresGoldSyncRepository._assert_retired_feature_views_absent(cursor)
 
-    @staticmethod
-    def _assert_feature_values_population(cursor: CursorPort) -> int:
-        cursor.execute("SHOW statement_timeout")
-        prior_timeout = cursor.fetchone()
-        cursor.execute(
-            "SELECT set_config('statement_timeout', %s, true)",
-            (f"{POSTGRES_FEATURE_REFRESH_TIMEOUT_MS}ms",),
-        )
-        try:
-            cursor.execute(_FEATURE_VALUE_POPULATION_SQL)
-            row = cursor.fetchone()
-        finally:
-            if prior_timeout is not None and isinstance(prior_timeout[0], str):
-                cursor.execute(
-                    "SELECT set_config('statement_timeout', %s, true)", (prior_timeout[0],)
+    def _assert_feature_values_population(self) -> int:
+        def inspect_group(
+            group: tuple[str, tuple[str, ...], str],
+        ) -> tuple[str, int]:
+            group_name, feature_names, query = group
+            connection: ConnectionPort | None = None
+            try:
+                connection = self._connection_factory(self._config)
+                cursor = connection.cursor()
+                try:
+                    for statement in _session_configuration(self._config.timeout_policy):
+                        cursor.execute(statement)
+                    cursor.execute("SET TRANSACTION READ ONLY")
+                    cursor.execute(
+                        "SELECT set_config('statement_timeout', %s, true)",
+                        (f"{POSTGRES_FEATURE_REFRESH_TIMEOUT_MS}ms",),
+                    )
+                    cursor.execute(query, (list(feature_names),))
+                    row = cursor.fetchone()
+                finally:
+                    cursor.close()
+                connection.rollback()
+            except Exception as exc:
+                logger.debug(
+                    "postgres feature population query failed group=%s error_type=%s sqlstate=%s",
+                    group_name,
+                    type(exc).__name__,
+                    getattr(exc, "sqlstate", None) or "none",
                 )
-        if row is None or len(row) != 7 or not all(isinstance(value, int) for value in row):
-            raise ValueError("long-form feature population query returned unexpected shape")
-        (
-            row_count,
-            source_count,
-            feature_count,
-            source_feature_count,
-            invalid_types,
-            invalid_source_types,
-            invalid_source_count,
-        ) = row
-        if (
-            row_count != source_count
-            or feature_count != source_feature_count
-            or invalid_types != 0
-            or invalid_source_types != 0
-            or invalid_source_count != 0
-        ):
-            raise ValueError("long-form feature values differ from their source views")
-        return cast(int, row_count)
+                if connection is not None:
+                    connection.rollback()
+                raise
+            finally:
+                if connection is not None:
+                    connection.close()
+            if (
+                row is None
+                or len(row) != 9
+                or not all(isinstance(value, int) for value in row[:8])
+                or (row[8] is not None and not isinstance(row[8], (list, tuple)))
+            ):
+                raise ValueError("long-form feature population query returned unexpected shape")
+            (
+                row_count,
+                source_count,
+                feature_count,
+                source_feature_count,
+                invalid_types,
+                invalid_source_types,
+                invalid_source_count,
+                feature_count_differences,
+                differing_feature_names,
+            ) = row
+            if (
+                row_count != source_count
+                or feature_count != source_feature_count
+                or invalid_types != 0
+                or invalid_source_types != 0
+                or invalid_source_count != 0
+                or feature_count_differences != 0
+            ):
+                logger.debug(
+                    "postgres feature population verification failed group=%s "
+                    "row_count=%d source_count=%d feature_count=%d "
+                    "source_feature_count=%d invalid_typed_rows=%d "
+                    "invalid_source_typed_rows=%d invalid_source_rows=%d "
+                    "feature_count_differences=%d differing_feature_names=%s",
+                    group_name,
+                    row_count,
+                    source_count,
+                    feature_count,
+                    source_feature_count,
+                    invalid_types,
+                    invalid_source_types,
+                    invalid_source_count,
+                    feature_count_differences,
+                    differing_feature_names,
+                )
+                raise ValueError(f"feature population differs for source group {group_name}")
+            return group_name, cast(int, row_count)
+
+        with ThreadPoolExecutor(max_workers=self._feature_query_workers) as executor:
+            results = tuple(executor.map(inspect_group, _FEATURE_VALUE_POPULATION_QUERIES))
+        total_rows = sum(row_count for _, row_count in results)
+        logger.debug(
+            "postgres feature population verification completed source_group_count=%d "
+            "worker_count=%d row_count=%d",
+            len(results),
+            min(self._feature_query_workers, len(results)),
+            total_rows,
+        )
+        return total_rows
+
+    @staticmethod
+    def _assert_feature_value_catalog(cursor: CursorPort) -> None:
+        cursor.execute(_FEATURE_VALUE_CATALOG_DRIFT_SQL, (list(FEATURE_VALUE_NAMES),))
+        row = cursor.fetchone()
+        if row != (0,):
+            unknown_count = row[0] if row and isinstance(row[0], int) else -1
+            logger.debug(
+                "postgres feature catalog verification failed unknown_feature_count=%d",
+                unknown_count,
+            )
+            raise ValueError("long-form feature view contains unknown feature names")
 
     @staticmethod
     def _assert_roles(cursor: CursorPort) -> None:
