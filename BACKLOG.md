@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-224: Bound Parallelism In Full-History Acceptance Runs
 
 PR name: `parallel-full-history-reconcile`
-Status: In Progress — local checks pending
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: Not created
+PR: [#224](https://github.com/SergejSchweizer/macro-loader/pull/224) (open)
 Git branch: `pr-224/parallel-full-history-reconcile`
-Git status: active-local-checks-pending
+Git status: pushed-local-checks-passed
 Agent lane: guarded full-history acceptance runner and source-series batch orchestration
 Commit: `perf(pr-224): parallelize guarded full-history ingestion`
 Design patterns: Bounded Concurrency Policy; reuse per-series Unit of Work through the CLI
