@@ -2,10 +2,13 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#223 are merged to `origin/main`.
-Production migration 36, canonical Gold sync, and independent verification have completed;
-25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
-populated through 2026-10-27 (schema 11 / feature 6). PR-201,
+Current delivery status (2026-10-28): PRs #192–#225 are merged to `origin/main`.
+Production PostgreSQL migration 37 completed; all 25 raw feature tables and the long-form
+`macro_loader.macro_features` materialized view contain 12,189,132 feature rows. The 2026-10-28
+guarded daily acceptance passed both wrapper runs, the zero-change replay, and all 26 raw-derived
+feature-group comparisons. Its final inspector then exposed an idle-transaction timeout after
+the long comparisons; PR-226, `pr-226/close-idle-conformance-transactions`, is fixing that
+connection lifecycle before the acceptance is rerun. PR-201,
 `pr-201/sunday-gold-copy-cron`, adds the installed Sunday 22:00 Europe/Vienna copy from
 `lake/gold/` to `/volume1/Temp/Quotes/macro/`; a live copy and checksum comparison passed.
 The installed daily 09:00 Europe/Vienna schedule and 60-calendar-day delta window remain
@@ -36,8 +39,8 @@ runners without executing them.
 Per the user's instruction, GitHub Actions must
 remain disabled and must not be triggered, re-enabled, rerun, or newly added; perform checks
 locally only.
-The guarded acceptance runners document production-like verification but must only be
-executed with explicit deployment authorization. PR-223 instruments the local Git contract
+The guarded acceptance runners document production-like verification and require explicit
+deployment authorization. PR-223 instruments the local Git contract
 validator with allow-listed, secret-safe debug lifecycle records while preserving its
 validation, bypass, and staged pre-commit deferral behavior. PR-224 batches independent
 full-history source operations through the bounded application-level `--cores` policy while

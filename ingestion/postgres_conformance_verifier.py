@@ -104,7 +104,7 @@ class PostgresLiveDatabaseConformanceInspector:
         connection: ConnectionPort | None = None
         try:
             connection = self._connection_factory(self._config)
-            logger.debug("postgres live conformance connection opened")
+            logger.debug("postgres live conformance schema connection opened")
             cursor = connection.cursor()
             try:
                 for statement in _session_configuration(self._config.timeout_policy):
@@ -113,8 +113,23 @@ class PostgresLiveDatabaseConformanceInspector:
                 logger.debug("postgres live conformance session configured read_only=true")
                 self._assert_schema(cursor)
                 logger.debug("postgres live conformance schema checks passed")
-                feature_value_row_count = self._assert_feature_values_population()
-                logger.debug("postgres live conformance feature population checks passed")
+            finally:
+                cursor.close()
+            connection.rollback()
+            connection.close()
+            connection = None
+
+            feature_value_row_count = self._assert_feature_values_population()
+            logger.debug("postgres live conformance feature population checks passed")
+
+            connection = self._connection_factory(self._config)
+            logger.debug("postgres live conformance metadata connection opened")
+            cursor = connection.cursor()
+            try:
+                for statement in _session_configuration(self._config.timeout_policy):
+                    cursor.execute(statement)
+                cursor.execute("SET TRANSACTION READ ONLY")
+                logger.debug("postgres live conformance session configured read_only=true")
                 self._assert_feature_value_catalog(cursor)
                 logger.debug("postgres live conformance feature catalog check passed")
                 self._assert_roles(cursor)
@@ -123,6 +138,8 @@ class PostgresLiveDatabaseConformanceInspector:
             finally:
                 cursor.close()
             connection.rollback()
+            connection.close()
+            connection = None
         except Exception as exc:
             if connection is not None:
                 connection.rollback()
