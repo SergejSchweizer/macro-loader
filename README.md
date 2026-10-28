@@ -741,6 +741,13 @@ files already present at the destination. Its log is
 The daily runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
 that variable in the service environment to use a different positive concurrency limit.
 
+Python module debug records and sanitized structured operational events are written to
+`${PROJECT_ROOT}/.logs/macro-loader-debug.log`. That file rotates at UTC midnight and
+keeps up to 90 daily archives. The daily and Sunday wrappers keep their operator-facing
+stdout/stderr in `macro-loader.log` and `macro-loader-gold-copy.log`; before appending,
+they rotate prior-day files to date-suffixed archives and prune only those two log families
+older than 90 days. Other files in `.logs` are not subject to this cleanup.
+
 Install it for the service account after reviewing the absolute project path:
 
 ```bash

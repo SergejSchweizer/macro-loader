@@ -1,5 +1,6 @@
 import fcntl
 import os
+import shutil
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -43,6 +44,11 @@ def test_daily_gold_sync_cron_template_is_operational() -> None:
     assert "if ! flock -n 9; then" in runner
     assert "exit 3" in runner
     assert 'mkdir -p "$LOG_DIR"' in runner
+    assert (
+        '"$PYTHON" "$PROJECT_ROOT/scripts/rotate_operational_logs.py" --log-dir "$LOG_DIR"'
+        in runner
+    )
+    assert runner.index("rotate_operational_logs.py") < runner.index('exec >>"$LOG_PATH" 2>&1')
     assert 'exec >>"$LOG_PATH" 2>&1' in runner
     assert '"$CLI" --overlap-days 60 --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily' in runner
     assert '"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres' in runner
@@ -74,12 +80,25 @@ def test_sunday_gold_copy_runner_copies_source_contents_without_deleting_target(
     assert 'rsync --archive --human-readable --stats "$SOURCE_DIR/" "$DESTINATION_DIR/"' in runner
     assert "--delete" not in runner
     assert 'LOCK_PATH="$LOCK_DIR/macro-loader-gold-copy.lock"' in runner
+    assert (
+        '"$PYTHON" "$PROJECT_ROOT/scripts/rotate_operational_logs.py" --log-dir "$LOG_DIR"'
+        in runner
+    )
+    assert runner.index("rotate_operational_logs.py") < runner.index('exec >>"$LOG_PATH" 2>&1')
     assert 'exec >>"$LOG_PATH" 2>&1' in runner
 
 
 def test_sunday_gold_copy_runner_copies_files_and_preserves_destination_extras(
     tmp_path: Path,
 ) -> None:
+    runner = _weekly_runner_fixture(tmp_path)
+    log_directory = runner.parent.parent / ".logs"
+    log_directory.mkdir()
+    old_log = log_directory / "macro-loader-gold-copy.log"
+    old_log.write_text("previous operator log", encoding="utf-8")
+    previous_day = datetime.now().date() - timedelta(days=1)
+    previous_timestamp = datetime.combine(previous_day, datetime.min.time()).timestamp()
+    os.utime(old_log, (previous_timestamp, previous_timestamp))
     source = tmp_path / "source-gold"
     destination = tmp_path / "nas" / "macro"
     source.mkdir()
@@ -105,7 +124,7 @@ def test_sunday_gold_copy_runner_copies_files_and_preserves_destination_extras(
     )
     record_path = tmp_path / "rsync-arguments"
     completed = subprocess.run(
-        [str(GOLD_COPY_RUNNER), str(source), str(destination), str(tmp_path / "volume")],
+        [str(runner), str(source), str(destination), str(tmp_path / "volume")],
         check=False,
         capture_output=True,
         text=True,
@@ -118,6 +137,10 @@ def test_sunday_gold_copy_runner_copies_files_and_preserves_destination_extras(
     )
 
     assert completed.returncode == 0
+    assert (log_directory / f"macro-loader-gold-copy.log.{previous_day.isoformat()}").read_text(
+        encoding="utf-8"
+    ) == "previous operator log"
+    assert (log_directory / "macro-loader-gold-copy.log").exists()
     assert (destination / "manifest.json").read_text(encoding="utf-8") == "gold manifest"
     assert (destination / "keep.txt").read_text(encoding="utf-8") == "existing"
     rsync_args = record_path.read_text(encoding="utf-8").strip()
@@ -128,6 +151,7 @@ def test_sunday_gold_copy_runner_copies_files_and_preserves_destination_extras(
 def test_sunday_gold_copy_runner_fails_closed_if_nas_is_not_mounted(
     tmp_path: Path,
 ) -> None:
+    runner = _weekly_runner_fixture(tmp_path)
     source = tmp_path / "source-gold"
     source.mkdir()
     destination = tmp_path / "nas" / "macro"
@@ -136,7 +160,7 @@ def test_sunday_gold_copy_runner_fails_closed_if_nas_is_not_mounted(
     _write_executable(bin_dir / "mountpoint", "#!/usr/bin/env bash\nexit 1\n")
     record_path = tmp_path / "rsync-arguments"
     completed = subprocess.run(
-        [str(GOLD_COPY_RUNNER), str(source), str(destination), str(tmp_path / "volume")],
+        [str(runner), str(source), str(destination), str(tmp_path / "volume")],
         check=False,
         capture_output=True,
         text=True,
@@ -163,6 +187,21 @@ def _write_executable(path: Path, content: str) -> None:
     path.chmod(0o755)
 
 
+def _weekly_runner_fixture(tmp_path: Path) -> Path:
+    project_root = tmp_path / "weekly-project"
+    operations = project_root / "ops"
+    scripts = project_root / "scripts"
+    python = project_root / ".venv" / "bin" / "python"
+    operations.mkdir(parents=True)
+    scripts.mkdir()
+    python.parent.mkdir(parents=True)
+    runner = operations / "copy-macro-loader-gold.sh"
+    shutil.copy2(GOLD_COPY_RUNNER, runner)
+    shutil.copy2("scripts/rotate_operational_logs.py", scripts)
+    _write_executable(python, '#!/usr/bin/env bash\nexec python3 "$@"\n')
+    return runner
+
+
 def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]:
     project_root = tmp_path / "project"
     (project_root / "ops").mkdir(parents=True)
@@ -172,9 +211,15 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
     runner_path.write_text(CRON_RUNNER.read_text(encoding="utf-8"), encoding="utf-8")
     runner_path.chmod(0o755)
     (project_root / "config.yaml").write_text("fixture\n", encoding="utf-8")
+    shutil.copy2(
+        Path("scripts/rotate_operational_logs.py"),
+        project_root / "scripts" / "rotate_operational_logs.py",
+    )
     _write_executable(
         project_root / ".venv" / "bin" / "python",
-        "#!/usr/bin/env bash\nprintf 'export LAKE_ROOT=%q\\n' fixture-lake\n",
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == *rotate_operational_logs.py ]]; then exec python3 "$@"; fi\n'
+        "printf 'export LAKE_ROOT=%q\\n' fixture-lake\n",
     )
     _write_executable(
         project_root / ".venv" / "bin" / "macro-loader",
@@ -195,6 +240,13 @@ def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]
 
 def test_daily_runner_uses_repository_root_and_exports_one_git_identity(tmp_path: Path) -> None:
     project_root, bin_dir = _runner_fixture(tmp_path)
+    log_directory = project_root / ".logs"
+    log_directory.mkdir()
+    old_log = log_directory / "macro-loader.log"
+    old_log.write_text("previous operator log", encoding="utf-8")
+    previous_day = datetime.now().date() - timedelta(days=1)
+    previous_timestamp = datetime.combine(previous_day, datetime.min.time()).timestamp()
+    os.utime(old_log, (previous_timestamp, previous_timestamp))
     record_path = tmp_path / "runner-record"
     unrelated_cwd = tmp_path / "unrelated"
     unrelated_cwd.mkdir()
@@ -214,6 +266,10 @@ def test_daily_runner_uses_repository_root_and_exports_one_git_identity(tmp_path
     )
 
     assert completed.returncode == 0
+    assert (log_directory / f"macro-loader.log.{previous_day.isoformat()}").read_text(
+        encoding="utf-8"
+    ) == "previous operator log"
+    assert (log_directory / "macro-loader.log").exists()
     assert record_path.read_text(encoding="utf-8").splitlines() == [
         f"{project_root}|fixture-sha|--overlap-days 60 --cores 6 "
         "--lake-root fixture-lake run-daily",

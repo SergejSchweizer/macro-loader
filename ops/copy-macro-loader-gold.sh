@@ -7,12 +7,18 @@ PROJECT_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 SOURCE_DIR=${1:-"$PROJECT_ROOT/lake/gold"}
 DESTINATION_DIR=${2:-/volume1/Temp/Quotes/macro}
 VOLUME_MOUNT=${3:-/volume1}
+PYTHON="$PROJECT_ROOT/.venv/bin/python"
 LOG_DIR="$PROJECT_ROOT/.logs"
 LOCK_DIR="$PROJECT_ROOT/.locks"
 LOG_PATH="$LOG_DIR/macro-loader-gold-copy.log"
 LOCK_PATH="$LOCK_DIR/macro-loader-gold-copy.lock"
 
 mkdir -p "$LOG_DIR" "$LOCK_DIR"
+if [[ ! -x "$PYTHON" ]]; then
+	printf 'Required cron executable is missing or not executable: %s\n' "$PYTHON" >&2
+	exit 6
+fi
+"$PYTHON" "$PROJECT_ROOT/scripts/rotate_operational_logs.py" --log-dir "$LOG_DIR"
 exec 9>"$LOCK_PATH"
 if ! flock -n 9; then
 	printf 'Gold copy is already running\n' >&2

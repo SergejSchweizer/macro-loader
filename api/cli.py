@@ -80,7 +80,9 @@ class JsonEventSink:
 
     def __call__(self, event: dict[str, object]) -> None:
         sanitized = self._sanitize(event)
-        self._logger.info(json.dumps(sanitized, ensure_ascii=True, sort_keys=True))
+        payload = json.dumps(sanitized, ensure_ascii=True, sort_keys=True)
+        self._logger.debug("operational event: %s", payload)
+        self._logger.info("%s", payload)
 
     def _sanitize(self, value: object) -> object:
         if isinstance(value, str):
@@ -184,12 +186,17 @@ def _git_commit_hash() -> str:
 
 
 def _logger(stderr: TextIO) -> logging.Logger:
+    from api.logging_config import configure_debug_logging
+
+    project_root = Path(os.environ.get("MACRO_LOADER_PROJECT_ROOT", Path.cwd()))
+    configure_debug_logging(project_root, secrets=_configured_secrets())
     logger = logging.getLogger("macro_loader.cli")
     logger.handlers.clear()
-    logger.propagate = False
-    logger.setLevel(logging.INFO)
+    logger.propagate = True
+    logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler(stderr)
     handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.setLevel(logging.INFO)
     logger.addHandler(handler)
     return logger
 

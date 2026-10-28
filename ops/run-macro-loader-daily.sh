@@ -37,6 +37,7 @@ done
 
 mkdir -p "$LOG_DIR"
 mkdir -p "$LOCK_DIR"
+"$PYTHON" "$PROJECT_ROOT/scripts/rotate_operational_logs.py" --log-dir "$LOG_DIR"
 exec 9>"$LOCK_PATH"
 if ! flock -n 9; then
 	printf 'Daily macro-loader job is already running\n' >&2

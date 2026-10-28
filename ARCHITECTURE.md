@@ -904,6 +904,14 @@ For normal source update planning, **max observed date is relevant; min observed
 
 No secrets may appear in registry files, persisted URLs, logs, error strings, or fixtures.
 
+Python debug logs use the standard logging hierarchy and a composition-root file handler at
+`.logs/macro-loader-debug.log`, rotated daily at UTC midnight with 90 archives. Operational
+events are secret-sanitized before both their normal CLI output and debug record are
+emitted. Cron wrapper output remains in separate daily and weekly operator logs; their
+date-suffixed archives are rotated by the shared maintenance script and pruned after 90
+calendar days. Cleanup is restricted to those two named log families, and archive-name
+collisions fail closed rather than overwrite existing log data.
+
 ## Daily Pipeline
 
 `run-daily` performs:
