@@ -12,12 +12,12 @@ Last reviewed: 2026-10-28
 ### PR-227: Align PostgreSQL Math QA With The Long-Form Feature View
 
 PR name: `align-postgres-math-qa-to-long-view`
-Status: In progress — disposable PostgreSQL parity passes; full local quality gate pending
+Status: Pushed — local quality gate and all 46 disposable PostgreSQL integration tests passed; awaiting PR review/merge
 Updated: 2026-10-28
 Git branch: `pr-227/align-postgres-math-qa-to-long-view`
 Git status: pushed-local-checks-passed
 Agent lane: independent PostgreSQL formula parity and long-view contract QA
-Commit: `test(pr-227): align postgres formula qa with long-form view`
+Commit: `56dd3a9 fix(pr-227): rebuild long view with null-reset math`
 Design patterns: Independent Reference; Materialized View contract; disposable integration fixture.
 Depends on: PR-226 (merged to `origin/main`)
 
