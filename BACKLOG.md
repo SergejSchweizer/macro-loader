@@ -16,7 +16,7 @@ Status: In progress
 Updated: 2026-10-28
 PR: TBD
 Git branch: `pr-209/postgres-verifier-input-debug-logs`
-Git status: local-changes
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL conformance inspection and catalog-selected Gold input adapters
 Commit: `feat(pr-209): instrument PostgreSQL verification inputs`
 Design patterns: Logging Adapter; existing read-only Repository/Adapter boundaries remain unchanged.
