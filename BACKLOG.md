@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-215: Add Debug Telemetry To The Macro Feature Catalog
 
 PR name: `macro-feature-catalog-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#215](https://github.com/SergejSchweizer/macro-loader/pull/215) (open)
 Git branch: `pr-215/macro-feature-catalog-debug-logs`
-Git status: active-dirty: BACKLOG.md, AGENTS.md, ARCHITECTURE.md, README.md, application/macro_feature_catalog.py, tests/unit/test_macro_feature_catalog.py
+Git status: pushed-local-checks-passed
 Agent lane: closed-world transformation-catalog validation and payload generation
 Commit: `feat(pr-215): instrument macro feature catalog validation`
 Design patterns: Logging Adapter; retain the immutable catalog as the source of truth.
