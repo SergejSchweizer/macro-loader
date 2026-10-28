@@ -12,9 +12,9 @@ Last reviewed: 2026-10-28
 ### PR-212: Add Debug Telemetry To Application Verification Use Cases
 
 PR name: `application-verification-debug-logs`
-Status: Pushed — local quality gate passed
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: TBD
+PR: [#212](https://github.com/SergejSchweizer/macro-loader/pull/212) (open)
 Git branch: `pr-212/application-verification-debug-logs`
 Git status: pushed-local-checks-passed
 Agent lane: application-level PostgreSQL conformance and guarded reconstruction use cases
