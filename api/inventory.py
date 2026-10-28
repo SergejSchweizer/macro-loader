@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -14,6 +15,8 @@ from application.operational_records import InventoryRecord
 from application.paths import LakePaths
 from application.registry import SERIES_REGISTRY
 from ingestion.operational_repository import read_inventory
+
+logger = logging.getLogger(__name__)
 
 InventoryReader = Callable[[], Sequence[InventoryRecord]]
 INVENTORY_FIELDS = (
@@ -79,25 +82,42 @@ def _logical_row(record: InventoryRecord) -> dict[str, object]:
     }
 
 
-def render_text(records: Sequence[InventoryRecord]) -> str:
-    lines = ["\t".join(INVENTORY_FIELDS)]
-    for record in records:
-        row = _logical_row(record)
-        lines.append(
-            "\t".join("" if row[field] is None else str(row[field]) for field in INVENTORY_FIELDS)
+def _render(records: Sequence[InventoryRecord], *, output_format: str) -> str:
+    logger.debug(
+        "inventory rendering started format=%s record_count=%d", output_format, len(records)
+    )
+    try:
+        rows = [_logical_row(record) for record in records]
+        if output_format == "json":
+            output = json.dumps(rows, ensure_ascii=False, separators=(",", ":")) + "\n"
+        else:
+            lines = ["\t".join(INVENTORY_FIELDS)]
+            for row in rows:
+                lines.append(
+                    "\t".join(
+                        "" if row[field] is None else str(row[field]) for field in INVENTORY_FIELDS
+                    )
+                )
+            output = "\n".join(lines) + "\n"
+    except Exception as exc:
+        logger.debug(
+            "inventory rendering failed format=%s error_type=%s",
+            output_format,
+            type(exc).__name__,
         )
-    return "\n".join(lines) + "\n"
+        raise
+    logger.debug(
+        "inventory rendering completed format=%s record_count=%d", output_format, len(rows)
+    )
+    return output
+
+
+def render_text(records: Sequence[InventoryRecord]) -> str:
+    return _render(records, output_format="text")
 
 
 def render_json(records: Sequence[InventoryRecord]) -> str:
-    return (
-        json.dumps(
-            [_logical_row(record) for record in records],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
+    return _render(records, output_format="json")
 
 
 def run_inventory(

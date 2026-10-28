@@ -784,6 +784,8 @@ Bounded parallel maps log item counts and worker limits/width without logging in
 callables, or exception messages.
 Macro-feature catalog validation records source-series/feature counts and the OHLC-scope flag;
 it excludes formulas, feature values, fingerprints, dates, and exception text.
+Inventory text/JSON rendering logs the selected output format and record count, plus exception
+class on formatting failure; inventory rows and exception messages remain excluded.
 
 Install it for the service account after reviewing the absolute project path:
 

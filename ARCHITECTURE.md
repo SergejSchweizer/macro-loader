@@ -946,6 +946,8 @@ counts, and exception classes, while retaining the shared semaphore and result-o
 The macro transformation catalog records validation start/completion counts and error classes
 when catalog metadata is requested; formulas, values, fingerprints, and exception messages
 remain outside debug records.
+The inventory CLI serializer records only text/JSON format, record count, and exception class;
+the rendered inventory payload and error text remain in their existing user-facing channels.
 The PostgreSQL conformance and reconstruction application use cases record their start,
 stage/result counts, canonical build identity, safe stage names, statuses, and exception
 classes. They do not log report payloads, hashes, paths, secrets, or exception messages.
