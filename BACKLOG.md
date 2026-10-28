@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-223: Add Safe Debug Telemetry To Git Contract Validation
 
 PR name: `git-contract-debug-logs`
-Status: In Progress — local checks pending
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: Not created
+PR: [#223](https://github.com/SergejSchweizer/macro-loader/pull/223) (open)
 Git branch: `pr-223/git-contract-debug-logs`
-Git status: active-local-checks-pending
+Git status: pushed-local-checks-passed
 Agent lane: local pre-commit and quality-gate Git contract validator
 Commit: `feat(pr-223): instrument git contract validation`
 Design patterns: Logging Adapter; preserve deterministic local policy validation.
