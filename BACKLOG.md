@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-204: Add Debug Telemetry To Core Application Workflows
 
 PR name: `application-workflow-debug-logs`
-Status: In Progress
+Status: Open — PR #204 awaiting review
 Updated: 2026-10-28
-PR: TBD
+PR: [#204](https://github.com/SergejSchweizer/macro-loader/pull/204)
 Git branch: `pr-204/application-workflow-debug-logs`
-Git status: active-clean
+Git status: pushed-local-checks-passed
 Agent lane: daily pipeline, Silver canonicalization, Gold publication and retention logs
 Commit: `feat(pr-204): instrument application workflow debug logs`
 Design patterns: Logging Adapter; existing injected event and repository boundaries remain unchanged.
