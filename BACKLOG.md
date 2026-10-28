@@ -12,11 +12,11 @@ Last reviewed: 2026-10-28
 ### PR-221: Add Debug Telemetry To PostgreSQL Role Provisioning
 
 PR name: `postgres-role-provisioning-debug-logs`
-Status: In Progress
+Status: Open — local quality gate passed
 Updated: 2026-10-28
-PR: pending
+PR: [#221](https://github.com/SergejSchweizer/macro-loader/pull/221) (open)
 Git branch: `pr-221/postgres-role-provisioning-debug-logs`
-Git status: active-local-checks-pending
+Git status: pushed-local-checks-passed
 Agent lane: admin-only least-privilege PostgreSQL role provisioning command
 Commit: `feat(pr-221): instrument PostgreSQL role provisioning`
 Design patterns: Logging Adapter; preserve the explicit Admin Command boundary and secret redaction.
