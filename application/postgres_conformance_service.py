@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from typing import Protocol
 
@@ -24,6 +25,8 @@ from application.postgres_sync import (
     GoldTargetSummary,
     select_current_sync_record,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class GoldCatalogReader(Protocol):
@@ -55,6 +58,7 @@ class GoldPostgresConformanceVerifier:
         self._inspector = inspector
 
     def verify(self) -> PostgresConformanceReport:
+        logger.debug("postgres application conformance verification started")
         try:
             record = select_current_sync_record(self._catalog.read())
             if record.data_path is None:
@@ -78,7 +82,11 @@ class GoldPostgresConformanceVerifier:
                 consumer_digests,
                 summary,
             )
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "postgres application conformance verification failed error_type=%s",
+                type(exc).__name__,
+            )
             return PostgresConformanceReport("FAIL", ("verification_failed",), {})
         summaries = dict(
             sorted(
@@ -89,7 +97,7 @@ class GoldPostgresConformanceVerifier:
                 }.items()
             )
         )
-        return PostgresConformanceReport(
+        report = PostgresConformanceReport(
             "PASS",
             (
                 "consumer",
@@ -105,6 +113,15 @@ class GoldPostgresConformanceVerifier:
             ),
             summaries,
         )
+        logger.debug(
+            "postgres application conformance verification passed build_id=%s "
+            "source_row_count=%d consumer_row_count=%d digest_row_count=%d",
+            record.build_id,
+            len(source_digests),
+            summary.row_count,
+            len(digest_index),
+        )
+        return report
 
     @staticmethod
     def _read_target(

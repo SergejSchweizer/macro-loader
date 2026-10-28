@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from application.postgres_conformance import PostgresConformanceReport
@@ -68,10 +70,13 @@ class OperationsStub:
         self._call("enable")
 
 
-def test_reconstruction_runs_exactly_all_stages_and_reenables_only_after_pass() -> None:
+def test_reconstruction_runs_exactly_all_stages_and_reenables_only_after_pass(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     operations = OperationsStub()
 
-    report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
+    with caplog.at_level(logging.DEBUG, logger="application.production_reconstruction"):
+        report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
 
     assert report.status == "PASS"
     assert operations.calls == [
@@ -94,24 +99,38 @@ def test_reconstruction_runs_exactly_all_stages_and_reenables_only_after_pass() 
         '"silver", "gold", "schema", "publication", "verification", "replay", '
         '"daily_wrapper"], "failed_stage": null, "status": "PASS"}'
     )
+    assert f"production reconstruction started series_count={len(SERIES_REGISTRY)}" in caplog.text
+    assert "stage=maintenance completed_stage_count=1" in caplog.text
+    assert "stage=daily_wrapper completed_stage_count=12" in caplog.text
+    assert "production reconstruction passed completed_stage_count=12" in caplog.text
+    assert "private operational failure" not in caplog.text
 
 
 @pytest.mark.parametrize("failure", ("locks", "endpoint", "backup", "schema"))
-def test_reconstruction_fails_closed_before_or_during_destructive_work(failure: str) -> None:
+def test_reconstruction_fails_closed_before_or_during_destructive_work(
+    failure: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     operations = OperationsStub(failure=failure)
 
-    report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
+    with caplog.at_level(logging.DEBUG, logger="application.production_reconstruction"):
+        report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
 
     assert report.status == "FAIL"
     assert report.failed_stage == failure
     assert "enable" not in operations.calls
     assert "private operational failure" not in report.as_json()
+    assert f"stage={failure} error_type=RuntimeError" in caplog.text
+    assert "private operational failure" not in caplog.text
 
 
-def test_reconstruction_keeps_scheduling_disabled_after_failed_independent_verification() -> None:
+def test_reconstruction_keeps_scheduling_disabled_after_failed_independent_verification(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     operations = OperationsStub(verification="FAIL")
 
-    report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
+    with caplog.at_level(logging.DEBUG, logger="application.production_reconstruction"):
+        report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
 
     assert report == ProductionReconstructionReport(
         "FAIL",
@@ -130,17 +149,20 @@ def test_reconstruction_keeps_scheduling_disabled_after_failed_independent_verif
     )
     assert "replay" not in operations.calls
     assert "enable" not in operations.calls
+    assert "production reconstruction failed stage=verification" in caplog.text
 
 
-def test_reconstruction_rejects_mutating_replay() -> None:
+def test_reconstruction_rejects_mutating_replay(caplog: pytest.LogCaptureFixture) -> None:
     operations = OperationsStub()
     operations.replay = GoldSyncResult("macro_features_daily", "20260828T120000Z", 1, 0, 0, 0)
 
-    report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
+    with caplog.at_level(logging.DEBUG, logger="application.production_reconstruction"):
+        report = ProductionReconstruction(operations, tuple(SERIES_REGISTRY)).run()
 
     assert report.failed_stage == "replay"
     assert "daily_wrapper" not in operations.calls
     assert "enable" not in operations.calls
+    assert "production reconstruction failed stage=replay" in caplog.text
 
 
 def test_reconstruction_requires_exactly_thirteen_unique_series() -> None:

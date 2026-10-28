@@ -9,14 +9,45 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-212: Add Debug Telemetry To Application Verification Use Cases
+
+PR name: `application-verification-debug-logs`
+Status: Open — local quality gate passed
+Updated: 2026-10-28
+PR: [#212](https://github.com/SergejSchweizer/macro-loader/pull/212) (open)
+Git branch: `pr-212/application-verification-debug-logs`
+Git status: pushed-local-checks-passed
+Agent lane: application-level PostgreSQL conformance and guarded reconstruction use cases
+Commit: `feat(pr-212): instrument application verification use cases`
+Design patterns: Logging Adapter; preserve application use-case and fail-closed boundaries.
+Depends on: PR-211 (merged to `origin/main`)
+
+Description:
+- R1: Add lifecycle telemetry to the application PostgreSQL conformance verifier and
+  production-reconstruction state machine, including safe result counts and failed-stage IDs.
+- R2: Log only canonical build IDs, row/series/stage counts, fixed stage names, statuses, and
+  exception classes; never log hashes, feature values, paths, credentials, or error text.
+- R3: Preserve fail-closed reports, stage ordering, replay zero-change requirement, and
+  scheduling-release behavior.
+- R4: Use only local fakes/fixtures; do not run guarded operations, production PostgreSQL/cron,
+  or GitHub Actions.
+
+Acceptance:
+- A1 caplog tests verify PASS/FAIL conformance and reconstruction lifecycle records with
+  accurate counts and safe stage identifiers.
+- A2 injected exceptions prove credentials, hashes, exception messages, and paths are absent.
+- A3 existing tests continue to verify report determinism, exact stage order, fail-closed
+  behavior, and that scheduling remains disabled on any failure.
+- A4 `make quality-gate` passes locally; no guarded/production operation executes.
+
 ### PR-211: Measure Daily Cron End-To-End Runtime
 
 PR name: `daily-cron-runtime-duration`
-Status: Open — local quality gate passed
+Status: Merged
 Updated: 2026-10-28
-PR: [#211](https://github.com/SergejSchweizer/macro-loader/pull/211) (open)
+PR: [#211](https://github.com/SergejSchweizer/macro-loader/pull/211) (merged)
 Git branch: `pr-211/daily-cron-runtime-duration`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: daily cron wrapper total elapsed time and exit outcome
 Commit: `feat(pr-211): record daily cron total runtime`
 Design patterns: Operational Telemetry; preserve the existing Command/cron-wrapper boundary.
