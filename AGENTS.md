@@ -2,8 +2,10 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#226 are merged to `origin/main`.
-Production PostgreSQL migration 37 completed; all 25 raw feature tables and the long-form
+Current delivery status (2026-10-28): PRs #192–#227 are merged to `origin/main`; PR-228
+records production migration 38 verification. PR-227 merged as
+`6a3fca88fdbd02bcb2fdaf70ec3891d8ca23229d`. Production PostgreSQL migration 38 completed;
+all 25 raw feature tables and the long-form
 `macro_loader.macro_features` materialized view contain 12,189,132 feature rows. The 2026-10-28
 guarded daily acceptance passed both wrapper runs, the zero-change replay, and all 26 raw-derived
 feature-group comparisons; the independent verifier completed after PR-226 closed its idle
@@ -46,9 +48,17 @@ validation, bypass, and staged pre-commit deferral behavior. PR-224 batches inde
 full-history source operations through the bounded application-level `--cores` policy while
 keeping dependent publication and PostgreSQL stages sequential. PR-225 independently checks
 all raw-derived population groups and corrects per-series EMA/MACD recurrence; migration 37
-rebuilds the production view. PR-226 closes the verifier transaction before long scans. Current
-GOALS math-validation work is fixing legacy PostgreSQL tests that still assume a wide view; do
-not infer numeric correctness from row-count conformance alone.
+rebuilt the production view. PR-226 closes the verifier transaction before long scans. PR-227
+adds migration 38; production deployment completed on 2026-10-28. After deployment the view
+had 12,189,132 rows, 1,720 distinct feature names, and zero NaN/infinities. Read-only
+`postgres-verify` passed consumer, digest_index, feature_values, roles, schema, session, source,
+state, summary, and temporal checks; consumer/digest each had 16,805 rows, there were 28 schema
+tables and two passing temporal probes. A sequential/index-driven comparison of 26 raw-derived
+groups found no missing actual rows or mismatches at `1e-12` absolute / `1e-10` relative
+tolerance. This is a raw-derived value comparison, not an independently coded mathematical
+oracle. The separate disposable PostgreSQL independent formula/causality suite passed 46 tests,
+and `make quality-gate` passed on PR-227. No daily cron was started for the deployment.
+GitHub Actions remain disabled and must not be used.
 
 ## Source of truth
 

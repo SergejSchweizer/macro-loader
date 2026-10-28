@@ -18,17 +18,26 @@ rebuilt the view with corrected per-series EMA/MACD recurrences on 2026-10-28. A
 Fed table are absent. The long view has 12,189,132 rows across 1,720 features. PostgreSQL
 sync state is schema 11 / feature 6, with 16,805 consumer rows and matching row digests. The
 guarded daily acceptance passed both cron-wrapper runs, zero-change replay, and independent
-PostgreSQL schema/population verification on 2026-10-28. Population conformance does not
-prove numeric formula parity; use the disposable PostgreSQL integration suite for formula QA.
+PostgreSQL schema/population verification on 2026-10-28, before migration 38 deployment.
+Migration 38 was subsequently deployed on 2026-10-28. Production `macro_loader.macro_features`
+contains 12,189,132 rows across 1,720 distinct feature names and has zero NaN/infinite values.
+Read-only `postgres-verify` passed consumer, digest_index, feature_values, roles, schema,
+session, source, state, summary, and temporal checks (16,805 consumer/digest rows, 28 schema
+tables, two temporal probes). A sequential/index-driven value-by-value comparison of all 26
+raw-derived groups found no missing actual rows or numeric mismatches at `1e-12` absolute /
+`1e-10` relative tolerance. This verifies raw-derived population values; it is not an
+independently coded mathematical oracle. Separately, 46 disposable PostgreSQL independent
+formula/causality tests passed and PR-227's local `make quality-gate` passed. No daily cron
+was started for migration 38 deployment.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.
 
-Pending PR-227 adds migration 38 to rebuild the long-form view from the raw-series tables.
+Merged PR-227 adds migration 38 to rebuild the long-form view from the raw-series tables.
 An explicit NULL source observation resets that series' EMA/MACD recurrence; a missing
 timestamp is not an observation and does not reset state. Logarithm inputs are checked for a
-positive representable ratio before evaluation. Production remains on migration 37 until
-migration 38 is explicitly deployed.
+positive representable ratio before evaluation. Production migration 38 deployment and
+read-only verification completed on 2026-10-28; no daily cron was started for that deployment.
 
 The current Gold semantic contract is schema version **11** and feature version **6**;
 the authoritative definitions are `application.gold_frame.GOLD_SCHEMA_VERSION` and
