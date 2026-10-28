@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#212 are merged to `origin/main`.
+Current delivery status (2026-10-28): PRs #192–#213 are merged to `origin/main`.
 Production migration 36, canonical Gold sync, and independent verification have completed;
 25 raw feature tables and the long-form `macro_loader.macro_features` materialized view are
 populated through 2026-10-27 (schema 11 / feature 6). PR-201,
@@ -16,7 +16,9 @@ to lake repositories; PR-209 adds telemetry to PostgreSQL conformance and Gold i
 adapters; PR-210 adds elapsed-time telemetry to guarded reconstruction operations; PR-211
 records daily cron total elapsed seconds and exit code; PR-212 adds application-level
 conformance/reconstruction telemetry. PR-212 merged as
-`923d63a67bce1ecfd8144745210059153c414d74`; PR-213 records the merge in delivery docs.
+`923d63a67bce1ecfd8144745210059153c414d74`; PR-213 recorded that merge and merged as
+`1972971f3640181f0f5cb385e83c7e608cf288d4`. PR-214 adds safe logs to canonical Gold-frame
+assembly.
 Per the user's instruction, GitHub Actions must
 remain disabled and must not be triggered, re-enabled, rerun, or newly added; perform checks
 locally only.
