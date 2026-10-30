@@ -6,6 +6,82 @@ The repository acquires open/public market and macro series, preserves their his
 
 The project is intentionally a **data product**, not a trading system. It does not own HMM states, `risk_on`/`risk_off` labels, prediction targets, portfolio weights, or execution decisions.
 
+## Contents
+
+- [Quickstart](#quickstart)
+- [Status and production evidence](#status)
+- [Architecture](#architecture)
+- [Initial series catalog](#initial-series-catalog)
+  - [PostgreSQL raw-feature tables](#postgresql-raw-feature-table-catalogue)
+  - [STOXX term-structure features](#stoxx-term-structure-raw-features)
+  - [ECB New-CISS components](#ecb-new-ciss-component-contributions)
+  - [Euro high-yield series](#euro-high-yield-source-series)
+  - [U.S. Treasury yields](#us-treasury-yields)
+- [Source update policy](#source-update-policy)
+- [Medallion lake](#medallion-lake)
+  - [Bronze](#bronze)
+  - [Silver](#silver)
+  - [Gold](#gold)
+  - [Gold build bundle and catalog](#immutable-gold-build-bundle)
+  - [Retention](#retention)
+- [PostgreSQL serving replica](#postgresql-gold-serving-replica)
+- [Operational CLI](#operational-cli)
+  - [Daily pipeline](#daily-pipeline-contract)
+  - [Runtime configuration](#runtime-configuration)
+  - [Scheduling](#scheduling)
+  - [Feature acceptance runs](#feature-library-acceptance-runs)
+- [Local quality checks](#local-quality-checks)
+- [Repository structure](#repository-structure)
+- [Documentation contract](#documentation-contract)
+
+## Quickstart
+
+This gets one public series into a **local** lake and publishes a local Gold snapshot. It does
+not connect to PostgreSQL, invoke cron, or modify a production installation.
+
+1. Install Python 3.13 or newer and [uv](https://docs.astral.sh/uv/), clone this repository,
+   and install the project with its local development/test tools:
+
+   ```bash
+   uv sync --extra dev
+   ```
+
+2. Choose a durable local lake directory. The default is `./lake`; pass `--lake-root`
+   explicitly if you keep data elsewhere. Source credentials are only needed for providers
+   that require them: CBOE, STOXX, Yahoo Finance, and ECB examples do not require an API key;
+   selecting FRED series requires `FRED_API_KEY` in the process environment. Keep credentials
+   in a local secret manager or ignored environment/configuration, never in committed files.
+
+3. Bootstrap one series for a bounded-scope first run. `vix` uses the public CBOE source and
+   needs no API key. This command makes a network request for that source and writes only to
+   the chosen local lake:
+
+   ```bash
+   export LAKE_ROOT="$PWD/lake"
+   uv run macro-loader --lake-root "$LAKE_ROOT" bootstrap --series vix
+   ```
+
+4. Build the selected series' canonical Silver data, then publish the local Gold dataset:
+
+   ```bash
+   uv run macro-loader --lake-root "$LAKE_ROOT" silver-build --series vix
+   uv run macro-loader --lake-root "$LAKE_ROOT" gold-build
+   uv run macro-loader --lake-root "$LAKE_ROOT" inventory --json
+   ```
+
+   Bronze and Silver partitions are under `lake/bronze/` and `lake/silver/`. Gold's immutable
+   build bundle and its authoritative catalog are under
+   `lake/gold/dataset=macro_features_daily/`; ingestion state and run/inventory manifests are
+   under `lake/state/` and `lake/manifests/`. Operational logs are written under `.logs/`.
+   These runtime directories are local and Git-ignored by the repository.
+
+5. Treat PostgreSQL and host scheduling as separate, explicitly configured operator actions.
+   `gold-sync-postgres` requires the dedicated runtime PostgreSQL credentials; `postgres-migrate`
+   requires the separate protected admin credential set. Neither is needed for this quickstart.
+   Production migrations, guarded reconstruction (`postgres-reconstruct --execute`), and
+   installing/running cron require the appropriate deployment authorization and environment;
+   they are not part of local lake creation.
+
 ## Status
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
