@@ -86,7 +86,8 @@ not connect to PostgreSQL, invoke cron, or modify a production installation.
 
 The reviewed medallion architecture is implemented through the atomic PR sequence in `BACKLOG.md`, including the PostgreSQL serving-plane sequence: only canonical Gold is replicated, while Bronze, Silver, immutable Gold bundles, and the authoritative Gold catalog remain local lake concerns.
 
-The repository includes native OHLC inputs and OHLC-derived transformations in PostgreSQL.
+The 2026-10-28 deployment snapshot included native OHLC inputs and OHLC-derived
+transformations in PostgreSQL.
 Production migration 36 renamed the raw-derived long transformation materialized view to
 `macro_loader.macro_features` and retired the superseded views on 2026-10-27. Migration 37
 rebuilt the view with corrected per-series EMA/MACD recurrences on 2026-10-28. All 25
@@ -105,6 +106,12 @@ raw-derived groups found no missing actual rows or numeric mismatches at `1e-12`
 independently coded mathematical oracle. Separately, 46 disposable PostgreSQL independent
 formula/causality tests passed and PR-227's local `make quality-gate` passed. No daily cron
 was started for migration 38 deployment.
+On 2026-10-30, a later read-only `postgres-verify` passed all ten checks and reported
+12,192,436 feature rows, 16,807 consumer and digest rows, 28 schema tables, and two temporal
+probes. That conformance run does not replace or extend the independent numerical comparison
+above. `macro_writer` is the owner of the `macro_loader` database, loader schemas, and serving
+objects; `macro_reader` is the read-only application role. No production cron was started for
+the migration-38 deployment or this read-only verification.
 This operator guide does not provide Fed-specific command or scheduling instructions.
 Historical Fed acceptance artifacts and backlog entries are retained for audit. The
 independent FRED provider remains active for its registered macro series.

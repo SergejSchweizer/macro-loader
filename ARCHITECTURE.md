@@ -6,8 +6,9 @@ This document is the durable engineering contract for `macro-loader`.
 
 ## Current operational status
 
-The repository includes causal feature transformations and native OHLC values in
-PostgreSQL. Retired Fed-policy runtime and serving code does not establish production
+As-of deployment snapshot (2026-10-28): the repository included causal feature
+transformations and native OHLC values in PostgreSQL. Retired Fed-policy runtime and serving
+code does not establish production
 database or installed host-crontab state. Production migration 36 renamed the populated
 raw-derived long transformation materialized view to `macro_loader.macro_features` and
 retired the superseded views on 2026-10-27; migration 37 rebuilt it with corrected per-series
@@ -30,6 +31,11 @@ checks; raw-derived comparisons across 26 groups found no missing actual rows or
 mismatches at the documented tolerances. This population comparison is not an independent
 mathematical oracle; the separate disposable PostgreSQL formula/causality suite passed 46
 tests. No daily cron was started for that deployment.
+The later read-only `postgres-verify` run on 2026-10-30 passed all ten checks and reported
+12,192,436 feature rows, 16,807 consumer/digest rows, 28 schema tables, and two temporal
+probes. It also confirmed macro-loader role/schema conformance after `macro_writer` became
+the database, schema, and serving-object owner; this later current-state check is not an
+independent formula oracle and does not replace the migration-38 numerical evidence above.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
