@@ -12,13 +12,13 @@ Last reviewed: 2026-10-30
 ### PR-237: Reconcile Current Backlog Summary
 
 PR name: `reconcile-current-backlog-summary`
-Status: In progress
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-237/reconcile-current-backlog-summary`
-PR: not opened
-Git status: in-progress
+PR: [#237](https://github.com/SergejSchweizer/macro-loader/pull/237) (open)
+Git status: pushed-local-checks-passed
 Agent lane: current-state documentation reconciliation
-Commit: pending
+Commit: `cd7abd2 docs(pr-237): reconcile current backlog status`
 Design patterns: Architectural baseline only.
 Depends on: PR-236 (merged to `origin/main`)
 
