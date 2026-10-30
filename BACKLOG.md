@@ -9,14 +9,53 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-232: Make `macro_writer` Own Macro-Loader PostgreSQL Objects
+
+PR name: `macro-writer-owns-loader-objects`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-232/macro-writer-owns-loader-objects`
+PR: not opened
+Git status: in-progress
+Agent lane: PostgreSQL ownership and scoped role lifecycle
+Commit: pending
+Design patterns: Repository/schema ownership boundary; fail-closed role migration.
+Depends on: PR-231 (merged to `origin/main`)
+
+Description:
+- R1: Make `macro_writer` the owner of the `macro_loader` database and loader schemas,
+  tables, materialized view, and migration-created objects; remove the separate
+  `macro-loader-owner` role.
+- R2: Update migrations, schema reconstruction, sync ownership checks, verifier contracts,
+  and default privileges to use the writer as owner without granting ownership to the
+  read-only `macro_reader`.
+- R3: Safely transfer only objects currently owned by `macro-loader-owner` in the
+  `macro_loader` database, verify no external database/schema ownership is changed, then
+  remove that obsolete role. Do not change other services or start cron.
+- R4: Update operator/architecture docs and retain admin-only schema migration boundaries.
+
+Acceptance:
+- A1 Runtime login roles are `macro_reader` (read-only) and `macro_writer` (owner and sync
+  writer); `macro-loader-owner` is absent, and unrelated PostgreSQL roles are unchanged.
+- A2 All current/future macro serving objects, including both loader schemas and the
+  materialized feature view, are owned by `macro_writer`; admin migrations succeed using
+  the documented protected admin identity.
+- A3 Sync and read-only verification tests reflect writer ownership while proving the reader
+  cannot mutate objects and writer has no access outside the macro-loader scope.
+- A4 `make quality-gate` and available disposable PostgreSQL ownership/conformance tests pass
+  locally; no GitHub Actions or cron is used.
+- A5 Production role/object ownership is changed only after the code branch is merged; verify
+  exact owners, role absence, authentication, and unrelated-role preservation read-only.
+
 ### PR-231: Provision Dedicated PostgreSQL Reader and Writer Roles
 
 PR name: `postgres-roles-from-goals`
-Status: Pushed — local quality gate passed; awaiting PR review
+Status: Merged; production roles provisioned
 Updated: 2026-10-30
 Git branch: `pr-231/postgres-roles-from-goals`
-PR: [#231](https://github.com/SergejSchweizer/macro-loader/pull/231) (open)
-Git status: pushed-local-checks-passed
+PR: [#231](https://github.com/SergejSchweizer/macro-loader/pull/231) (merged)
+Merge commit: `4195cf7`
+Git status: merged
 Agent lane: PostgreSQL role least privilege and credential separation
 Commit: `ce7db88 feat(pr-231): provision dedicated postgres roles`
 Design patterns: Adapter/configuration boundary; fail-closed idempotent provisioning.
@@ -30,7 +69,8 @@ Description:
 - R3: Make explicit provisioning rename legacy roles only when target roles are absent,
   reject name collisions, apply least-privilege grants, and never log credentials or SQL.
 - R4: Update verifier role/grant checks and operator documentation. Do not run role
-  provisioning against production in this PR.
+  provisioning against production in this PR. After merge, production provisioning was
+  explicitly authorized and verified on 2026-10-30; only macro-loader roles were changed.
 
 Acceptance:
 - A1 Application roles are exactly two LOGIN roles: `macro_reader` (read-only) and
@@ -1869,7 +1909,8 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-228 are merged to `origin/main`. Production migration 38 is deployed and
+PR-192 through PR-229 and PR-231 are merged to `origin/main`; PR-230 remains open.
+Production migration 38 is deployed and
 its read-only conformance and raw-derived value comparison are recorded under PR-228.
 No daily cron was started for that deployment. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro

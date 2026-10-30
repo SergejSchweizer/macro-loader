@@ -405,7 +405,7 @@ _ROW_HASHES = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(POSTGRES_ROW_HASH_TABLE)}
 _RAW_FEATURE_COLUMNS = POSTGRES_RAW_COLUMNS[1:]
 _MIGRATION_LEDGER_TABLE = "schema_migrations"
 _MIGRATION_LEDGER = f"{_quote(POSTGRES_SYNC_SCHEMA)}.{_quote(_MIGRATION_LEDGER_TABLE)}"
-_POSTGRES_OWNER_ROLE = "macro-loader-owner"
+_POSTGRES_OWNER_ROLE = POSTGRES_SYNC_USER
 _RETIRED_ARCHIVE_SCHEMA = "macro_loader_retired"
 _RETIRED_RAW_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_macro_raw"'
 _RETIRED_FEATURE_ARCHIVE = f'{_quote(_RETIRED_ARCHIVE_SCHEMA)}."fed_macro_features"'
@@ -3422,7 +3422,7 @@ class PostgresGoldSyncRepository:
             )
             if cursor.fetchone() != (select_expected,):
                 raise ValueError(f"PostgreSQL macro_features SELECT grant differs for {role}")
-        for role in (POSTGRES_USER, POSTGRES_SYNC_USER, "public"):
+        for role in (POSTGRES_USER, "public"):
             cursor.execute(
                 "SELECT has_table_privilege(%s, %s, 'INSERT') "
                 "OR has_table_privilege(%s, %s, 'UPDATE') "

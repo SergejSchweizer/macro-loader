@@ -21,7 +21,8 @@ POSTGRES_ROLE = "macro_reader"
 POSTGRES_SYNC_ROLE = "macro_writer"
 LEGACY_POSTGRES_ROLE = "macro-loader"
 LEGACY_POSTGRES_SYNC_ROLE = "macro-loader-sync"
-POSTGRES_OWNER_ROLE = "macro-loader-owner"
+LEGACY_POSTGRES_OWNER_ROLE = "macro-loader-owner"
+POSTGRES_OWNER_ROLE = POSTGRES_SYNC_ROLE
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
     *(("macro_loader", table) for table in POSTGRES_RAW_TABLES),
@@ -94,6 +95,8 @@ class ProvisioningConfig:
             raise ValueError(f"provisioning endpoint must be {POSTGRES_HOST}:{POSTGRES_PORT}")
         if not database:
             raise ValueError("MARKET_MACRO_POSTGRES_DATABASE is required")
+        if database != "macro_loader":
+            raise ValueError("MARKET_MACRO_POSTGRES_DATABASE must be macro_loader")
         if not admin_user:
             raise ValueError("MARKET_MACRO_POSTGRES_ADMIN_USER is required")
         if not admin_password:
@@ -115,12 +118,13 @@ def provision_sql(
     database: str, reader_password: str, writer_password: str, admin_user: str
 ) -> str:
     """Return idempotent fail-closed DDL without exposing administrator credentials."""
+    if database not in {"macro_loader", "macro_loader_test"}:
+        raise ValueError("provisioning database must be macro_loader or macro_loader_test")
     role_i = _identifier(POSTGRES_ROLE)
     role_l = _literal(POSTGRES_ROLE)
     sync_role_i = _identifier(POSTGRES_SYNC_ROLE)
     sync_role_l = _literal(POSTGRES_SYNC_ROLE)
     owner_i = _identifier(POSTGRES_OWNER_ROLE)
-    owner_l = _literal(POSTGRES_OWNER_ROLE)
     admin_i = _identifier(admin_user)
     database_i = _identifier(database)
     reader_password_l = _literal(reader_password)
@@ -176,6 +180,9 @@ def provision_sql(
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {sync_role_i};"
         for schema in POSTGRES_SCHEMAS
     )
+    database_owner_statement = (
+        f"ALTER DATABASE {database_i} OWNER TO {owner_i};" if database == "macro_loader" else ""
+    )
     return f"""DO $provision$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {_literal(LEGACY_POSTGRES_ROLE)}) THEN
@@ -189,9 +196,6 @@ BEGIN
             RAISE EXCEPTION 'legacy writer and target writer roles both exist';
         END IF;
         ALTER ROLE {_identifier(LEGACY_POSTGRES_SYNC_ROLE)} RENAME TO {sync_role_i};
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {owner_l}) THEN
-        CREATE ROLE {owner_i} NOLOGIN;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {role_l}) THEN
         CREATE ROLE {role_i}
@@ -228,7 +232,96 @@ $provision$;
 
 GRANT CONNECT ON DATABASE {database_i} TO {role_i};
 GRANT {owner_i} TO {admin_i};
-REVOKE {owner_i} FROM {role_i}, {sync_role_i};
+REVOKE {owner_i} FROM {role_i};
+{database_owner_statement}
+DO $retire_owner$
+BEGIN
+    IF current_database() = 'macro_loader'
+       AND EXISTS (
+           SELECT 1 FROM pg_roles
+           WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)}
+       ) THEN
+        IF EXISTS (
+            SELECT 1 FROM pg_roles
+            WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)}
+              AND (rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
+                   OR rolreplication OR rolbypassrls)
+        ) THEN
+            RAISE EXCEPTION 'legacy macro owner has incompatible role attributes';
+        END IF;
+        IF EXISTS (
+            SELECT 1 FROM pg_database
+            WHERE datdba = (SELECT oid FROM pg_roles
+                            WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND datname <> current_database()
+        ) OR EXISTS (
+            SELECT 1 FROM pg_tablespace
+            WHERE spcowner = (SELECT oid FROM pg_roles
+                              WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+        ) OR EXISTS (
+            SELECT 1 FROM pg_namespace
+            WHERE nspowner = (SELECT oid FROM pg_roles
+                              WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND nspname NOT IN ('macro_loader', 'macro_loader_sync',
+                                  'macro_loader_retired', 'pg_toast')
+        ) OR EXISTS (
+            SELECT 1 FROM pg_class AS classes
+            JOIN pg_namespace AS namespaces ON namespaces.oid = classes.relnamespace
+            WHERE classes.relowner = (SELECT oid FROM pg_roles
+                                      WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND namespaces.nspname NOT IN ('macro_loader', 'macro_loader_sync',
+                                             'macro_loader_retired', 'pg_toast')
+        ) OR EXISTS (
+            SELECT 1 FROM pg_proc AS procedures
+            JOIN pg_namespace AS namespaces ON namespaces.oid = procedures.pronamespace
+            WHERE procedures.proowner = (SELECT oid FROM pg_roles
+                                         WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND namespaces.nspname NOT IN ('macro_loader', 'macro_loader_sync',
+                                             'macro_loader_retired')
+        ) OR EXISTS (
+            SELECT 1 FROM pg_type AS types
+            JOIN pg_namespace AS namespaces ON namespaces.oid = types.typnamespace
+            WHERE types.typowner = (SELECT oid FROM pg_roles
+                                    WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND namespaces.nspname NOT IN ('macro_loader', 'macro_loader_sync',
+                                             'macro_loader_retired', 'pg_toast')
+        ) OR EXISTS (
+            SELECT 1 FROM pg_default_acl AS defaults
+            LEFT JOIN pg_namespace AS namespaces ON namespaces.oid = defaults.defaclnamespace
+            WHERE defaults.defaclrole = (SELECT oid FROM pg_roles
+                                         WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND (namespaces.nspname IS NULL OR namespaces.nspname NOT IN
+                   ('macro_loader', 'macro_loader_sync', 'macro_loader_retired'))
+        ) OR EXISTS (
+            SELECT 1 FROM pg_shdepend
+            WHERE refclassid = 'pg_authid'::regclass
+              AND refobjid = (SELECT oid FROM pg_roles
+                              WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND deptype = 'a'
+        ) THEN
+            RAISE EXCEPTION 'legacy macro owner has objects outside macro-loader schemas';
+        END IF;
+        IF EXISTS (
+            SELECT 1 FROM pg_auth_members
+            WHERE roleid = (SELECT oid FROM pg_roles
+                            WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+              AND member <> (SELECT oid FROM pg_roles WHERE rolname = {_literal(admin_user)})
+        ) OR EXISTS (
+            SELECT 1 FROM pg_auth_members
+            WHERE member = (SELECT oid FROM pg_roles
+                            WHERE rolname = {_literal(LEGACY_POSTGRES_OWNER_ROLE)})
+        ) THEN
+            RAISE EXCEPTION 'legacy macro owner has unexpected role memberships';
+        END IF;
+        EXECUTE 'REASSIGN OWNED BY {_identifier(LEGACY_POSTGRES_OWNER_ROLE)} '
+                'TO {_identifier(POSTGRES_OWNER_ROLE)}';
+        EXECUTE 'DROP OWNED BY {_identifier(LEGACY_POSTGRES_OWNER_ROLE)}';
+        EXECUTE 'REVOKE {_identifier(LEGACY_POSTGRES_OWNER_ROLE)} '
+                'FROM {_identifier(admin_user)}';
+        EXECUTE 'DROP ROLE {_identifier(LEGACY_POSTGRES_OWNER_ROLE)}';
+    END IF;
+END
+$retire_owner$;
 {schemas}
 {table_ownership}
 {materialized_view_ownership}

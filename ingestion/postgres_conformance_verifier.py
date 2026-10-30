@@ -68,8 +68,12 @@ ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 _ROLE_SQL = """SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
     rolreplication, rolbypassrls
 FROM pg_roles
-WHERE rolname IN (%s, %s, %s, %s, %s)
+WHERE rolname IN (%s, %s, %s, %s)
 ORDER BY rolname COLLATE "C"""
+_LEGACY_OWNER_SQL = """SELECT count(*) FROM pg_roles
+WHERE rolname = 'macro-loader-owner' AND current_database() = 'macro_loader'"""
+_DATABASE_OWNER_SQL = """SELECT pg_get_userbyid(datdba)
+FROM pg_database WHERE datname = current_database()"""
 _SCHEMA_OWNER_SQL = """SELECT namespaces.nspname, roles.rolname
 FROM pg_namespace AS namespaces
 JOIN pg_roles AS roles ON roles.oid = namespaces.nspowner
@@ -324,13 +328,11 @@ class PostgresLiveDatabaseConformanceInspector:
             )
             raise ValueError("long-form feature view contains unknown feature names")
 
-    @staticmethod
-    def _assert_roles(cursor: CursorPort) -> None:
+    def _assert_roles(self, cursor: CursorPort) -> None:
         schemas = (POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA)
         cursor.execute(
             _ROLE_SQL,
             (
-                POSTGRES_OWNER_ROLE,
                 POSTGRES_ROLE,
                 POSTGRES_SYNC_ROLE,
                 "macro-loader",
@@ -338,11 +340,17 @@ class PostgresLiveDatabaseConformanceInspector:
             ),
         )
         if tuple(cursor.fetchall()) != (
-            (POSTGRES_OWNER_ROLE, False, False, False, False, False, False),
             (POSTGRES_ROLE, True, False, False, False, False, False),
             (POSTGRES_SYNC_ROLE, True, False, False, False, False, False),
         ):
             raise ValueError("roles differ")
+        if self._config.database == "macro_loader":
+            cursor.execute(_LEGACY_OWNER_SQL)
+            if cursor.fetchone() != (0,):
+                raise ValueError("legacy macro owner role remains")
+            cursor.execute(_DATABASE_OWNER_SQL)
+            if cursor.fetchone() != (POSTGRES_SYNC_ROLE,):
+                raise ValueError("macro_loader database owner differs")
 
         expected_schemas = tuple((schema, POSTGRES_OWNER_ROLE) for schema in sorted(schemas))
         cursor.execute(_SCHEMA_OWNER_SQL, schemas)
@@ -356,21 +364,30 @@ class PostgresLiveDatabaseConformanceInspector:
         if tuple(cursor.fetchall()) != expected_tables:
             raise ValueError("table ownership differs")
 
-        for role in (POSTGRES_ROLE, POSTGRES_SYNC_ROLE):
-            for schema in schemas:
-                cursor.execute(
-                    "SELECT has_schema_privilege(%s, %s, 'USAGE'), "
-                    "has_schema_privilege(%s, %s, 'CREATE')",
-                    (role, schema, role, schema),
-                )
-                if cursor.fetchone() != (True, False):
-                    raise ValueError("runtime schema grants differ")
-        for table in _SCHEMA_SPECIFICATION:
-            has_dml = (
-                table.name != POSTGRES_FEATURE_VALUES_TABLE and table.name != "schema_migrations"
+        for schema in schemas:
+            cursor.execute(
+                "SELECT has_schema_privilege(%s, %s, 'USAGE'), "
+                "has_schema_privilege(%s, %s, 'CREATE'), "
+                "has_schema_privilege(%s, %s, 'USAGE'), "
+                "has_schema_privilege(%s, %s, 'CREATE')",
+                (
+                    POSTGRES_ROLE,
+                    schema,
+                    POSTGRES_ROLE,
+                    schema,
+                    POSTGRES_SYNC_ROLE,
+                    schema,
+                    POSTGRES_SYNC_ROLE,
+                    schema,
+                ),
             )
-            for role, role_has_dml in ((POSTGRES_ROLE, False), (POSTGRES_SYNC_ROLE, has_dml)):
-                expected = (True, role_has_dml, role_has_dml, role_has_dml)
+            if cursor.fetchone() != (True, False, True, True):
+                raise ValueError("runtime schema ownership differs")
+        for table in _SCHEMA_SPECIFICATION:
+            for role, expected in (
+                (POSTGRES_ROLE, (True, False, False, False)),
+                (POSTGRES_SYNC_ROLE, (True, True, True, True)),
+            ):
                 cursor.execute(
                     "SELECT has_table_privilege(%s, %s, 'SELECT'), "
                     "has_table_privilege(%s, %s, 'INSERT'), "

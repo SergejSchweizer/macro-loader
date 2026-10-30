@@ -701,10 +701,11 @@ the CI-only `macro_loader_test` database remains separate.
 The 25 raw feature tables are in schema `macro_loader` and are named
 `macro_raw_<feature>` (for example `macro_loader.macro_raw_vix`). The only application
 LOGIN roles are `macro_reader` and `macro_writer`. Use the reader credentials for SQL
-inspection and `postgres-verify`; the daily Gold sync uses the writer credentials. The
-`macro-loader-owner` role is `NOLOGIN` and owns loader objects. PostgreSQL's separately
-administered `postgres` account remains the administrative principal, not an application
-runtime user. In a SQL client, select database `macro_loader`, schema `macro_loader`, and
+inspection and `postgres-verify`; the daily Gold sync uses the writer credentials.
+`macro_writer` owns the `macro_loader` database and serving objects; `macro-loader-owner` is
+retired. PostgreSQL's separately administered `postgres` account remains the administrative
+principal, not an application runtime user. In a SQL client, select database `macro_loader`,
+schema `macro_loader`, and
 connect as `macro_reader`; list the raw tables with:
 
 ```sql
@@ -732,11 +733,14 @@ endpoints, generated SQL, subprocess output, and exception text are excluded.
 The `macro_reader` runtime role is a non-owning LOGIN principal with schema `USAGE` and
 read-only access to the 25 loader-owned feature tables and sync tables; it cannot create
 schemas or objects, change grants, or access unrelated schemas. The dedicated
-`macro_writer` LOGIN role performs Gold synchronization with DML on the raw feature tables
-and sync tables; both runtime roles have read-only access to the materialized feature view.
-The admin-managed `macro-loader-owner` role owns loader schemas and tables without LOGIN
-capability. The explicit provisioner safely renames prior runtime roles when the new names
-are absent and fails closed if old and new names coexist.
+`macro_writer` LOGIN role owns the `macro_loader` database and loader schemas/tables and
+performs Gold synchronization. `macro-loader-owner` is retired during explicit provisioning,
+which reassigns its objects only inside the `macro_loader` database and fails closed if it
+owns objects outside the loader schemas or has unexpected role memberships. The provisioner
+safely renames prior runtime roles when the new names are absent and fails closed if old and
+new names coexist. `macro_reader` has read-only access to the materialized feature view and
+cannot mutate loader objects. `macro_writer` has owner authority over loader objects; normal
+Gold synchronization uses that authority for raw-table deltas and the explicit refresh path.
 
 Do not commit credentials as a connection string. Deployment configuration lives in ignored `config.yaml`, under `secrets.postgres_reader_password` and `secrets.postgres_writer_password`; these values must be distinct and separate from the admin credential. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and reader role, then exports separate shell-safe reader and writer variables along with lake, project, mirror, FRED, and logging settings. The installed cron wrapper also rejects a configuration whose `runtime.project_root` does not match its resolved checkout, preventing stale paths from an older project rename.
 
