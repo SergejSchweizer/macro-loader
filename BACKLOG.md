@@ -24,15 +24,22 @@ Depends on: PR-234 (merged to `origin/main`)
 
 Description:
 - R1: Record PR-234's actual merged state and merge commit in the backlog.
-- R2: Preserve PR-234's precise production verification scope and disclosure that the
-  complete feature-population verifier was interrupted.
+- R2: Preserve PR-234's historically accurate focused-check scope and record the later
+  successful full production verifier run after macro role provisioning.
 - R3: Documentation only; no production changes, cron, or GitHub Actions.
 
 Acceptance:
 - A1 PR-234 is accurately recorded as merged with merge identity `a642d41`.
 - A2 `BACKLOG.md` preserves the production provisioning and read-only role/ownership
-  evidence without claiming the interrupted full verifier passed.
+  evidence and records the successful full verifier result without rewriting the history
+  of its earlier interrupted attempt.
 - A3 Local `make quality-gate` passes; no GitHub Actions or cron is used.
+
+Full production verifier rerun (2026-10-30, after PR-233 provisioning): all ten checks
+passed (`consumer`, `digest_index`, `feature_values`, `roles`, `schema`, `session`, `source`,
+`state`, `summary`, `temporal`). It reported 12,192,436 feature rows, 16,807 consumer and
+digest rows, 28 schema tables, three expected roles, and two temporal probes. This successful
+run supersedes the earlier interrupted attempt; it did not start cron or mutate production.
 
 ### PR-234: Record Writer Ownership Provisioning Verification
 
