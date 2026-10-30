@@ -111,8 +111,8 @@ _RETIRED_FED_LEGACY_COLUMNS = (
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
-POSTGRES_USER = "macro-loader"
-POSTGRES_SYNC_USER = "macro-loader-sync"
+POSTGRES_USER = "macro_reader"
+POSTGRES_SYNC_USER = "macro_writer"
 POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS = 900_000
 POSTGRES_FEATURE_REFRESH_TIMEOUT_MS = 900_000
 POSTGRES_ADVISORY_LOCK_NAMESPACE = "macro-loader:postgres-gold-sync:v1"
@@ -219,6 +219,21 @@ class PostgresSyncConfig:
     @classmethod
     def from_env(cls) -> PostgresSyncConfig:
         return cls.from_mapping(os.environ)
+
+    @classmethod
+    def reader_from_env(cls) -> PostgresSyncConfig:
+        """Build a read-only verification connection from its dedicated credentials."""
+        values = {
+            "PGHOST": os.environ.get("PGHOST", ""),
+            "PGPORT": os.environ.get("PGPORT", ""),
+            "PGDATABASE": os.environ.get("PGDATABASE", ""),
+            "PGUSER": os.environ.get("PGREADUSER", ""),
+            "PGPASSWORD": os.environ.get("PGREADPASSWORD", ""),
+        }
+        config = cls.from_mapping(values)
+        if config.user != POSTGRES_USER:
+            raise ValueError(f"PostgreSQL reader user must be {POSTGRES_USER}")
+        return config
 
 
 @dataclass(frozen=True, slots=True)

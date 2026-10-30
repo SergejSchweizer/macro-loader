@@ -34,14 +34,19 @@ def _generated_at_utc() -> str:
 
 def _database_command(project_root: Path, command: str) -> list[str]:
     root = project_root.resolve()
+    credentials = (
+        'export PGUSER="$PGREADUSER" PGPASSWORD="$PGREADPASSWORD"; '
+        if command == "postgres-verify"
+        else 'export PGUSER="$PGSYNCUSER" PGPASSWORD="$PGSYNCPASSWORD"; '
+    )
     shell = (
         "set -euo pipefail; "
         'export MACRO_LOADER_PROJECT_ROOT="$1"; '
         'eval "$("$1/.venv/bin/python" '
         '"$1/scripts/export_cron_config.py" "$1/config.yaml")"; '
-        'export PGUSER="$PGSYNCUSER" PGPASSWORD="$PGSYNCPASSWORD"; '
-        'exec "$1/.venv/bin/macro-loader" --lake-root "$LAKE_ROOT" '
-        f"{command}"
+        + credentials
+        + 'exec "$1/.venv/bin/macro-loader" --lake-root "$LAKE_ROOT" '
+        + command
     )
     return ["bash", "-c", shell, "macro-feature-cron-acceptance", str(root)]
 

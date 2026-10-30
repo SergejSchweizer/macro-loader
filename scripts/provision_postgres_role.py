@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from api.logging_config import configure_debug_logging
@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = 54321
-POSTGRES_ROLE = "macro-loader"
-POSTGRES_SYNC_ROLE = "macro-loader-sync"
+POSTGRES_ROLE = "macro_reader"
+POSTGRES_SYNC_ROLE = "macro_writer"
+LEGACY_POSTGRES_ROLE = "macro-loader"
+LEGACY_POSTGRES_SYNC_ROLE = "macro-loader-sync"
 POSTGRES_OWNER_ROLE = "macro-loader-owner"
 POSTGRES_SCHEMAS = ("macro_loader", "macro_loader_sync")
 POSTGRES_TABLES = (
@@ -71,8 +73,9 @@ class ProvisioningConfig:
     port: int
     database: str
     admin_user: str
-    admin_password: str
-    app_password: str
+    admin_password: str = field(repr=False)
+    reader_password: str = field(repr=False)
+    writer_password: str = field(repr=False)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> ProvisioningConfig:
@@ -81,7 +84,8 @@ class ProvisioningConfig:
         database = env.get("MARKET_MACRO_POSTGRES_DATABASE", "").strip()
         admin_user = env.get("MARKET_MACRO_POSTGRES_ADMIN_USER", "").strip()
         admin_password = env.get("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD", "")
-        app_password = env.get("MARKET_MACRO_POSTGRES_PASSWORD", "")
+        reader_password = env.get("MARKET_MACRO_POSTGRES_READER_PASSWORD", "")
+        writer_password = env.get("MARKET_MACRO_POSTGRES_WRITER_PASSWORD", "")
         try:
             port = int(port_text)
         except ValueError as exc:
@@ -94,14 +98,22 @@ class ProvisioningConfig:
             raise ValueError("MARKET_MACRO_POSTGRES_ADMIN_USER is required")
         if not admin_password:
             raise ValueError("MARKET_MACRO_POSTGRES_ADMIN_PASSWORD is required")
-        if not app_password:
-            raise ValueError("MARKET_MACRO_POSTGRES_PASSWORD is required")
-        if admin_password == app_password:
-            raise ValueError("application password must differ from administrator password")
-        return cls(host, port, database, admin_user, admin_password, app_password)
+        if not reader_password:
+            raise ValueError("MARKET_MACRO_POSTGRES_READER_PASSWORD is required")
+        if not writer_password:
+            raise ValueError("MARKET_MACRO_POSTGRES_WRITER_PASSWORD is required")
+        if admin_password in (reader_password, writer_password):
+            raise ValueError("application passwords must differ from administrator password")
+        if reader_password == writer_password:
+            raise ValueError("reader and writer passwords must differ")
+        return cls(
+            host, port, database, admin_user, admin_password, reader_password, writer_password
+        )
 
 
-def provision_sql(database: str, app_password: str, admin_user: str) -> str:
+def provision_sql(
+    database: str, reader_password: str, writer_password: str, admin_user: str
+) -> str:
     """Return idempotent fail-closed DDL without exposing administrator credentials."""
     role_i = _identifier(POSTGRES_ROLE)
     role_l = _literal(POSTGRES_ROLE)
@@ -111,7 +123,8 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
     owner_l = _literal(POSTGRES_OWNER_ROLE)
     admin_i = _identifier(admin_user)
     database_i = _identifier(database)
-    password_l = _literal(app_password)
+    reader_password_l = _literal(reader_password)
+    writer_password_l = _literal(writer_password)
     schemas = "\n".join(
         f"CREATE SCHEMA IF NOT EXISTS {_identifier(schema)} AUTHORIZATION {owner_i};\n"
         f"ALTER SCHEMA {_identifier(schema)} OWNER TO {owner_i};\n"
@@ -165,12 +178,24 @@ def provision_sql(database: str, app_password: str, admin_user: str) -> str:
     )
     return f"""DO $provision$
 BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {_literal(LEGACY_POSTGRES_ROLE)}) THEN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {role_l}) THEN
+            RAISE EXCEPTION 'legacy reader and target reader roles both exist';
+        END IF;
+        ALTER ROLE {_identifier(LEGACY_POSTGRES_ROLE)} RENAME TO {role_i};
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {_literal(LEGACY_POSTGRES_SYNC_ROLE)}) THEN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {sync_role_l}) THEN
+            RAISE EXCEPTION 'legacy writer and target writer roles both exist';
+        END IF;
+        ALTER ROLE {_identifier(LEGACY_POSTGRES_SYNC_ROLE)} RENAME TO {sync_role_i};
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {owner_l}) THEN
         CREATE ROLE {owner_i} NOLOGIN;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {role_l}) THEN
         CREATE ROLE {role_i}
-            LOGIN PASSWORD {password_l}
+            LOGIN PASSWORD {reader_password_l}
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
     ELSE
         IF EXISTS (
@@ -179,16 +204,24 @@ BEGIN
               AND (NOT rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
                    OR rolreplication OR rolbypassrls)
         ) THEN
-            RAISE EXCEPTION 'existing macro-loader role has incompatible privileges';
+            RAISE EXCEPTION 'existing macro_reader role has incompatible privileges';
         END IF;
-        ALTER ROLE {role_i} PASSWORD {password_l};
+        ALTER ROLE {role_i} PASSWORD {reader_password_l};
     END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {sync_role_l}) THEN
         CREATE ROLE {sync_role_i}
-            LOGIN PASSWORD {password_l}
+            LOGIN PASSWORD {writer_password_l}
             NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
     ELSE
-        ALTER ROLE {sync_role_i} PASSWORD {password_l};
+        IF EXISTS (
+            SELECT 1 FROM pg_roles
+            WHERE rolname = {sync_role_l}
+              AND (NOT rolcanlogin OR rolsuper OR rolcreatedb OR rolcreaterole
+                   OR rolreplication OR rolbypassrls)
+        ) THEN
+            RAISE EXCEPTION 'existing macro_writer role has incompatible privileges';
+        END IF;
+        ALTER ROLE {sync_role_i} PASSWORD {writer_password_l};
     END IF;
 END
 $provision$;
@@ -237,7 +270,7 @@ def psql_command(config: ProvisioningConfig) -> list[str]:
 
 def sanitized(text: str, config: ProvisioningConfig) -> str:
     result = text
-    for secret in (config.admin_password, config.app_password):
+    for secret in (config.admin_password, config.reader_password, config.writer_password):
         if secret:
             result = result.replace(secret, "***")
     return result
@@ -250,7 +283,12 @@ def run(config: ProvisioningConfig) -> None:
     try:
         completed = subprocess.run(
             psql_command(config),
-            input=provision_sql(config.database, config.app_password, config.admin_user),
+            input=provision_sql(
+                config.database,
+                config.reader_password,
+                config.writer_password,
+                config.admin_user,
+            ),
             text=True,
             capture_output=True,
             env=environment,

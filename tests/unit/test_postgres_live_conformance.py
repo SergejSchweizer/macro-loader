@@ -74,8 +74,8 @@ class FakeCursor:
             ]
         elif "FROM pg_roles" in query:
             self._many = [
-                (POSTGRES_ROLE, True, False, False, False, False, False),
                 (POSTGRES_OWNER_ROLE, False, False, False, False, False, False),
+                (POSTGRES_ROLE, True, False, False, False, False, False),
                 (POSTGRES_SYNC_ROLE, True, False, False, False, False, False),
             ]
         elif "FROM pg_namespace AS namespaces" in query and "classes" not in query:

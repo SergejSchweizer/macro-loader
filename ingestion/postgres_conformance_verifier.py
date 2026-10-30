@@ -68,8 +68,8 @@ ORDER BY namespaces.nspname, classes.relname, constraints.contype"""
 _ROLE_SQL = """SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
     rolreplication, rolbypassrls
 FROM pg_roles
-WHERE rolname IN (%s, %s, %s)
-ORDER BY rolname"""
+WHERE rolname IN (%s, %s, %s, %s, %s)
+ORDER BY rolname COLLATE "C"""
 _SCHEMA_OWNER_SQL = """SELECT namespaces.nspname, roles.rolname
 FROM pg_namespace AS namespaces
 JOIN pg_roles AS roles ON roles.oid = namespaces.nspowner
@@ -327,10 +327,19 @@ class PostgresLiveDatabaseConformanceInspector:
     @staticmethod
     def _assert_roles(cursor: CursorPort) -> None:
         schemas = (POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA)
-        cursor.execute(_ROLE_SQL, (POSTGRES_OWNER_ROLE, POSTGRES_ROLE, POSTGRES_SYNC_ROLE))
+        cursor.execute(
+            _ROLE_SQL,
+            (
+                POSTGRES_OWNER_ROLE,
+                POSTGRES_ROLE,
+                POSTGRES_SYNC_ROLE,
+                "macro-loader",
+                "macro-loader-sync",
+            ),
+        )
         if tuple(cursor.fetchall()) != (
-            (POSTGRES_ROLE, True, False, False, False, False, False),
             (POSTGRES_OWNER_ROLE, False, False, False, False, False, False),
+            (POSTGRES_ROLE, True, False, False, False, False, False),
             (POSTGRES_SYNC_ROLE, True, False, False, False, False, False),
         ):
             raise ValueError("roles differ")

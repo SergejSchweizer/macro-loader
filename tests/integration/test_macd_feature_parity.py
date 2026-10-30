@@ -77,16 +77,17 @@ def _prepare_empty_test_schemas(dsn: str) -> None:
             "DO $$ BEGIN "
             "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-owner') "
             'THEN CREATE ROLE "macro-loader-owner" NOLOGIN; END IF; '
-            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader') "
-            'THEN CREATE ROLE "macro-loader" LOGIN NOSUPERUSER NOCREATEDB '
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro_reader') "
+            'THEN CREATE ROLE "macro_reader" LOGIN NOSUPERUSER NOCREATEDB '
             "NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; "
-            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-sync') "
-            'THEN CREATE ROLE "macro-loader-sync" LOGIN NOSUPERUSER NOCREATEDB '
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro_writer') "
+            'THEN CREATE ROLE "macro_writer" LOGIN NOSUPERUSER NOCREATEDB '
             "NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$"
         )
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
-        connection.execute("ALTER ROLE \"macro-loader-sync\" PASSWORD 'runtime-secret'")
+        connection.execute("ALTER ROLE \"macro_reader\" PASSWORD 'runtime-secret'")
+        connection.execute("ALTER ROLE \"macro_writer\" PASSWORD 'runtime-secret'")
 
 
 @pytest.fixture

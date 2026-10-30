@@ -318,7 +318,7 @@ def build_postgres_verification_runtime(
     *, lake_root: Path, stderr: TextIO
 ) -> PostgresVerificationRuntime:
     _logger(stderr)
-    config = PostgresSyncConfig.from_env()
+    config = PostgresSyncConfig.reader_from_env()
     paths = LakePaths(lake_root)
     build_store = GoldBuildStore(paths)
     return PostgresVerificationRuntime(
@@ -343,6 +343,7 @@ def build_production_reconstruction_runtime(
         stderr=stderr,
     )
     runtime_config = PostgresSyncConfig.from_env()
+    reader_config = PostgresSyncConfig.reader_from_env()
     admin_config = PostgresAdminConfig.from_env()
     paths = LakePaths(lake_root)
     build_store = GoldBuildStore(paths)
@@ -358,7 +359,7 @@ def build_production_reconstruction_runtime(
         catalog=catalog,
         source=source,
         repository=PostgresGoldSyncRepository(runtime_config),
-        inspector=PostgresLiveDatabaseConformanceInspector(runtime_config),
+        inspector=PostgresLiveDatabaseConformanceInspector(reader_config),
     )
     project_root = Path(os.environ.get("PROJECT_ROOT", Path.cwd())).resolve()
     operations = GuardedProductionReconstructionOperations(

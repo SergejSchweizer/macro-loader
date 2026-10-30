@@ -58,7 +58,7 @@ class Pipeline:
 
 
 def _configurations() -> tuple[PostgresSyncConfig, PostgresAdminConfig]:
-    runtime = PostgresSyncConfig("10.10.1.3", 54321, "macro-loader", "db", "runtime")
+    runtime = PostgresSyncConfig("10.10.1.3", 54321, "macro_writer", "db", "runtime")
     admin = PostgresAdminConfig("10.10.1.3", 54321, "admin", "db", "admin")
     return runtime, admin
 

@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 POSTGRES_HOST = "10.10.1.3"
 POSTGRES_PORT = "54321"
-POSTGRES_USER = "macro-loader"
-POSTGRES_SYNC_USER = "macro-loader-sync"
+POSTGRES_USER = "macro_reader"
+POSTGRES_SYNC_USER = "macro_writer"
 LOG_BASENAME = "macro-loader.log"
 
 
@@ -38,7 +38,8 @@ def _postgres_values(config: dict[str, Any]) -> dict[str, str]:
     port = _value(config, "runtime", "postgres_port")
     user = _value(config, "runtime", "postgres_user")
     database = _value(config, "runtime", "postgres_database")
-    password = _value(config, "secrets", "postgres_password")
+    reader_password = _value(config, "secrets", "postgres_reader_password")
+    writer_password = _value(config, "secrets", "postgres_writer_password")
     if host != POSTGRES_HOST:
         raise ValueError(f"runtime.postgres_host must be {POSTGRES_HOST}")
     if port != POSTGRES_PORT:
@@ -50,9 +51,11 @@ def _postgres_values(config: dict[str, Any]) -> dict[str, str]:
         "PGPORT": port,
         "PGUSER": user,
         "PGDATABASE": database,
-        "PGPASSWORD": password,
+        "PGPASSWORD": reader_password,
         "PGSYNCUSER": POSTGRES_SYNC_USER,
-        "PGSYNCPASSWORD": password,
+        "PGSYNCPASSWORD": writer_password,
+        "PGREADUSER": POSTGRES_USER,
+        "PGREADPASSWORD": reader_password,
     }
 
 

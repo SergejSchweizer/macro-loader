@@ -363,7 +363,7 @@ def test_schema_reconstructor_recreates_only_loader_schemas_and_revalidates_cont
     assert 'DROP SCHEMA IF EXISTS "macro_loader_sync" CASCADE' in queries
     assert all("DROP SCHEMA" not in query or "macro_loader" in query for query in queries)
     assert 'SET ROLE "macro-loader-owner"' in queries
-    assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro-loader"' in queries
+    assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro_reader"' in queries
     assert verified
     assert ("commit", None, None) in connection.events
 
@@ -385,12 +385,12 @@ def test_config_requires_exact_endpoint_role_and_hides_password() -> None:
         {
             "PGHOST": "10.10.1.3",
             "PGPORT": "54321",
-            "PGUSER": "macro-loader",
+            "PGUSER": "macro_reader",
             "PGDATABASE": "macro_loader",
             "PGPASSWORD": "repo-secret",
         }
     )
-    assert (config.host, config.port, config.user) == ("10.10.1.3", 54321, "macro-loader")
+    assert (config.host, config.port, config.user) == ("10.10.1.3", 54321, "macro_reader")
     assert "repo-secret" not in repr(config)
     with pytest.raises(ValueError, match="host"):
         PostgresSyncConfig("localhost", 54321, POSTGRES_USER, "macro_loader", "x")
@@ -404,6 +404,26 @@ def test_config_requires_exact_endpoint_role_and_hides_password() -> None:
         PostgresSyncConfig(POSTGRES_HOST, POSTGRES_PORT, POSTGRES_USER, "macro_loader", "")
     with pytest.raises(ValueError, match="PGPORT"):
         PostgresSyncConfig.from_mapping({"PGPORT": "invalid"})
+
+
+def test_reader_config_uses_only_dedicated_read_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key, value in {
+        "PGHOST": POSTGRES_HOST,
+        "PGPORT": str(POSTGRES_PORT),
+        "PGDATABASE": "macro_loader",
+        "PGUSER": "macro_writer",
+        "PGPASSWORD": "writer-secret",
+        "PGREADUSER": POSTGRES_USER,
+        "PGREADPASSWORD": "reader-secret",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    config = PostgresSyncConfig.reader_from_env()
+
+    assert config.user == POSTGRES_USER
+    assert config.password == "reader-secret"
 
 
 def test_admin_config_uses_distinct_namespace_role_and_redacted_password() -> None:
@@ -568,7 +588,7 @@ def test_retirement_migration_archives_fed_data_before_removing_active_columns()
     assert 'DELETE FROM "macro_loader_sync"."gold_sync_state"' in sql
     assert 'DELETE FROM "macro_loader_sync"."gold_row_hashes"' in sql
     assert 'REVOKE ALL ON SCHEMA "macro_loader_retired" FROM PUBLIC' in sql
-    assert '"macro-loader"' in sql and '"macro-loader-sync"' in sql
+    assert '"macro_reader"' in sql and '"macro_writer"' in sql
     assert sql.index('INSERT INTO "macro_loader_retired"."fed_macro_raw"') < sql.index(
         'DROP COLUMN IF EXISTS "fed_next_expected_move_bp"'
     )
