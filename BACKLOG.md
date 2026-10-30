@@ -9,6 +9,35 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-230: Add README Onboarding Quickstart And Linked Contents
+
+PR name: `readme-onboarding-toc`
+Status: Open; rebased and pushed, local quality gate passed
+Updated: 2026-10-30
+Git branch: `pr-230/readme-onboarding-toc`
+PR: [#230](https://github.com/SergejSchweizer/macro-loader/pull/230) (open)
+Git status: pushed-local-checks-passed
+Agent lane: README onboarding and navigation; documentation only
+Commit: `1f6800b docs(pr-230): add onboarding quickstart and linked contents`
+Design patterns: Architectural baseline only.
+Depends on: PR-229 (merged to `origin/main`)
+
+Description:
+- R1: Add linked README contents for onboarding, source/catalogue, lake and serving
+  contracts, operations, and local quality checks.
+- R2: Add a tested stepwise local quickstart: install, choose a lake, bootstrap public VIX,
+  build Silver/Gold, and locate outputs and logs.
+- R3: Distinguish local lake commands from PostgreSQL, migrations, guarded reconstruction,
+  and host cron actions that require their own credentials and authorization.
+- R4: Documentation only; no application, cron, production, or GitHub Actions changes.
+
+Acceptance:
+- A1 README contents links resolve to current headings.
+- A2 Quickstart commands, credential needs, and output paths match the CLI and runtime.
+- A3 Existing operator documentation and diagrams remain; only README and BACKLOG change.
+- A4 Rebase on current `main`, pass local `make quality-gate`, and update PR #230 without
+  using GitHub Actions.
+
 ### PR-235: Record Writer Ownership Verification Merge
 
 PR name: `record-ownership-verification-merge`
