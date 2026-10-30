@@ -9,14 +9,39 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-240: Record PR-239 Merge Status
+
+PR name: `record-pr239-merge-status`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-240/record-pr239-merge-status`
+Git status: local-checks-pending
+Agent lane: post-merge status reconciliation
+Commit: pending
+Design patterns: Architectural baseline only.
+Depends on: PR-239 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-239's actual merge identity and replace its stale open-state metadata.
+- R2: Advance the current delivery-status range in `AGENTS.md` and `BACKLOG.md` through PR-239.
+- R3: Documentation-only; preserve production evidence and perform no cron, production
+  mutation, or GitHub Actions operation.
+
+Acceptance:
+- A1 PR-239 is recorded as merged with GitHub merge identity `cfd8155`.
+- A2 Current agent/backlog status records PR-192 through PR-239 as merged and retains the
+  latest 2026-10-30 verifier counts without conflating them with migration-38 numerical parity.
+- A3 `make quality-gate` passes locally; no GitHub Actions or cron is used.
+
 ### PR-239: Record PR-238 Merge And Close Operational Logging Audit
 
 PR name: `record-pr238-merge-and-audit-logs`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-239/record-pr238-merge-and-audit-logs`
-PR: [#239](https://github.com/SergejSchweizer/macro-loader/pull/239) (open)
-Git status: pushed-local-checks-passed
+PR: [#239](https://github.com/SergejSchweizer/macro-loader/pull/239) (merged)
+Merge commit: `cfd8155`
+Git status: merged
 Agent lane: current-state documentation and GOALS evidence audit
 Commit: `bc26a4b feat(pr-239): log debug handler setup`
 Design patterns: Architectural baseline only; preserve pure contracts and deterministic policies.
@@ -2164,7 +2189,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-238 are merged to `origin/main`. Production migration 38 is deployed; its
+PR-192 through PR-239 are merged to `origin/main`. Production migration 38 is deployed; its
 independent raw-derived value comparison is recorded under PR-228. Following the macro role
 ownership update, the read-only `postgres-verify` passed all ten checks on 2026-10-30 and
 reported 12,192,436 feature rows, 16,807 consumer and digest rows, 28 schema tables, and two

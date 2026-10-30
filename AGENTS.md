@@ -60,7 +60,7 @@ oracle. The separate disposable PostgreSQL independent formula/causality suite p
 and `make quality-gate` passed on PR-227. No daily cron was started for the deployment.
 GitHub Actions remain disabled and must not be used.
 
-Current delivery status (2026-10-30): PRs #192–#238 are merged to `origin/main`; PR-227's
+Current delivery status (2026-10-30): PRs #192–#239 are merged to `origin/main`; PR-227's
 migration 38 is deployed. On 2026-10-30 the read-only `postgres-verify` passed all ten checks
 and reported 12,192,436 feature rows, 16,807 consumer/digest rows, 28 schema tables, and two
 temporal probes. This conformance result is separate from the 2026-10-28 migration-38
