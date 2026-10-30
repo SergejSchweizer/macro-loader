@@ -12,13 +12,13 @@ Last reviewed: 2026-10-30
 ### PR-235: Record Writer Ownership Verification Merge
 
 PR name: `record-ownership-verification-merge`
-Status: In progress
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-235/record-ownership-verification-merge`
-PR: not opened
-Git status: in-progress
+PR: [#235](https://github.com/SergejSchweizer/macro-loader/pull/235) (open)
+Git status: pushed-local-checks-passed
 Agent lane: backlog merge-state reconciliation
-Commit: pending
+Commit: `b0ae2b4 docs(pr-235): record ownership verification merge`
 Design patterns: Architectural baseline only.
 Depends on: PR-234 (merged to `origin/main`)
 
