@@ -9,14 +9,39 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-241: Record PR-240 Merge Status
+
+PR name: `record-pr240-merge-status`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-241/record-pr240-merge-status`
+Git status: local-checks-pending
+Agent lane: post-merge status reconciliation
+Commit: pending
+Design patterns: Architectural baseline only.
+Depends on: PR-240 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-240's actual merge identity and replace its stale open-state metadata.
+- R2: Advance the current delivery-status range in `AGENTS.md` and `BACKLOG.md` through PR-240.
+- R3: Documentation-only; preserve existing production and independent formula evidence, with
+  no cron, production mutation, or GitHub Actions.
+
+Acceptance:
+- A1 PR-240 is recorded as merged with GitHub merge identity `b18a73b`.
+- A2 Current agent/backlog status records PR-192 through PR-240 as merged and retains the
+  verified 2026-10-30 production counts separately from migration-38 numerical parity.
+- A3 `make quality-gate` passes locally; no GitHub Actions or cron is used.
+
 ### PR-240: Record PR-239 Merge Status
 
 PR name: `record-pr239-merge-status`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-240/record-pr239-merge-status`
-PR: [#240](https://github.com/SergejSchweizer/macro-loader/pull/240) (open)
-Git status: pushed-local-checks-passed
+PR: [#240](https://github.com/SergejSchweizer/macro-loader/pull/240) (merged)
+Merge commit: `b18a73b`
+Git status: merged
 Agent lane: post-merge status reconciliation
 Commit: `8ca115d docs(pr-240): record pr-239 merge status`
 Design patterns: Architectural baseline only.
@@ -2190,7 +2215,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-239 are merged to `origin/main`. Production migration 38 is deployed; its
+PR-192 through PR-240 are merged to `origin/main`. Production migration 38 is deployed; its
 independent raw-derived value comparison is recorded under PR-228. Following the macro role
 ownership update, the read-only `postgres-verify` passed all ten checks on 2026-10-30 and
 reported 12,192,436 feature rows, 16,807 consumer and digest rows, 28 schema tables, and two
