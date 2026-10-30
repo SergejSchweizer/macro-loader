@@ -12,13 +12,13 @@ Last reviewed: 2026-10-30
 ### PR-234: Record Writer Ownership Provisioning Verification
 
 PR name: `record-writer-owner-production-verification`
-Status: In progress
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-234/record-writer-owner-production-verification`
-PR: not opened
-Git status: in-progress
+PR: [#234](https://github.com/SergejSchweizer/macro-loader/pull/234) (open)
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL owner deployment documentation
-Commit: pending
+Commit: `4a29f71 docs(pr-234): record writer ownership verification`
 Design patterns: Architectural baseline only; report verified production state and limits.
 Depends on: PR-233 (merged to `origin/main`)
 
