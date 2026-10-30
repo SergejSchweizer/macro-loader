@@ -12,13 +12,13 @@ Last reviewed: 2026-10-28
 ### PR-232: Make `macro_writer` Own Macro-Loader PostgreSQL Objects
 
 PR name: `macro-writer-owns-loader-objects`
-Status: In progress
+Status: Pushed — local quality gate passed; awaiting PR review
 Updated: 2026-10-30
 Git branch: `pr-232/macro-writer-owns-loader-objects`
-PR: not opened
-Git status: in-progress
+PR: [#232](https://github.com/SergejSchweizer/macro-loader/pull/232) (open)
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL ownership and scoped role lifecycle
-Commit: pending
+Commit: `22515ee feat(pr-232): make macro_writer own loader objects`
 Design patterns: Repository/schema ownership boundary; fail-closed role migration.
 Depends on: PR-231 (merged to `origin/main`)
 
@@ -1909,7 +1909,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-229 and PR-231 are merged to `origin/main`; PR-230 remains open.
+PR-192 through PR-229 and PR-231 are merged to `origin/main`; PR-230 and PR-232 remain open.
 Production migration 38 is deployed and
 its read-only conformance and raw-derived value comparison are recorded under PR-228.
 No daily cron was started for that deployment. Historical Fed-policy acceptance artifacts
