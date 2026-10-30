@@ -12,13 +12,13 @@ Last reviewed: 2026-10-28
 ### PR-231: Provision Dedicated PostgreSQL Reader and Writer Roles
 
 PR name: `postgres-roles-from-goals`
-Status: In progress
+Status: Pushed — local quality gate passed; awaiting PR review
 Updated: 2026-10-30
 Git branch: `pr-231/postgres-roles-from-goals`
-PR: pending
-Git status: in-progress
+PR: [#231](https://github.com/SergejSchweizer/macro-loader/pull/231) (open)
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL role least privilege and credential separation
-Commit: pending
+Commit: `ce7db88 feat(pr-231): provision dedicated postgres roles`
 Design patterns: Adapter/configuration boundary; fail-closed idempotent provisioning.
 Depends on: PR-229 (merged to `origin/main`)
 
