@@ -23,7 +23,13 @@ source-derived row counts; it is not a substitute for numeric SQL-versus-indepen
 parity tests.
 PR-227 adds migration 38, keeping historical migrations immutable while rebuilding the long
 view with explicit-NULL EMA/MACD reset behavior and guarded log-ratio evaluation. Production
-remains on migration 37 until migration 38 is separately deployed.
+migration 38 was deployed on 2026-10-28. The deployed view contained 12,189,132 rows across
+1,720 feature names with zero NaN/infinite values. Read-only verification passed its
+consumer, digest, feature-value, role, schema, session, source, state, summary, and temporal
+checks; raw-derived comparisons across 26 groups found no missing actual rows or numeric
+mismatches at the documented tolerances. This population comparison is not an independent
+mathematical oracle; the separate disposable PostgreSQL formula/causality suite passed 46
+tests. No daily cron was started for that deployment.
 This document contains no Fed-specific operator commands or scheduling instructions.
 Historical Fed acceptance evidence is retained, and the independent FRED provider remains
 active for its ordinary registered macro series.
