@@ -26,7 +26,9 @@ def test_debug_logging_uses_logs_directory_and_ninety_daily_backups(tmp_path: Pa
         handler.flush()
 
         assert log_path == tmp_path / ".logs" / "macro-loader-debug.log"
-        assert "debug record" in log_path.read_text(encoding="utf-8")
+        log_contents = log_path.read_text(encoding="utf-8")
+        assert "debug logging configured retention_days=90 handler_reused=false" in log_contents
+        assert "debug record" in log_contents
         assert handler.backupCount == 90
         assert handler.when == "MIDNIGHT"
     finally:
@@ -39,6 +41,7 @@ def test_configure_debug_logging_replaces_handler_when_project_root_changes(
 ) -> None:
     first_path = configure_debug_logging(tmp_path / "first")
     second_path = configure_debug_logging(tmp_path / "second")
+    reused_path = configure_debug_logging(tmp_path / "second")
     handlers = [
         handler
         for handler in logging.getLogger().handlers
@@ -46,8 +49,13 @@ def test_configure_debug_logging_replaces_handler_when_project_root_changes(
     ]
 
     assert second_path == tmp_path / "second" / ".logs" / "macro-loader-debug.log"
+    assert reused_path == second_path
     assert len(handlers) == 1
     assert Path(handlers[0].baseFilename) == second_path
+    handlers[0].flush()
+    log_contents = second_path.read_text(encoding="utf-8")
+    assert "debug logging configured retention_days=90 handler_reused=true" in log_contents
+    assert str(tmp_path) not in log_contents
     assert first_path.parent.exists()
     logging.getLogger().removeHandler(handlers[0])
     handlers[0].close()
