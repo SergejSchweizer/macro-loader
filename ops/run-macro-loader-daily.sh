@@ -74,7 +74,7 @@ printf '[%s] Running delta-only daily pipeline\n' "$(date --iso-8601=seconds)"
 "$CLI" --overlap-days 60 --cores "$CORES" --lake-root "$LAKE_ROOT" run-daily
 
 printf '[%s] Synchronizing canonical Gold to PostgreSQL\n' "$(date --iso-8601=seconds)"
-PGUSER="${PGSYNCUSER:-macro-loader-sync}" \
+PGUSER="${PGSYNCUSER:-macro_writer}" \
 PGPASSWORD="${PGSYNCPASSWORD:-${PGPASSWORD:-}}" \
 	"$CLI" --lake-root "$LAKE_ROOT" gold-sync-postgres
 

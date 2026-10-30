@@ -689,9 +689,9 @@ FRED-backed source commands require `FRED_API_KEY`. Gold-capable commands (`gold
 ```text
 PGHOST=10.10.1.3
 PGPORT=54321
-PGUSER=macro-loader
+PGUSER=macro_reader
 PGDATABASE=macro_loader
-PGPASSWORD=<repository-specific secret>
+PGPASSWORD=<reader secret>
 ```
 
 All PostgreSQL macro data is stored in the dedicated `macro_loader` database. The
@@ -699,12 +699,13 @@ All PostgreSQL macro data is stored in the dedicated `macro_loader` database. Th
 the CI-only `macro_loader_test` database remains separate.
 
 The 25 raw feature tables are in schema `macro_loader` and are named
-`macro_raw_<feature>` (for example `macro_loader.macro_raw_vix`). In the deployed
-environment, SQL-client inspection was verified with the `macro-loader-sync` login
-using its configured `PGSYNCUSER`/`PGSYNCPASSWORD` credentials. The `macro-loader`
-login did not authenticate with the configured password during that check. In a SQL
-client, select database `macro_loader`, schema `macro_loader`, and use the working
-deployment login; list the raw tables with:
+`macro_raw_<feature>` (for example `macro_loader.macro_raw_vix`). The only application
+LOGIN roles are `macro_reader` and `macro_writer`. Use the reader credentials for SQL
+inspection and `postgres-verify`; the daily Gold sync uses the writer credentials. The
+`macro-loader-owner` role is `NOLOGIN` and owns loader objects. PostgreSQL's separately
+administered `postgres` account remains the administrative principal, not an application
+runtime user. In a SQL client, select database `macro_loader`, schema `macro_loader`, and
+connect as `macro_reader`; list the raw tables with:
 
 ```sql
 SELECT table_schema, table_name
@@ -728,14 +729,16 @@ The explicit role-provisioning utility logs its lifecycle to `.logs/macro-loader
 It records only fixed stage names, schema/table/view counts, and exception classes; credentials,
 endpoints, generated SQL, subprocess output, and exception text are excluded.
 
-The `macro-loader` runtime role is a non-owning LOGIN principal with schema `USAGE` and
+The `macro_reader` runtime role is a non-owning LOGIN principal with schema `USAGE` and
 read-only access to the 25 loader-owned feature tables and sync tables; it cannot create
 schemas or objects, change grants, or access unrelated schemas. The dedicated
-`macro-loader-sync` LOGIN role performs Gold synchronization with DML on those feature
-tables and the sync tables, while the admin-managed `macro-loader-owner` role owns loader
-schemas and tables without LOGIN capability.
+`macro_writer` LOGIN role performs Gold synchronization with DML on the raw feature tables
+and sync tables; both runtime roles have read-only access to the materialized feature view.
+The admin-managed `macro-loader-owner` role owns loader schemas and tables without LOGIN
+capability. The explicit provisioner safely renames prior runtime roles when the new names
+are absent and fails closed if old and new names coexist.
 
-Do not commit either credential set as a connection string. Deployment configuration lives in ignored `config.yaml`. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and role and exports shell-safe runtime `PG*`, lake, project, mirror, FRED, and logging variables only. The installed cron wrapper also rejects a configuration whose `runtime.project_root` does not match its resolved checkout, preventing stale paths from an older project rename.
+Do not commit credentials as a connection string. Deployment configuration lives in ignored `config.yaml`, under `secrets.postgres_reader_password` and `secrets.postgres_writer_password`; these values must be distinct and separate from the admin credential. `scripts/export_cron_config.py config.yaml` validates the exact runtime host, port, and reader role, then exports separate shell-safe reader and writer variables along with lake, project, mirror, FRED, and logging settings. The installed cron wrapper also rejects a configuration whose `runtime.project_root` does not match its resolved checkout, preventing stale paths from an older project rename.
 
 The canonical main log is enforced as:
 

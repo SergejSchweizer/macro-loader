@@ -9,6 +9,40 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-231: Provision Dedicated PostgreSQL Reader and Writer Roles
+
+PR name: `postgres-roles-from-goals`
+Status: Pushed — local quality gate passed; awaiting PR review
+Updated: 2026-10-30
+Git branch: `pr-231/postgres-roles-from-goals`
+PR: [#231](https://github.com/SergejSchweizer/macro-loader/pull/231) (open)
+Git status: pushed-local-checks-passed
+Agent lane: PostgreSQL role least privilege and credential separation
+Commit: `ce7db88 feat(pr-231): provision dedicated postgres roles`
+Design patterns: Adapter/configuration boundary; fail-closed idempotent provisioning.
+Depends on: PR-229 (merged to `origin/main`)
+
+Description:
+- R1: Replace the application runtime login roles with `macro_reader` and `macro_writer`;
+  retain the separate admin principal and the existing `NOLOGIN` object-owner role.
+- R2: Separate reader/writer credentials in protected deployment config and cron exports;
+  route verification through reader credentials and Gold sync through writer credentials.
+- R3: Make explicit provisioning rename legacy roles only when target roles are absent,
+  reject name collisions, apply least-privilege grants, and never log credentials or SQL.
+- R4: Update verifier role/grant checks and operator documentation. Do not run role
+  provisioning against production in this PR.
+
+Acceptance:
+- A1 Application roles are exactly two LOGIN roles: `macro_reader` (read-only) and
+  `macro_writer` (Gold sync DML); the admin principal is separate and object owner is NOLOGIN.
+- A2 Distinct protected credentials are required and exported only to their respective
+  read/write consumers; missing/equal secrets fail closed without leaking values.
+- A3 Provisioning is idempotent, safely renames old roles if destinations are free, and
+  fails without partial changes when a legacy/target role collision exists.
+- A4 Local tests verify reader/writer privilege contracts and no legacy runtime roles;
+  `make quality-gate` passes. No GitHub Actions or production mutation.
+- A5 Push the branch and open the PR; do not merge it in this task.
+
 ### PR-229: Reconcile Current Migration 38 Documentation
 
 PR name: `reconcile-migration38-current-docs`

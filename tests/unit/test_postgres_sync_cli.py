@@ -30,7 +30,7 @@ def _frame() -> pl.DataFrame:
 def _postgres_env(monkeypatch: pytest.MonkeyPatch, *, password: str = "repo-secret") -> None:
     monkeypatch.setenv("PGHOST", "10.10.1.3")
     monkeypatch.setenv("PGPORT", "54321")
-    monkeypatch.setenv("PGUSER", "macro-loader")
+    monkeypatch.setenv("PGUSER", "macro_reader")
     monkeypatch.setenv("PGDATABASE", "macro_loader")
     monkeypatch.setenv("PGPASSWORD", password)
 
@@ -80,7 +80,7 @@ def test_postgres_runtime_composition_uses_exact_protected_endpoint_without_conn
     assert isinstance(config, cli.PostgresSyncConfig)
     assert config.host == "10.10.1.3"
     assert config.port == 54321
-    assert config.user == "macro-loader"
+    assert config.user == "macro_reader"
     assert config.database == "macro_loader"
     assert config.password == "repo-secret"
     assert "repo-secret" not in repr(config)

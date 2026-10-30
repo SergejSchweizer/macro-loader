@@ -94,17 +94,17 @@ def postgres_dsn(monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
             "DO $$ BEGIN "
             "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-owner') "
             'THEN CREATE ROLE "macro-loader-owner" NOLOGIN; END IF; '
-            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader') "
-            'THEN CREATE ROLE "macro-loader" LOGIN NOSUPERUSER NOCREATEDB '
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro_reader') "
+            'THEN CREATE ROLE "macro_reader" LOGIN NOSUPERUSER NOCREATEDB '
             "NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; "
-            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-sync') "
-            'THEN CREATE ROLE "macro-loader-sync" LOGIN NOSUPERUSER NOCREATEDB '
+            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro_writer') "
+            'THEN CREATE ROLE "macro_writer" LOGIN NOSUPERUSER NOCREATEDB '
             "NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$"
         )
         connection.execute("CREATE SCHEMA macro_loader")
         connection.execute("CREATE SCHEMA macro_loader_sync")
-        connection.execute("ALTER ROLE \"macro-loader\" PASSWORD 'runtime-test-password'")
-        connection.execute("ALTER ROLE \"macro-loader-sync\" PASSWORD 'runtime-test-password'")
+        connection.execute("ALTER ROLE \"macro_reader\" PASSWORD 'runtime-test-password'")
+        connection.execute("ALTER ROLE \"macro_writer\" PASSWORD 'runtime-test-password'")
     yield dsn
 
 
@@ -133,7 +133,7 @@ def sync_repository(postgres_dsn: str) -> PostgresGoldSyncRepository:
         PostgresSyncConfig(
             host=target.get("host", "localhost"),
             port=int(target.get("port", "5432")),
-            user="macro-loader-sync",
+            user="macro_writer",
             database="macro_loader_test",
             password="runtime-test-password",
         )

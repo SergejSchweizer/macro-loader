@@ -9,7 +9,12 @@ import pytest
 from scripts.export_cron_config import export
 
 
-def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str:
+def _config(
+    *,
+    reader_password: str = "reader secret",
+    writer_password: str = "writer secret",
+    user: str = "macro_reader",
+) -> str:
     return (
         "runtime:\n"
         "  home: /home/a\n"
@@ -25,7 +30,8 @@ def _config(*, password: str = "repo secret", user: str = "macro-loader") -> str
         "  postgres_database: macro_loader\n"
         "secrets:\n"
         "  fred_api_key: secret key\n"
-        f"  postgres_password: {password!r}\n"
+        f"  postgres_reader_password: {reader_password!r}\n"
+        f"  postgres_writer_password: {writer_password!r}\n"
         "postgres_admin_password: admin secret\n"
     )
 
@@ -49,9 +55,13 @@ def test_export_cron_config_quotes_required_runtime_and_postgres_values(tmp_path
     assert values["PROJECT_ROOT"] == "/project path"
     assert values["PGHOST"] == "10.10.1.3"
     assert values["PGPORT"] == "54321"
-    assert values["PGUSER"] == "macro-loader"
+    assert values["PGUSER"] == "macro_reader"
     assert values["PGDATABASE"] == "macro_loader"
-    assert values["PGPASSWORD"] == "repo secret"
+    assert values["PGPASSWORD"] == "reader secret"
+    assert values["PGSYNCUSER"] == "macro_writer"
+    assert values["PGSYNCPASSWORD"] == "writer secret"
+    assert values["PGREADUSER"] == "macro_reader"
+    assert values["PGREADPASSWORD"] == "reader secret"
     assert all("ADMIN" not in name for name in values)
     assert "admin secret" not in export(config)
     assert values["LOG_PATH"] == "/project path/.logs/macro-loader.log"
@@ -71,11 +81,12 @@ def test_export_rejects_wrong_postgres_endpoint_or_user(tmp_path: Path) -> None:
 def test_export_rejects_missing_postgres_password_without_leaking_secret(tmp_path: Path) -> None:
     config = tmp_path / "config.yaml"
     config.write_text(
-        _config().replace("  postgres_password: 'repo secret'\n", ""), encoding="utf-8"
+        _config().replace("  postgres_reader_password: 'reader secret'\n", ""),
+        encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="postgres_password") as exc_info:
+    with pytest.raises(ValueError, match="postgres_reader_password") as exc_info:
         export(config)
-    assert "repo secret" not in str(exc_info.value)
+    assert "reader secret" not in str(exc_info.value)
 
 
 def test_export_rejects_noncanonical_log_path(tmp_path: Path) -> None:
@@ -106,7 +117,7 @@ def test_export_logs_variable_count_without_paths_or_values(
 ) -> None:
     caplog.set_level(logging.DEBUG, logger="scripts.export_cron_config")
     config = tmp_path / "config.yaml"
-    config.write_text(_config(password="very-secret"), encoding="utf-8")
+    config.write_text(_config(reader_password="very-secret"), encoding="utf-8")
 
     result = export(config)
 
@@ -114,6 +125,7 @@ def test_export_logs_variable_count_without_paths_or_values(
     assert f"variable_count={len(result.splitlines())}" in caplog.text
     assert str(tmp_path) not in caplog.text
     assert "very-secret" not in caplog.text
+    assert "writer secret" not in caplog.text
 
 
 def test_export_failure_logs_only_exception_class_and_no_config_values(
