@@ -26,7 +26,9 @@ def test_debug_logging_uses_logs_directory_and_ninety_daily_backups(tmp_path: Pa
         handler.flush()
 
         assert log_path == tmp_path / ".logs" / "macro-loader-debug.log"
-        assert "debug record" in log_path.read_text(encoding="utf-8")
+        log_contents = log_path.read_text(encoding="utf-8")
+        assert "debug logging configured retention_days=90 handler_reused=false" in log_contents
+        assert "debug record" in log_contents
         assert handler.backupCount == 90
         assert handler.when == "MIDNIGHT"
     finally:

@@ -9,14 +9,47 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-239: Record PR-238 Merge And Close Operational Logging Audit
+
+PR name: `record-pr238-merge-and-audit-logs`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-239/record-pr238-merge-and-audit-logs`
+Git status: local-checks-pending
+Agent lane: current-state documentation and GOALS evidence audit
+Commit: pending
+Design patterns: Architectural baseline only; preserve pure contracts and deterministic policies.
+Depends on: PR-238 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-238's actual merge identity and replace its stale open-state metadata.
+- R2: Advance the current-status range to PR-238 in `AGENTS.md` and `BACKLOG.md`.
+- R3: Close the GOALS logging audit using repository evidence: operational use cases, adapters,
+  CLI, and scripts emit debug lifecycle logs through the central `.logs` handler with 90-day
+  retention; pure ports, records, policies, and validators remain side-effect-free.
+- R4: Add a safe lifecycle record to the logging-configuration module itself, including handler
+  reuse and retention policy without logging paths or secrets.
+- R5: No data-pipeline behavior, production mutation, cron, or GitHub Actions.
+
+Acceptance:
+- A1 PR-238 is recorded as merged with GitHub merge identity `ed9c033`.
+- A2 Current agent/backlog status says PR-192 through PR-238 are merged and cites the latest
+  successful 2026-10-30 read-only verifier without changing historical parity claims.
+- A3 The local GOALS logging requirement is checked only for operational modules; pure contract
+  and policy modules remain intentionally side-effect-free, and logging retention is 90 days.
+- A4 Logging setup records its successful handler configuration/reuse and 90-day retention to
+  the configured `.logs` file; tests assert this without exposing secrets or paths.
+- A5 `make quality-gate` passes locally; no GitHub Actions or cron is used.
+
 ### PR-238: Refresh Agent Delivery Status
 
 PR name: `update-agent-delivery-status`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-238/update-agent-delivery-status`
-PR: [#238](https://github.com/SergejSchweizer/macro-loader/pull/238) (open)
-Git status: pushed-local-checks-passed
+PR: [#238](https://github.com/SergejSchweizer/macro-loader/pull/238) (merged)
+Merge commit: `ed9c033`
+Git status: merged
 Agent lane: current-state documentation reconciliation
 Commit: `79ea326 docs(pr-238): refresh current delivery status`
 Design patterns: Architectural baseline only.
@@ -2130,7 +2163,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-237 are merged to `origin/main`. Production migration 38 is deployed; its
+PR-192 through PR-238 are merged to `origin/main`. Production migration 38 is deployed; its
 independent raw-derived value comparison is recorded under PR-228. Following the macro role
 ownership update, the read-only `postgres-verify` passed all ten checks on 2026-10-30 and
 reported 12,192,436 feature rows, 16,807 consumer and digest rows, 28 schema tables, and two

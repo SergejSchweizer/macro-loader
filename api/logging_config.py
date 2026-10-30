@@ -10,6 +10,7 @@ from pathlib import Path
 _HANDLER_MARKER = "_macro_loader_debug_handler"
 _DEBUG_LOG_NAME = "macro-loader-debug.log"
 _RETENTION_DAYS = 90
+_LOGGER = logging.getLogger(__name__)
 
 
 class SecretRedactionFilter(logging.Filter):
@@ -51,6 +52,10 @@ def configure_debug_logging(
                 if isinstance(log_filter, SecretRedactionFilter):
                     existing.removeFilter(log_filter)
             existing.addFilter(SecretRedactionFilter(secrets))
+            _LOGGER.debug(
+                "debug logging configured retention_days=%d handler_reused=true",
+                _RETENTION_DAYS,
+            )
             return log_path
         root_logger.removeHandler(existing)
         existing.close()
@@ -73,4 +78,8 @@ def configure_debug_logging(
     formatter.converter = time.gmtime
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
+    _LOGGER.debug(
+        "debug logging configured retention_days=%d handler_reused=false",
+        _RETENTION_DAYS,
+    )
     return log_path
