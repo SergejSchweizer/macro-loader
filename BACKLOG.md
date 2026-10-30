@@ -12,13 +12,13 @@ Last reviewed: 2026-10-28
 ### PR-233: Preserve Writer CREATE Privilege On Owned Schemas
 
 PR name: `preserve-writer-schema-create`
-Status: In progress
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-233/preserve-writer-schema-create`
-PR: not opened
-Git status: in-progress
+PR: [#233](https://github.com/SergejSchweizer/macro-loader/pull/233) (open)
+Git status: pushed-local-checks-passed
 Agent lane: PostgreSQL owner ACL correction
-Commit: pending
+Commit: `ef07241 fix(pr-233): preserve writer schema create grants`
 Design patterns: Architectural baseline only; preserve owner privilege contract.
 Depends on: PR-232 (merged to `origin/main`)
 
