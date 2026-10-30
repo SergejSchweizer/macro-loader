@@ -18,7 +18,7 @@ Git branch: `pr-236/record-full-verification-merge`
 PR: [#236](https://github.com/SergejSchweizer/macro-loader/pull/236) (open)
 Git status: in-progress
 Agent lane: backlog merge-state reconciliation
-Commit: pending
+Commit: `6c22aab docs(pr-236): record verification merge status`
 Design patterns: Architectural baseline only.
 Depends on: PR-235 (merged to `origin/main`)
 
