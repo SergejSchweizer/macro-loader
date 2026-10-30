@@ -12,11 +12,11 @@ Last reviewed: 2026-10-30
 ### PR-236: Record Full Verification Documentation Merge
 
 PR name: `record-full-verification-merge`
-Status: Open; rebased locally, local quality gate pending
+Status: Open; rebased and pushed, local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-236/record-full-verification-merge`
 PR: [#236](https://github.com/SergejSchweizer/macro-loader/pull/236) (open)
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: backlog merge-state reconciliation
 Commit: `6c22aab docs(pr-236): record verification merge status`
 Design patterns: Architectural baseline only.
