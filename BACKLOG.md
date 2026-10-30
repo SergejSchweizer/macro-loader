@@ -9,14 +9,41 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-238: Refresh Agent Delivery Status
+
+PR name: `update-agent-delivery-status`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-238/update-agent-delivery-status`
+Git status: local-checks-pending
+Agent lane: current-state documentation reconciliation
+Commit: pending
+Design patterns: Architectural baseline only.
+Depends on: PR-237 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-237's actual merged state and merge identity in this backlog.
+- R2: Refresh stale current-status sections in `AGENTS.md`, `README.md`, and `ARCHITECTURE.md`
+  with the current merged PR range, production verifier evidence, and runtime-role ownership.
+- R3: Update the compact `BACKLOG.md` status without rewriting historical verification claims;
+  docs-only, with no cron, production mutation, or GitHub Actions.
+
+Acceptance:
+- A1 PR-237 is recorded as merged with GitHub-confirmed merge identity `5811878`.
+- A2 Current-status statements in all three operator/architecture/agent Markdown sidecars
+  accurately distinguish the latest 2026-10-30 verifier from migration-38 numerical parity.
+- A3 `BACKLOG.md` records PR-237's merge and the current read-only verifier counts.
+- A4 `make quality-gate` passes locally; no GitHub Actions or cron is used.
+
 ### PR-237: Reconcile Current Backlog Summary
 
 PR name: `reconcile-current-backlog-summary`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-237/reconcile-current-backlog-summary`
-PR: [#237](https://github.com/SergejSchweizer/macro-loader/pull/237) (open)
-Git status: pushed-local-checks-passed
+PR: [#237](https://github.com/SergejSchweizer/macro-loader/pull/237) (merged)
+Merge commit: `5811878`
+Git status: merged
 Agent lane: current-state documentation reconciliation
 Commit: `cd7abd2 docs(pr-237): reconcile current backlog status`
 Design patterns: Architectural baseline only.
@@ -2102,7 +2129,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-236 are merged to `origin/main`. Production migration 38 is deployed; its
+PR-192 through PR-237 are merged to `origin/main`. Production migration 38 is deployed; its
 independent raw-derived value comparison is recorded under PR-228. Following the macro role
 ownership update, the read-only `postgres-verify` passed all ten checks on 2026-10-30 and
 reported 12,192,436 feature rows, 16,807 consumer and digest rows, 28 schema tables, and two

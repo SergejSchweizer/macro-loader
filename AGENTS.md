@@ -2,7 +2,7 @@
 
 This repository is implemented through small backlog PRs by parallel coding agents.
 
-Current delivery status (2026-10-28): PRs #192–#227 are merged to `origin/main`; PR-228
+Historical implementation notes (through 2026-10-28): PRs #192–#227 were merged to `origin/main`; PR-228
 records production migration 38 verification. PR-227 merged as
 `6a3fca88fdbd02bcb2fdaf70ec3891d8ca23229d`. Production PostgreSQL migration 38 completed;
 all 25 raw feature tables and the long-form
@@ -59,6 +59,19 @@ tolerance. This is a raw-derived value comparison, not an independently coded ma
 oracle. The separate disposable PostgreSQL independent formula/causality suite passed 46 tests,
 and `make quality-gate` passed on PR-227. No daily cron was started for the deployment.
 GitHub Actions remain disabled and must not be used.
+
+Current delivery status (2026-10-30): PRs #192–#237 are merged to `origin/main`; PR-227's
+migration 38 is deployed. On 2026-10-30 the read-only `postgres-verify` passed all ten checks
+and reported 12,192,436 feature rows, 16,807 consumer/digest rows, 28 schema tables, and two
+temporal probes. This conformance result is separate from the 2026-10-28 migration-38
+raw-derived comparison (26 groups, 12,189,132 values, tolerance `1e-12` absolute / `1e-10`
+relative) and the 46-test disposable independent formula/causality suite. `macro_writer` owns
+the `macro_loader` database, loader schemas, and serving objects; `macro_reader` is the
+read-only application role, and unrelated service/admin roles remain outside the loader role
+scope. The installed daily schedule remains 09:00 Europe/Vienna with a 60-calendar-day delta;
+the Sunday 22:00 Europe/Vienna Gold copy to `/volume1/Temp/Quotes/macro/` was verified live.
+GitHub Actions must remain disabled and unused; run quality checks locally only. Do not start
+cron or execute guarded production operations without their required authorization.
 
 ## Source of truth
 
