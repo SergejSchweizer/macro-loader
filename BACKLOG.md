@@ -9,14 +9,42 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-237: Reconcile Current Backlog Summary
+
+PR name: `reconcile-current-backlog-summary`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-237/reconcile-current-backlog-summary`
+PR: not opened
+Git status: in-progress
+Agent lane: current-state documentation reconciliation
+Commit: pending
+Design patterns: Architectural baseline only.
+Depends on: PR-236 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-236's merge identity and correct its stale open status.
+- R2: Reconcile the bottom-of-backlog current-state summary with GitHub-confirmed PR states
+  and the current production verifier counts.
+- R3: Documentation only; no production mutation, cron, or GitHub Actions.
+
+Acceptance:
+- A1 PR-236 is recorded as merged with merge identity `ac9fc4f`.
+- A2 The current summary accurately states PR-192 through PR-236 are merged and that no
+  older PR-230/233 open-state claim remains.
+- A3 Current read-only verifier evidence is recorded without conflating it with the earlier
+  migration-38 independent raw-derived numerical comparison.
+- A4 Local `make quality-gate` passes; no GitHub Actions or cron is used.
+
 ### PR-236: Record Full Verification Documentation Merge
 
 PR name: `record-full-verification-merge`
-Status: Open; rebased and pushed, local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-236/record-full-verification-merge`
-PR: [#236](https://github.com/SergejSchweizer/macro-loader/pull/236) (open)
-Git status: pushed-local-checks-passed
+PR: [#236](https://github.com/SergejSchweizer/macro-loader/pull/236) (merged)
+Merge commit: `ac9fc4f`
+Git status: merged
 Agent lane: backlog merge-state reconciliation
 Commit: `6c22aab docs(pr-236): record verification merge status`
 Design patterns: Architectural baseline only.
@@ -2074,12 +2102,14 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-229 and PR-231–PR-232 are merged to `origin/main`; PR-230 and PR-233 remain open.
-Production migration 38 is deployed and
-its read-only conformance and raw-derived value comparison are recorded under PR-228.
-No daily cron was started for that deployment. Historical Fed-policy acceptance artifacts
-remain audit records; the independent FRED provider remains active for its ordinary macro
-series.
+PR-192 through PR-236 are merged to `origin/main`. Production migration 38 is deployed; its
+independent raw-derived value comparison is recorded under PR-228. Following the macro role
+ownership update, the read-only `postgres-verify` passed all ten checks on 2026-10-30 and
+reported 12,192,436 feature rows, 16,807 consumer and digest rows, 28 schema tables, and two
+temporal probes. This later conformance run does not replace the independent numerical
+comparison evidence. No daily cron was started for the migration-38 deployment. Historical
+Fed-policy acceptance artifacts remain audit records; the independent FRED provider remains
+active for its ordinary macro series.
 
 The active serving lineage is:
 
