@@ -12,12 +12,13 @@ Last reviewed: 2026-10-28
 ### PR-229: Reconcile Current Migration 38 Documentation
 
 PR name: `reconcile-migration38-current-docs`
-Status: In progress
+Status: Pushed — local quality gate passed; awaiting PR review
 Updated: 2026-10-30
 Git branch: `pr-229/reconcile-migration38-current-docs`
-Git status: local-work-in-progress
+PR: [#229](https://github.com/SergejSchweizer/macro-loader/pull/229) (open)
+Git status: pushed-local-checks-passed
 Agent lane: current-state documentation consistency
-Commit: pending
+Commit: `6d291bf docs(pr-229): reconcile migration 38 status`
 Design patterns: Architectural baseline only.
 Depends on: PR-228 (merged to `origin/main`)
 
