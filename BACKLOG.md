@@ -5,18 +5,49 @@ contracts, and compact historical context for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-10-28
+Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
+
+### PR-234: Record Writer Ownership Provisioning Verification
+
+PR name: `record-writer-owner-production-verification`
+Status: Open; local quality gate passed
+Updated: 2026-10-30
+Git branch: `pr-234/record-writer-owner-production-verification`
+PR: [#234](https://github.com/SergejSchweizer/macro-loader/pull/234) (open)
+Git status: pushed-local-checks-passed
+Agent lane: PostgreSQL owner deployment documentation
+Commit: `4a29f71 docs(pr-234): record writer ownership verification`
+Design patterns: Architectural baseline only; report verified production state and limits.
+Depends on: PR-233 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-233 merge and post-merge idempotent production provisioning scoped to
+  `macro_loader`.
+- R2: Record independent reader/writer authentication and schema CREATE privilege results,
+  as well as the direct read-only role/ownership conformance result.
+- R3: Distinguish the successful focused ownership check from the full verifier, which was
+  stopped during its slow feature-catalog scan; do not claim the full verifier passed.
+- R4: Documentation only; no cron, GitHub Actions, or unrelated PostgreSQL roles changed.
+
+Acceptance:
+- A1 PR-233 is accurately recorded as merged with merge identity `b21f430`.
+- A2 Production role provisioning completed successfully against only `macro_loader`;
+  `macro_writer` connects and has schema CREATE, while `macro_reader` connects and does not.
+- A3 Read-only production conformance confirms the expected roles, ownership, and table
+  privileges. The full population verifier's interrupted scan is accurately disclosed.
+- A4 Local `make quality-gate` passes; no GitHub Actions or cron is used.
 
 ### PR-233: Preserve Writer CREATE Privilege On Owned Schemas
 
 PR name: `preserve-writer-schema-create`
-Status: Open; local quality gate passed
+Status: Merged; production provisioning and focused role check verified
 Updated: 2026-10-30
 Git branch: `pr-233/preserve-writer-schema-create`
-PR: [#233](https://github.com/SergejSchweizer/macro-loader/pull/233) (open)
-Git status: pushed-local-checks-passed
+PR: [#233](https://github.com/SergejSchweizer/macro-loader/pull/233) (merged)
+Merge commit: `b21f430`
+Git status: merged
 Agent lane: PostgreSQL owner ACL correction
 Commit: `ef07241 fix(pr-233): preserve writer schema create grants`
 Design patterns: Architectural baseline only; preserve owner privilege contract.
@@ -37,6 +68,13 @@ Acceptance:
   disposable PostgreSQL integration is run if `POSTGRES_TEST_DSN` is available.
 - A3 Production provisioning is rerun only against `macro_loader`; verify both owner grants,
   reader denial, credentials, and unchanged unrelated role state. No cron or GitHub Actions.
+
+Production deployment and focused verification (2026-10-30): the merged idempotent
+provisioner completed against `macro_loader`. `macro_writer` authenticated and reported
+CREATE on `macro_loader` and `macro_loader_sync`; `macro_reader` authenticated and reported
+no CREATE on either. The read-only role/ownership/table-privilege conformance check passed.
+The full `postgres-verify` was interrupted while scanning the feature-value catalog and is
+not reported as passing. No cron or GitHub Actions were started.
 
 ### PR-232: Make `macro_writer` Own Macro-Loader PostgreSQL Objects
 
