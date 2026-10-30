@@ -167,7 +167,7 @@ class FakeCursor:
             if "'SELECT')" in query and "'INSERT')" not in query:
                 self._one = (params[0] != "public",)
                 return self
-            has_dml = params[0] == POSTGRES_SYNC_ROLE
+            has_dml = params[0] == POSTGRES_SYNC_ROLE and "schema_migrations" not in str(params[1])
             self._one = (True, has_dml)
             self._one = (self._one[0], self._one[1], self._one[1], self._one[1])
         elif query == "SHOW TIME ZONE":

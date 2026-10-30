@@ -133,8 +133,9 @@ def provision_sql(
         f"CREATE SCHEMA IF NOT EXISTS {_identifier(schema)} AUTHORIZATION {owner_i};\n"
         f"ALTER SCHEMA {_identifier(schema)} OWNER TO {owner_i};\n"
         f"REVOKE ALL ON SCHEMA {_identifier(schema)} FROM PUBLIC;\n"
-        f"REVOKE CREATE ON SCHEMA {_identifier(schema)} FROM {role_i}, {sync_role_i};\n"
-        f"GRANT USAGE ON SCHEMA {_identifier(schema)} TO {role_i}, {sync_role_i};"
+        f"REVOKE CREATE ON SCHEMA {_identifier(schema)} FROM {role_i};\n"
+        f"GRANT USAGE ON SCHEMA {_identifier(schema)} TO {role_i}, {sync_role_i};\n"
+        f"GRANT CREATE ON SCHEMA {_identifier(schema)} TO {sync_role_i};"
         for schema in POSTGRES_SCHEMAS
     )
     table_ownership = "\n".join(

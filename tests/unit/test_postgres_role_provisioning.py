@@ -76,7 +76,8 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     assert all(schema != "macro_loader_retired" for schema, _ in POSTGRES_TABLES)
     assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader" AUTHORIZATION "macro_writer"' in sql
     assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader_sync" AUTHORIZATION "macro_writer"' in sql
-    assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro_reader", "macro_writer"' in sql
+    assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro_reader"' in sql
+    assert 'GRANT CREATE ON SCHEMA "macro_loader" TO "macro_writer"' in sql
     assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro_reader"' in sql
     assert "to_regclass('macro_loader.macro_features_extended') IS NOT NULL" not in sql
     assert 'ALTER MATERIALIZED VIEW "macro_loader"."macro_features"' in sql
