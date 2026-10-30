@@ -12,13 +12,13 @@ Last reviewed: 2026-10-30
 ### PR-230: Add README Onboarding Quickstart And Linked Contents
 
 PR name: `readme-onboarding-toc`
-Status: Open; rebased locally, quality gate pending
+Status: Open; rebased and pushed, local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-230/readme-onboarding-toc`
 PR: [#230](https://github.com/SergejSchweizer/macro-loader/pull/230) (open)
-Git status: in-progress
+Git status: pushed-local-checks-passed
 Agent lane: README onboarding and navigation; documentation only
-Commit: `1cbaa18 docs(pr-230): add onboarding quickstart and linked contents`
+Commit: `1f6800b docs(pr-230): add onboarding quickstart and linked contents`
 Design patterns: Architectural baseline only.
 Depends on: PR-229 (merged to `origin/main`)
 
