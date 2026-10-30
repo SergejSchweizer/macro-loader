@@ -12,10 +12,11 @@ Last reviewed: 2026-10-30
 ### PR-239: Record PR-238 Merge And Close Operational Logging Audit
 
 PR name: `record-pr238-merge-and-audit-logs`
-Status: Local quality gate passed
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-239/record-pr238-merge-and-audit-logs`
-Git status: local-checks-passed
+PR: [#239](https://github.com/SergejSchweizer/macro-loader/pull/239) (open)
+Git status: pushed-local-checks-passed
 Agent lane: current-state documentation and GOALS evidence audit
 Commit: `bc26a4b feat(pr-239): log debug handler setup`
 Design patterns: Architectural baseline only; preserve pure contracts and deterministic policies.
