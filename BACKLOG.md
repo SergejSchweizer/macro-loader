@@ -12,9 +12,10 @@ Last reviewed: 2026-10-30
 ### PR-238: Refresh Agent Delivery Status
 
 PR name: `update-agent-delivery-status`
-Status: In progress
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-238/update-agent-delivery-status`
+PR: [#238](https://github.com/SergejSchweizer/macro-loader/pull/238) (open)
 Git status: pushed-local-checks-passed
 Agent lane: current-state documentation reconciliation
 Commit: `79ea326 docs(pr-238): refresh current delivery status`
