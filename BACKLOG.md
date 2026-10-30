@@ -9,14 +9,40 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-236: Record Full Verification Documentation Merge
+
+PR name: `record-full-verification-merge`
+Status: Open; rebased locally, local quality gate pending
+Updated: 2026-10-30
+Git branch: `pr-236/record-full-verification-merge`
+PR: [#236](https://github.com/SergejSchweizer/macro-loader/pull/236) (open)
+Git status: in-progress
+Agent lane: backlog merge-state reconciliation
+Commit: pending
+Design patterns: Architectural baseline only.
+Depends on: PR-235 (merged to `origin/main`)
+
+Description:
+- R1: Mark PR-235 merged and record its merge identity in BACKLOG.md.
+- R2: Mark PR-230 merged and preserve the full production-verifier results.
+- R3: Documentation only; no production mutation, cron, or GitHub Actions.
+
+Acceptance:
+- A1 PR-230 and PR-235 are accurately recorded as merged with identities `0e2ac4c` and
+  `cc13859`.
+- A2 `BACKLOG.md` records the current successful full verifier evidence and preserves the
+  earlier interrupted attempt as historical context.
+- A3 Local `make quality-gate` passes; no GitHub Actions or cron is used.
+
 ### PR-230: Add README Onboarding Quickstart And Linked Contents
 
 PR name: `readme-onboarding-toc`
-Status: Open; rebased and pushed, local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-230/readme-onboarding-toc`
-PR: [#230](https://github.com/SergejSchweizer/macro-loader/pull/230) (open)
-Git status: pushed-local-checks-passed
+PR: [#230](https://github.com/SergejSchweizer/macro-loader/pull/230) (merged)
+Merge commit: `0e2ac4c`
+Git status: merged
 Agent lane: README onboarding and navigation; documentation only
 Commit: `1f6800b docs(pr-230): add onboarding quickstart and linked contents`
 Design patterns: Architectural baseline only.
@@ -41,11 +67,12 @@ Acceptance:
 ### PR-235: Record Writer Ownership Verification Merge
 
 PR name: `record-ownership-verification-merge`
-Status: Open; local quality gate passed
+Status: Merged; full production verification passed
 Updated: 2026-10-30
 Git branch: `pr-235/record-ownership-verification-merge`
-PR: [#235](https://github.com/SergejSchweizer/macro-loader/pull/235) (open)
-Git status: pushed-local-checks-passed
+PR: [#235](https://github.com/SergejSchweizer/macro-loader/pull/235) (merged)
+Merge commit: `cc13859`
+Git status: merged
 Agent lane: backlog merge-state reconciliation
 Commit: `b0ae2b4 docs(pr-235): record ownership verification merge`
 Design patterns: Architectural baseline only.
