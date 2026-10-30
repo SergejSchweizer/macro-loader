@@ -362,7 +362,7 @@ def test_schema_reconstructor_recreates_only_loader_schemas_and_revalidates_cont
     assert 'DROP SCHEMA IF EXISTS "macro_loader" CASCADE' in queries
     assert 'DROP SCHEMA IF EXISTS "macro_loader_sync" CASCADE' in queries
     assert all("DROP SCHEMA" not in query or "macro_loader" in query for query in queries)
-    assert 'SET ROLE "macro-loader-owner"' in queries
+    assert 'SET ROLE "macro_writer"' in queries
     assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro_reader"' in queries
     assert verified
     assert ("commit", None, None) in connection.events

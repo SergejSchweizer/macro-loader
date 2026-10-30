@@ -147,8 +147,6 @@ def _reset_disposable_schemas(dsn: str) -> None:
         connection.execute("DROP SCHEMA IF EXISTS macro_loader CASCADE")
         connection.execute(
             "DO $$ BEGIN "
-            "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro-loader-owner') "
-            'THEN CREATE ROLE "macro-loader-owner" NOLOGIN; END IF; '
             "IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'macro_reader') "
             'THEN CREATE ROLE "macro_reader" LOGIN NOSUPERUSER NOCREATEDB '
             "NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; "

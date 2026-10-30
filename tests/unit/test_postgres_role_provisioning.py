@@ -40,6 +40,7 @@ def test_exact_endpoint_and_repository_role() -> None:
     assert (config.host, config.port) == (POSTGRES_HOST, POSTGRES_PORT)
     assert POSTGRES_ROLE == "macro_reader"
     assert POSTGRES_SYNC_ROLE == "macro_writer"
+    assert POSTGRES_OWNER_ROLE == POSTGRES_SYNC_ROLE
     assert "reader-secret" not in repr(config)
     assert "writer-secret" not in repr(config)
     assert "admin-secret" not in repr(config)
@@ -51,7 +52,7 @@ def test_exact_endpoint_and_repository_role() -> None:
 def test_sql_is_least_privilege_and_schema_scoped() -> None:
     sql = provision_sql("macro_loader", "reader-secret", "writer-secret", "postgres-admin")
     assert 'CREATE ROLE "macro_reader"' in sql
-    assert f'CREATE ROLE "{POSTGRES_OWNER_ROLE}" NOLOGIN' in sql
+    assert 'CREATE ROLE "macro-loader-owner" NOLOGIN' not in sql
     for token in (
         "LOGIN PASSWORD",
         "NOSUPERUSER",
@@ -73,14 +74,9 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
     assert ("macro_loader", POSTGRES_FEATURE_VALUES_TABLE) in POSTGRES_MATERIALIZED_VIEWS
     assert all(table != "fed_policy_features_daily" for _, table in POSTGRES_TABLES)
     assert all(schema != "macro_loader_retired" for schema, _ in POSTGRES_TABLES)
-    assert (
-        f'CREATE SCHEMA IF NOT EXISTS "macro_loader" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"' in sql
-    )
-    assert (
-        f'CREATE SCHEMA IF NOT EXISTS "macro_loader_sync" AUTHORIZATION "{POSTGRES_OWNER_ROLE}"'
-        in sql
-    )
-    assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro_reader"' in sql
+    assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader" AUTHORIZATION "macro_writer"' in sql
+    assert 'CREATE SCHEMA IF NOT EXISTS "macro_loader_sync" AUTHORIZATION "macro_writer"' in sql
+    assert 'REVOKE CREATE ON SCHEMA "macro_loader" FROM "macro_reader", "macro_writer"' in sql
     assert 'GRANT USAGE ON SCHEMA "macro_loader" TO "macro_reader"' in sql
     assert "to_regclass('macro_loader.macro_features_extended') IS NOT NULL" not in sql
     assert 'ALTER MATERIALIZED VIEW "macro_loader"."macro_features"' in sql
@@ -105,7 +101,10 @@ def test_sql_is_least_privilege_and_schema_scoped() -> None:
         )
     assert 'GRANT SELECT ON TABLE "macro_loader_sync"."schema_migrations" TO "macro_reader"' in sql
     assert "GRANT ALL" not in sql
-    assert "macro_loader_retired" not in sql
+    assert "REASSIGN OWNED BY" in sql and "macro-loader-owner" in sql
+    assert "DROP ROLE" in sql and "macro-loader-owner" in sql
+    assert "legacy macro owner has objects outside macro-loader schemas" in sql
+    assert "legacy macro owner has unexpected role memberships" in sql
     assert "public" not in {schema.lower() for schema in POSTGRES_SCHEMAS}
 
 
@@ -117,7 +116,7 @@ def test_sql_is_idempotent_and_fails_on_incompatible_existing_state() -> None:
     assert "existing macro_writer role has incompatible privileges" in sql
     assert "legacy reader and target reader roles both exist" in sql
     assert "legacy writer and target writer roles both exist" in sql
-    assert f'ALTER SCHEMA "macro_loader" OWNER TO "{POSTGRES_OWNER_ROLE}"' in sql
+    assert 'ALTER SCHEMA "macro_loader" OWNER TO "macro_writer"' in sql
     assert f'ALTER DEFAULT PRIVILEGES FOR ROLE "{POSTGRES_OWNER_ROLE}"' in sql
     assert "to_regclass('macro_loader_sync.schema_migrations') IS NOT NULL" in sql
 
@@ -151,6 +150,13 @@ def test_wrong_endpoint_and_missing_secrets_fail() -> None:
         assert "MARKET_MACRO_POSTGRES_READER_PASSWORD" in str(exc)
     else:
         raise AssertionError("missing application password must fail")
+
+    env = _env()
+    env["MARKET_MACRO_POSTGRES_DATABASE"] = "portfell"
+    with pytest.raises(ValueError, match="must be macro_loader"):
+        ProvisioningConfig.from_env(env)
+    with pytest.raises(ValueError, match="must be macro_loader"):
+        provision_sql("portfell", "reader-secret", "writer-secret", "postgres-admin")
 
 
 def test_sanitizer_removes_both_credentials() -> None:

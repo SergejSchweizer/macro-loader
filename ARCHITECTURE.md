@@ -237,8 +237,9 @@ Prefer `typing.Protocol`, immutable dataclasses/Pydantic models, and composition
 
 `gold-sync-postgres` is a runtime DML command executed with the dedicated `macro_writer`
 role. `postgres-verify` uses the separate read-only `macro_reader` role. These are the only
-application LOGIN roles; `macro-loader-owner` is NOLOGIN and owns loader objects. The
-PostgreSQL administrative account is separate from application runtime access. Before
+application LOGIN roles. `macro_writer` owns the `macro_loader` database, loader schemas, and
+serving objects; the separate `macro-loader-owner` role is retired. The PostgreSQL
+administrative account is separate from application runtime access. Before
 acquiring its locked row-mutation transaction, sync performs a read-only
 schema-contract preflight against the administered feature-specific raw tables, sync
 tables, columns, and keys. Missing or incompatible schema fails closed; runtime

@@ -12,6 +12,7 @@ from application.macro_feature_catalog import (
 from application.postgres_conformance import PostgresDatabaseConformanceEvidence
 from application.postgres_sync import POSTGRES_CONSUMER_SCHEMA, POSTGRES_SYNC_SCHEMA
 from ingestion.postgres_conformance_verifier import (
+    _DATABASE_OWNER_SQL,
     _FEATURE_VALUE_CATALOG_DRIFT_SQL,
     PostgresLiveDatabaseConformanceInspector,
 )
@@ -72,12 +73,15 @@ class FakeCursor:
                     _SCHEMA_SPECIFICATION, key=lambda item: (item.schema, item.name)
                 )
             ]
+        elif "current_database() = 'macro_loader'" in query:
+            self._one = (0,)
         elif "FROM pg_roles" in query:
             self._many = [
-                (POSTGRES_OWNER_ROLE, False, False, False, False, False, False),
                 (POSTGRES_ROLE, True, False, False, False, False, False),
                 (POSTGRES_SYNC_ROLE, True, False, False, False, False, False),
             ]
+        elif "FROM pg_database" in query:
+            self._one = (POSTGRES_SYNC_ROLE,)
         elif "FROM pg_namespace AS namespaces" in query and "classes" not in query:
             self._many = [
                 (schema, POSTGRES_OWNER_ROLE)
@@ -149,7 +153,12 @@ class FakeCursor:
                 )
             ]
         elif "has_schema_privilege" in query:
-            self._one = (True, False)
+            self._one = (
+                True,
+                False,
+                True,
+                True,
+            )
         elif "has_table_privilege" in query:
             assert params is not None
             if "macro_features" in str(params) and "'SELECT')" not in query:
@@ -158,11 +167,7 @@ class FakeCursor:
             if "'SELECT')" in query and "'INSERT')" not in query:
                 self._one = (params[0] != "public",)
                 return self
-            has_dml = (
-                params[0] == POSTGRES_SYNC_ROLE
-                and "schema_migrations" not in str(params[1])
-                and "macro_features" not in str(params[1])
-            )
+            has_dml = params[0] == POSTGRES_SYNC_ROLE
             self._one = (True, has_dml)
             self._one = (self._one[0], self._one[1], self._one[1], self._one[1])
         elif query == "SHOW TIME ZONE":
@@ -346,6 +351,21 @@ def test_live_inspector_rejects_duplicate_primary_key_metadata() -> None:
     with pytest.raises(PostgresGoldRepositoryError, match="live conformance inspection failed"):
         inspector.inspect()
     assert not inspector._setting_matches("unexpected", 5_000)
+
+
+def test_live_inspector_requires_macro_writer_database_ownership() -> None:
+    class WrongDatabaseOwnerCursor(FakeCursor):
+        def execute(
+            self, query: str, params: tuple[object, ...] | None = None
+        ) -> WrongDatabaseOwnerCursor:
+            result = super().execute(query, params)
+            if query == _DATABASE_OWNER_SQL:
+                self._one = ("postgres",)
+            return result
+
+    inspector = PostgresLiveDatabaseConformanceInspector(_config())
+    with pytest.raises(ValueError, match="macro_loader database owner differs"):
+        inspector._assert_roles(WrongDatabaseOwnerCursor())
 
 
 def test_live_inspector_closes_every_connection_when_a_population_group_fails() -> None:
