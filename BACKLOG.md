@@ -12,10 +12,11 @@ Last reviewed: 2026-10-30
 ### PR-241: Record PR-240 Merge Status
 
 PR name: `record-pr240-merge-status`
-Status: Local quality gate passed
+Status: Open; local quality gate passed
 Updated: 2026-10-30
 Git branch: `pr-241/record-pr240-merge-status`
-Git status: local-checks-passed
+PR: [#241](https://github.com/SergejSchweizer/macro-loader/pull/241) (open)
+Git status: pushed-local-checks-passed
 Agent lane: post-merge status reconciliation
 Commit: `3c63a2f docs(pr-241): record pr-240 merge status`
 Design patterns: Architectural baseline only.
