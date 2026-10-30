@@ -9,14 +9,44 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-229: Reconcile Current Migration 38 Documentation
+
+PR name: `reconcile-migration38-current-docs`
+Status: Pushed — local quality gate passed; awaiting PR review
+Updated: 2026-10-30
+Git branch: `pr-229/reconcile-migration38-current-docs`
+PR: [#229](https://github.com/SergejSchweizer/macro-loader/pull/229) (open)
+Git status: pushed-local-checks-passed
+Agent lane: current-state documentation consistency
+Commit: `6d291bf docs(pr-229): reconcile migration 38 status`
+Design patterns: Architectural baseline only.
+Depends on: PR-228 (merged to `origin/main`)
+
+Description:
+- R1: Correct `ARCHITECTURE.md` statements that production remains on migration 37;
+  document migration 38 deployment and its explicitly stated production verification.
+- R2: Mark PR-228 merged and align the current repository/production summary with its
+  verified merge state.
+- R3: Keep historical migration and dated acceptance descriptions intact; this PR changes
+  documentation only and does not access production, run cron, or use GitHub Actions.
+
+Acceptance:
+- A1 `ARCHITECTURE.md` states production migration 38 is deployed and does not state that
+  production remains on migration 37.
+- A2 `BACKLOG.md` records PR-228 as merged and the current summary says PR-192 through
+  PR-228 are merged.
+- A3 Historical migration definitions and dated acceptance snapshots remain unchanged.
+- A4 Local `make quality-gate` passes; push this branch and open its PR without triggering
+  GitHub Actions.
+
 ### PR-228: Record Production Migration 38 Verification
 
 PR name: `record-production-migration38-verification`
-Status: Pushed — local quality gate passed; awaiting PR review
+Status: Merged
 Updated: 2026-10-28
-PR: [#228](https://github.com/SergejSchweizer/macro-loader/pull/228) (open)
+PR: [#228](https://github.com/SergejSchweizer/macro-loader/pull/228) (merged)
 Git branch: `pr-228/record-production-migration38-verification`
-Git status: pushed-local-checks-passed
+Git status: merged
 Agent lane: factual production deployment and verification documentation only
 Commit: `955955f docs(pr-228): record production migration 38 verification`
 Design patterns: Architectural baseline only.
@@ -1805,7 +1835,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-227 are merged to `origin/main`. Production migration 38 is deployed and
+PR-192 through PR-228 are merged to `origin/main`. Production migration 38 is deployed and
 its read-only conformance and raw-derived value comparison are recorded under PR-228.
 No daily cron was started for that deployment. Historical Fed-policy acceptance artifacts
 remain audit records; the independent FRED provider remains active for its ordinary macro
