@@ -9,14 +9,44 @@ Last reviewed: 2026-10-28
 
 ## GOALS.md Implementation Wave
 
+### PR-233: Preserve Writer CREATE Privilege On Owned Schemas
+
+PR name: `preserve-writer-schema-create`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-233/preserve-writer-schema-create`
+PR: not opened
+Git status: in-progress
+Agent lane: PostgreSQL owner ACL correction
+Commit: pending
+Design patterns: Architectural baseline only; preserve owner privilege contract.
+Depends on: PR-232 (merged to `origin/main`)
+
+Description:
+- R1: Do not revoke `CREATE` from `macro_writer` on the two owned runtime schemas while
+  retaining the explicit no-CREATE grant for `macro_reader`.
+- R2: Keep verifier expectations aligned with schema ownership and prove idempotent
+  provisioning retains writer DDL authority after ownership transfer.
+- R3: No data, schema migration, unrelated role, or cron changes; preserve the production
+  ownership transfer already applied for PR-232.
+
+Acceptance:
+- A1 `macro_writer` has `USAGE` and `CREATE` on `macro_loader` and `macro_loader_sync`;
+  `macro_reader` has `USAGE` but no `CREATE`.
+- A2 Targeted provisioning and conformance tests plus `make quality-gate` pass locally;
+  disposable PostgreSQL integration is run if `POSTGRES_TEST_DSN` is available.
+- A3 Production provisioning is rerun only against `macro_loader`; verify both owner grants,
+  reader denial, credentials, and unchanged unrelated role state. No cron or GitHub Actions.
+
 ### PR-232: Make `macro_writer` Own Macro-Loader PostgreSQL Objects
 
 PR name: `macro-writer-owns-loader-objects`
-Status: Pushed — local quality gate passed; awaiting PR review
+Status: Merged; production ownership migration verified
 Updated: 2026-10-30
 Git branch: `pr-232/macro-writer-owns-loader-objects`
-PR: [#232](https://github.com/SergejSchweizer/macro-loader/pull/232) (open)
-Git status: pushed-local-checks-passed
+PR: [#232](https://github.com/SergejSchweizer/macro-loader/pull/232) (merged)
+Merge commit: `cd75d97`
+Git status: merged
 Agent lane: PostgreSQL ownership and scoped role lifecycle
 Commit: `22515ee feat(pr-232): make macro_writer own loader objects`
 Design patterns: Repository/schema ownership boundary; fail-closed role migration.
@@ -46,6 +76,13 @@ Acceptance:
   locally; no GitHub Actions or cron is used.
 - A5 Production role/object ownership is changed only after the code branch is merged; verify
   exact owners, role absence, authentication, and unrelated-role preservation read-only.
+
+Production deployment and read-only verification (2026-10-30): migration 232 transferred the
+`macro_loader` database and all objects in `macro_loader`, `macro_loader_sync`, and the
+retired `macro_loader_retired` schema from `macro-loader-owner` to `macro_writer`, then
+removed the obsolete role. The pre/post digest of all unrelated role attributes matched.
+PR-233 restores the new owner's schema `CREATE` ACL after verification found it revoked.
+No cron was started.
 
 ### PR-231: Provision Dedicated PostgreSQL Reader and Writer Roles
 
@@ -86,11 +123,12 @@ Acceptance:
 ### PR-229: Reconcile Current Migration 38 Documentation
 
 PR name: `reconcile-migration38-current-docs`
-Status: Pushed — local quality gate passed; awaiting PR review
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-229/reconcile-migration38-current-docs`
-PR: [#229](https://github.com/SergejSchweizer/macro-loader/pull/229) (open)
-Git status: pushed-local-checks-passed
+PR: [#229](https://github.com/SergejSchweizer/macro-loader/pull/229) (merged)
+Merge commit: `7f3d822`
+Git status: merged
 Agent lane: current-state documentation consistency
 Commit: `6d291bf docs(pr-229): reconcile migration 38 status`
 Design patterns: Architectural baseline only.
@@ -1909,7 +1947,7 @@ Acceptance:
 
 ## Current repository and production status
 
-PR-192 through PR-229 and PR-231 are merged to `origin/main`; PR-230 and PR-232 remain open.
+PR-192 through PR-229 and PR-231–PR-232 are merged to `origin/main`; PR-230 and PR-233 remain open.
 Production migration 38 is deployed and
 its read-only conformance and raw-derived value comparison are recorded under PR-228.
 No daily cron was started for that deployment. Historical Fed-policy acceptance artifacts

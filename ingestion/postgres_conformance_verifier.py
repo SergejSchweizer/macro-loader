@@ -69,7 +69,7 @@ _ROLE_SQL = """SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole
     rolreplication, rolbypassrls
 FROM pg_roles
 WHERE rolname IN (%s, %s, %s, %s)
-ORDER BY rolname COLLATE "C"""
+ORDER BY rolname COLLATE "C" """
 _LEGACY_OWNER_SQL = """SELECT count(*) FROM pg_roles
 WHERE rolname = 'macro-loader-owner' AND current_database() = 'macro_loader'"""
 _DATABASE_OWNER_SQL = """SELECT pg_get_userbyid(datdba)
@@ -384,9 +384,13 @@ class PostgresLiveDatabaseConformanceInspector:
             if cursor.fetchone() != (True, False, True, True):
                 raise ValueError("runtime schema ownership differs")
         for table in _SCHEMA_SPECIFICATION:
+            writer_has_dml = table.name != "schema_migrations"
             for role, expected in (
                 (POSTGRES_ROLE, (True, False, False, False)),
-                (POSTGRES_SYNC_ROLE, (True, True, True, True)),
+                (
+                    POSTGRES_SYNC_ROLE,
+                    (True, writer_has_dml, writer_has_dml, writer_has_dml),
+                ),
             ):
                 cursor.execute(
                     "SELECT has_table_privilege(%s, %s, 'SELECT'), "
