@@ -9,14 +9,40 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-235: Record Writer Ownership Verification Merge
+
+PR name: `record-ownership-verification-merge`
+Status: In progress
+Updated: 2026-10-30
+Git branch: `pr-235/record-ownership-verification-merge`
+PR: not opened
+Git status: in-progress
+Agent lane: backlog merge-state reconciliation
+Commit: pending
+Design patterns: Architectural baseline only.
+Depends on: PR-234 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-234's actual merged state and merge commit in the backlog.
+- R2: Preserve PR-234's precise production verification scope and disclosure that the
+  complete feature-population verifier was interrupted.
+- R3: Documentation only; no production changes, cron, or GitHub Actions.
+
+Acceptance:
+- A1 PR-234 is accurately recorded as merged with merge identity `a642d41`.
+- A2 `BACKLOG.md` preserves the production provisioning and read-only role/ownership
+  evidence without claiming the interrupted full verifier passed.
+- A3 Local `make quality-gate` passes; no GitHub Actions or cron is used.
+
 ### PR-234: Record Writer Ownership Provisioning Verification
 
 PR name: `record-writer-owner-production-verification`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-234/record-writer-owner-production-verification`
-PR: [#234](https://github.com/SergejSchweizer/macro-loader/pull/234) (open)
-Git status: pushed-local-checks-passed
+PR: [#234](https://github.com/SergejSchweizer/macro-loader/pull/234) (merged)
+Merge commit: `a642d41`
+Git status: merged
 Agent lane: PostgreSQL owner deployment documentation
 Commit: `4a29f71 docs(pr-234): record writer ownership verification`
 Design patterns: Architectural baseline only; report verified production state and limits.
