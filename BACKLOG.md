@@ -9,14 +9,47 @@ Last reviewed: 2026-10-30
 
 ## GOALS.md Implementation Wave
 
+### PR-235: Record Writer Ownership Verification Merge
+
+PR name: `record-ownership-verification-merge`
+Status: Open; local quality gate passed
+Updated: 2026-10-30
+Git branch: `pr-235/record-ownership-verification-merge`
+PR: [#235](https://github.com/SergejSchweizer/macro-loader/pull/235) (open)
+Git status: pushed-local-checks-passed
+Agent lane: backlog merge-state reconciliation
+Commit: `b0ae2b4 docs(pr-235): record ownership verification merge`
+Design patterns: Architectural baseline only.
+Depends on: PR-234 (merged to `origin/main`)
+
+Description:
+- R1: Record PR-234's actual merged state and merge commit in the backlog.
+- R2: Preserve PR-234's historically accurate focused-check scope and record the later
+  successful full production verifier run after macro role provisioning.
+- R3: Documentation only; no production changes, cron, or GitHub Actions.
+
+Acceptance:
+- A1 PR-234 is accurately recorded as merged with merge identity `a642d41`.
+- A2 `BACKLOG.md` preserves the production provisioning and read-only role/ownership
+  evidence and records the successful full verifier result without rewriting the history
+  of its earlier interrupted attempt.
+- A3 Local `make quality-gate` passes; no GitHub Actions or cron is used.
+
+Full production verifier rerun (2026-10-30, after PR-233 provisioning): all ten checks
+passed (`consumer`, `digest_index`, `feature_values`, `roles`, `schema`, `session`, `source`,
+`state`, `summary`, `temporal`). It reported 12,192,436 feature rows, 16,807 consumer and
+digest rows, 28 schema tables, three expected roles, and two temporal probes. This successful
+run supersedes the earlier interrupted attempt; it did not start cron or mutate production.
+
 ### PR-234: Record Writer Ownership Provisioning Verification
 
 PR name: `record-writer-owner-production-verification`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-234/record-writer-owner-production-verification`
-PR: [#234](https://github.com/SergejSchweizer/macro-loader/pull/234) (open)
-Git status: pushed-local-checks-passed
+PR: [#234](https://github.com/SergejSchweizer/macro-loader/pull/234) (merged)
+Merge commit: `a642d41`
+Git status: merged
 Agent lane: PostgreSQL owner deployment documentation
 Commit: `4a29f71 docs(pr-234): record writer ownership verification`
 Design patterns: Architectural baseline only; report verified production state and limits.
