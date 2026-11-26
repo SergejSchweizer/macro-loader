@@ -12,11 +12,11 @@ Last reviewed: 2026-11-26
 ### PR-242: Retire Sunday Gold Copy Cron
 
 PR name: `retire-sunday-gold-copy-cron`
-Status: In Progress
+Status: Open
 Updated: 2026-11-26
 Git branch: `pr-242/retire-sunday-gold-copy-cron`
-PR: #242 (not opened)
-Git status: active-dirty: implementation and documentation in progress
+PR: [#242](https://github.com/SergejSchweizer/macro-loader/pull/242) (open)
+Git status: pushed-local-checks-passed
 Agent lane: remove the standalone Sunday Gold-copy cron job and restore daily scheduling
 Commit: `chore(pr-242): retire Sunday Gold copy cron`
 Design patterns: Architectural baseline only.
