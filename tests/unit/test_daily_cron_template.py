@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 
 CRON_TEMPLATE = Path("ops/macro-loader.cron")
 CRON_RUNNER = Path("ops/run-macro-loader-daily.sh")
-GOLD_COPY_RUNNER = Path("ops/copy-macro-loader-gold.sh")
 
 
 def _job_lines() -> list[str]:
@@ -27,12 +26,10 @@ def test_daily_gold_sync_cron_template_has_explicit_vienna_timezone_and_dst() ->
     assert "CRON_TZ=Europe/Vienna" in text
     assert datetime(2026, 1, 4, 9, tzinfo=vienna).utcoffset() == timedelta(hours=1)
     assert datetime(2026, 7, 5, 9, tzinfo=vienna).utcoffset() == timedelta(hours=2)
-    assert datetime(2026, 1, 4, 22, tzinfo=vienna).utcoffset() == timedelta(hours=1)
-    assert datetime(2026, 7, 5, 22, tzinfo=vienna).utcoffset() == timedelta(hours=2)
 
 
 def test_daily_gold_sync_cron_template_is_operational() -> None:
-    job = next(job for job in _job_lines() if "run-macro-loader-daily.sh" in job)
+    job = _job_lines()[0]
     runner = CRON_RUNNER.read_text(encoding="utf-8")
 
     assert job.startswith("0 9 * * * ")
@@ -58,123 +55,14 @@ def test_daily_gold_sync_cron_template_is_operational() -> None:
     assert "reconcile" not in job + runner
 
 
-def test_cron_template_has_daily_and_sunday_copy_jobs_without_secrets() -> None:
+def test_cron_template_contains_only_the_daily_job_without_secrets() -> None:
     text = CRON_TEMPLATE.read_text(encoding="utf-8")
     jobs = _job_lines()
 
-    assert jobs == [
-        "0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh",
-        "0 22 * * 0 /home/dev_macro/macro-loader/ops/copy-macro-loader-gold.sh",
-    ]
+    assert jobs == ["0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh"]
     assert "PGPASSWORD=" not in text
     assert "postgresql://" not in text
     assert "repo-secret" not in text
-
-
-def test_sunday_gold_copy_runner_copies_source_contents_without_deleting_target() -> None:
-    runner = GOLD_COPY_RUNNER.read_text(encoding="utf-8")
-
-    assert 'SOURCE_DIR=${1:-"$PROJECT_ROOT/lake/gold"}' in runner
-    assert "DESTINATION_DIR=${2:-/volume1/Temp/Quotes/macro}" in runner
-    assert "VOLUME_MOUNT=${3:-/volume1}" in runner
-    assert 'mountpoint -q "$VOLUME_MOUNT"' in runner
-    assert 'rsync --archive --human-readable --stats "$SOURCE_DIR/" "$DESTINATION_DIR/"' in runner
-    assert "--delete" not in runner
-    assert 'LOCK_PATH="$LOCK_DIR/macro-loader-gold-copy.lock"' in runner
-    assert (
-        '"$PYTHON" "$PROJECT_ROOT/scripts/rotate_operational_logs.py" --log-dir "$LOG_DIR"'
-        in runner
-    )
-    assert runner.index("rotate_operational_logs.py") < runner.index('exec >>"$LOG_PATH" 2>&1')
-    assert 'exec >>"$LOG_PATH" 2>&1' in runner
-
-
-def test_sunday_gold_copy_runner_copies_files_and_preserves_destination_extras(
-    tmp_path: Path,
-) -> None:
-    runner = _weekly_runner_fixture(tmp_path)
-    log_directory = runner.parent.parent / ".logs"
-    log_directory.mkdir()
-    old_log = log_directory / "macro-loader-gold-copy.log"
-    old_log.write_text("previous operator log", encoding="utf-8")
-    previous_day = datetime.now().date() - timedelta(days=1)
-    previous_timestamp = datetime.combine(previous_day, datetime.min.time()).timestamp()
-    os.utime(old_log, (previous_timestamp, previous_timestamp))
-    source = tmp_path / "source-gold"
-    destination = tmp_path / "nas" / "macro"
-    source.mkdir()
-    (source / "manifest.json").write_text("gold manifest", encoding="utf-8")
-    destination.mkdir(parents=True)
-    (destination / "keep.txt").write_text("existing", encoding="utf-8")
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    _write_executable(
-        bin_dir / "mountpoint",
-        '#!/usr/bin/env bash\n[[ "${MOUNTPOINT_OK:-false}" == true ]]\n',
-    )
-    _write_executable(
-        bin_dir / "rsync",
-        "#!/usr/bin/env bash\n"
-        'printf \'%s\\n\' "$*" > "$RSYNC_RECORD"\n'
-        'arguments=("$@")\n'
-        'source_path="${arguments[-2]}"\n'
-        'destination_path="${arguments[-1]}"\n'
-        'mkdir -p "$destination_path"\n'
-        'cp -a "${source_path%/}/." "$destination_path"\n',
-    )
-    record_path = tmp_path / "rsync-arguments"
-    completed = subprocess.run(
-        [str(runner), str(source), str(destination), str(tmp_path / "volume")],
-        check=False,
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "PATH": f"{bin_dir}:{os.environ['PATH']}",
-            "MOUNTPOINT_OK": "true",
-            "RSYNC_RECORD": str(record_path),
-        },
-    )
-
-    assert completed.returncode == 0
-    assert (log_directory / f"macro-loader-gold-copy.log.{previous_day.isoformat()}").read_text(
-        encoding="utf-8"
-    ) == "previous operator log"
-    assert (log_directory / "macro-loader-gold-copy.log").exists()
-    assert (destination / "manifest.json").read_text(encoding="utf-8") == "gold manifest"
-    assert (destination / "keep.txt").read_text(encoding="utf-8") == "existing"
-    rsync_args = record_path.read_text(encoding="utf-8").strip()
-    assert "--archive" in rsync_args
-    assert "--delete" not in rsync_args
-
-
-def test_sunday_gold_copy_runner_fails_closed_if_nas_is_not_mounted(
-    tmp_path: Path,
-) -> None:
-    runner = _weekly_runner_fixture(tmp_path)
-    source = tmp_path / "source-gold"
-    source.mkdir()
-    destination = tmp_path / "nas" / "macro"
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    _write_executable(bin_dir / "mountpoint", "#!/usr/bin/env bash\nexit 1\n")
-    record_path = tmp_path / "rsync-arguments"
-    completed = subprocess.run(
-        [str(runner), str(source), str(destination), str(tmp_path / "volume")],
-        check=False,
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "PATH": f"{bin_dir}:{os.environ['PATH']}",
-            "RSYNC_RECORD": str(record_path),
-        },
-    )
-
-    assert completed.returncode == 4
-    assert not destination.exists()
-    assert not record_path.exists()
 
 
 def test_ingestion_is_not_scheduled_in_github_actions() -> None:
@@ -186,21 +74,6 @@ def test_ingestion_is_not_scheduled_in_github_actions() -> None:
 def _write_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
-
-
-def _weekly_runner_fixture(tmp_path: Path) -> Path:
-    project_root = tmp_path / "weekly-project"
-    operations = project_root / "ops"
-    scripts = project_root / "scripts"
-    python = project_root / ".venv" / "bin" / "python"
-    operations.mkdir(parents=True)
-    scripts.mkdir()
-    python.parent.mkdir(parents=True)
-    runner = operations / "copy-macro-loader-gold.sh"
-    shutil.copy2(GOLD_COPY_RUNNER, runner)
-    shutil.copy2("scripts/rotate_operational_logs.py", scripts)
-    _write_executable(python, '#!/usr/bin/env bash\nexec python3 "$@"\n')
-    return runner
 
 
 def _runner_fixture(tmp_path: Path, git_exit_code: int = 0) -> tuple[Path, Path]:

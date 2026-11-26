@@ -16,10 +16,10 @@ EMA/MACD recurrence on 2026-10-28. All 25 `macro_raw_<feature>` tables are
 populated; the old wide `macro_raw` and orphaned Fed serving table are absent. The long
 view has 12,189,132 rows across 1,720 features. The sync checkpoint is schema 11 / feature
 6 with 16,805 consumer and digest rows. The daily cron contract is 09:00 `Europe/Vienna`
-with a 60-calendar-day bounded source overlap. The host crontab also copies Gold to the NAS
-each Sunday at 22:00 `Europe/Vienna`; the installed schedule and live copy were verified
-on 2026-10-27. The 2026-10-28 guarded cron acceptance passed both wrapper runs, zero-change
-replay, and independent per-feature population verification. This verifies schema, types, and
+with a 60-calendar-day bounded source overlap. A separate Sunday Gold-copy job was
+introduced and verified on 2026-10-27; PR-242 retires that job. The daily-only host crontab
+was restored on 2026-11-26. The 2026-10-28 guarded cron acceptance passed both wrapper runs,
+zero-change replay, and independent per-feature population verification. This verifies schema, types, and
 source-derived row counts; it is not a substitute for numeric SQL-versus-independent-formula
 parity tests.
 PR-227 adds migration 38, keeping historical migrations immutable while rebuilding the long

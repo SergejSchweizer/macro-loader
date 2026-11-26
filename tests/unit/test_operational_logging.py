@@ -94,10 +94,9 @@ def test_rotate_logs_archives_previous_day_prunes_only_expired_named_files(
 ) -> None:
     today = date(2026, 10, 28)
     daily_log = tmp_path / "macro-loader.log"
-    current_log = tmp_path / "macro-loader-gold-copy.log"
     old_archive = tmp_path / "macro-loader.log.2026-07-29"
     unrelated = tmp_path / "other.log.2026-01-01"
-    for path in (daily_log, current_log, old_archive, unrelated):
+    for path in (daily_log, old_archive, unrelated):
         path.write_text(path.name, encoding="utf-8")
     os.utime(daily_log, (datetime(2026, 10, 27, 10).timestamp(),) * 2)
     os.utime(old_archive, (datetime(2026, 7, 29, 10).timestamp(),) * 2)
@@ -109,7 +108,6 @@ def test_rotate_logs_archives_previous_day_prunes_only_expired_named_files(
     assert (tmp_path / "macro-loader.log.2026-10-27").read_text(encoding="utf-8") == (
         "macro-loader.log"
     )
-    assert current_log.exists()
     assert not old_archive.exists()
     assert unrelated.exists()
 

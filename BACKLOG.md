@@ -5,18 +5,50 @@ contracts, and compact historical context for `macro-loader`.
 
 The repository loads reusable daily market-state inputs from open/public sources, preserves source history, performs strict incremental updates during normal execution, and publishes deterministic immutable Gold feature snapshots through a Bronze -> Silver -> Gold architecture.
 
-Last reviewed: 2026-10-30
+Last reviewed: 2026-11-26
 
 ## GOALS.md Implementation Wave
+
+### PR-242: Retire Sunday Gold Copy Cron
+
+PR name: `retire-sunday-gold-copy-cron`
+Status: Open
+Updated: 2026-11-26
+Git branch: `pr-242/retire-sunday-gold-copy-cron`
+PR: [#242](https://github.com/SergejSchweizer/macro-loader/pull/242) (open)
+Git status: pushed-local-checks-passed
+Agent lane: remove the standalone Sunday Gold-copy cron job and restore daily scheduling
+Commit: `chore(pr-242): retire Sunday Gold copy cron`
+Design patterns: Architectural baseline only.
+Depends on: PR-241 (merged to `origin/main`)
+
+Description:
+- R1: Remove the standalone Sunday Gold-copy crontab entry, shell runner, and its
+  dedicated wrapper-log rotation support and tests. Preserve the separate optional
+  post-publication Gold mirror.
+- R2: Install a service-account crontab containing only the daily 09:00
+  `Europe/Vienna` macro-loader job.
+- R3: Update current operator, architecture, backlog, and agent documentation; retain
+  PR-201 as historical delivery context. Do not manually execute the daily pipeline or use
+  GitHub Actions.
+
+Acceptance:
+- A1 The checked-in cron template contains one active daily entry; the standalone Sunday
+  copy runner and its copy-specific runtime code/tests are removed.
+- A2 The installed `dev_macro` crontab contains only the daily 09:00 `Europe/Vienna` job;
+  no daily pipeline run is manually started.
+- A3 Current documentation describes the daily schedule and no longer documents the retired
+  Sunday job as current; the independent post-publication mirror remains unchanged.
 
 ### PR-241: Record PR-240 Merge Status
 
 PR name: `record-pr240-merge-status`
-Status: Open; local quality gate passed
+Status: Merged
 Updated: 2026-10-30
 Git branch: `pr-241/record-pr240-merge-status`
-PR: [#241](https://github.com/SergejSchweizer/macro-loader/pull/241) (open)
-Git status: pushed-local-checks-passed
+PR: [#241](https://github.com/SergejSchweizer/macro-loader/pull/241) (merged)
+Merge commit: `5ea7b4b`
+Git status: merged
 Agent lane: post-merge status reconciliation
 Commit: `3c63a2f docs(pr-241): record pr-240 merge status`
 Design patterns: Architectural baseline only.
@@ -1286,7 +1318,7 @@ Acceptance:
 ### PR-201: Copy Gold To NAS Every Sunday
 
 PR name: `sunday-gold-copy-cron`
-Status: Merged — PR #201; host schedule installed and live copy verified
+Status: Merged — PR #201; retired by PR-242 on 2026-11-26
 Updated: 2026-10-27
 Git branch: `pr-201/sunday-gold-copy-cron`
 PR: [#201](https://github.com/SergejSchweizer/macro-loader/pull/201) (merged)
