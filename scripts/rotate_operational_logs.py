@@ -1,4 +1,4 @@
-"""Rotate and retain the two stable cron-wrapper logs for 90 calendar days."""
+"""Rotate and retain the daily cron-wrapper log for 90 calendar days."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from api.logging_config import configure_debug_logging
 
 logger = logging.getLogger(__name__)
 
-_LOG_NAMES = ("macro-loader.log", "macro-loader-gold-copy.log")
-_ARCHIVE_PATTERN = re.compile(r"^(macro-loader(?:-gold-copy)?\.log)\.(\d{4}-\d{2}-\d{2})$")
+_LOG_NAMES = ("macro-loader.log",)
+_ARCHIVE_PATTERN = re.compile(r"^macro-loader\.log\.(\d{4}-\d{2}-\d{2})$")
 _RETENTION_DAYS = 90
 
 
@@ -62,7 +62,7 @@ def _rotate_operational_logs(
         match = _ARCHIVE_PATTERN.fullmatch(candidate.name)
         if match is None:
             continue
-        archive_day = date.fromisoformat(match.group(2))
+        archive_day = date.fromisoformat(match.group(1))
         if archive_day < cutoff:
             candidate.unlink()
             pruned_count += 1

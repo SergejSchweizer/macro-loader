@@ -833,27 +833,25 @@ The canonical main log is enforced as:
 ${PROJECT_ROOT}/.logs/macro-loader.log
 ```
 
-The optional Gold mirror still runs only as part of local publication; a PostgreSQL sync failure does not roll back the authoritative Gold catalog.
+The separate optional Gold mirror is invoked only as part of local publication, not by a
+scheduled copy job; a PostgreSQL sync failure does not roll back the authoritative Gold
+catalog.
 
 ### Scheduling
 
-The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs ingestion **daily at 09:00 Europe/Vienna** and copies Gold to the NAS **Sundays at 22:00 Europe/Vienna**. The daily job loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
+The data lake is intended to run on the deployment host/NAS, not as scheduled GitHub Actions ingestion. The checked-in crontab template runs ingestion **daily at 09:00 Europe/Vienna**. The daily job loads protected configuration, creates the project log directory, publishes local Gold, and only after a successful `run-daily` synchronizes PostgreSQL:
 
 ```cron
 CRON_TZ=Europe/Vienna
 0 9 * * * /home/dev_macro/macro-loader/ops/run-macro-loader-daily.sh
-0 22 * * 0 /home/dev_macro/macro-loader/ops/copy-macro-loader-gold.sh
 ```
+
+The installed `dev_macro` crontab contains this single active loader entry as of
+2026-11-26.
 
 The daily job runs at 09:00 `Europe/Vienna` wall-clock time; daylight saving changes its UTC offset from UTC+1 in winter to UTC+2 in summer. The runner resolves its project root, exports protected `config.yaml`, creates `.logs`, and appends both command streams to `macro-loader.log`. It uses `--overlap-days 60`, a bounded calendar window spanning at least 30 normal weekday EOD observations for daily series, then synchronizes the complete canonical Gold snapshot to PostgreSQL. PostgreSQL sync runs only after `run-daily` succeeds.
 
 At exit, the daily wrapper records `[daily-cron] finished exit_code=<code> elapsed_seconds=<seconds>` in `macro-loader.log`. This duration covers the real wrapper execution, including `run-daily` and PostgreSQL sync, and is emitted on success or failure; failures before log redirection emit the same sanitized record to stderr. Verification-only runs do not emit a real-job duration. Use a later scheduled/manual run to measure actual runtime; acceptance fixtures do not predict production duration.
-
-A second cron entry runs Sundays at 22:00 `Europe/Vienna` and copies the contents of
-`/home/dev_macro/macro-loader/lake/gold/` to `/volume1/Temp/Quotes/macro/` using `rsync -a`.
-It requires `/volume1` to be mounted, uses a separate lock and log, and does not delete
-files already present at the destination. Its log is
-`${PROJECT_ROOT}/.logs/macro-loader-gold-copy.log`.
 
 The daily runner passes `--cores` from `MACRO_LOADER_CORES`, defaulting to `6`; set
 that variable in the service environment to use a different positive concurrency limit.
@@ -862,10 +860,10 @@ worker count, and completion/failure outcome; work-item values and exception tex
 
 Python module debug records and sanitized structured operational events are written to
 `${PROJECT_ROOT}/.logs/macro-loader-debug.log`. That file rotates at UTC midnight and
-keeps up to 90 daily archives. The daily and Sunday wrappers keep their operator-facing
-stdout/stderr in `macro-loader.log` and `macro-loader-gold-copy.log`; before appending,
-they rotate prior-day files to date-suffixed archives and prune only those two log families
-older than 90 days. Other files in `.logs` are not subject to this cleanup.
+keeps up to 90 daily archives. The daily wrapper keeps its operator-facing stdout/stderr in
+`macro-loader.log`; before appending, it rotates the prior-day file to a date-suffixed archive
+and prunes only that log family older than 90 days. Other files in `.logs` are not subject to
+this cleanup.
 
 Debug records cover provider request windows and row counts, HTTP attempts/retries using a
 query-free safe path, Bronze diff/commit/rollback counts, daily pipeline and Silver stage
@@ -931,7 +929,7 @@ Operational semantics are explicit:
 - after a database-only failure, retry only `uv run macro-loader --lake-root "$LAKE_ROOT" gold-sync-postgres` rather than rerunning source ingestion;
 - the first successful database synchronization is complete; subsequent synchronizations are accumulated deltas and catch up any missed daily runs;
 - source maximum-history reconciliation remains a separate explicit command and is never part of the daily main chain;
-- `run-daily` and `gold-sync-postgres` append stdout/stderr to `${PROJECT_ROOT}/.logs/macro-loader.log`; the Sunday copy uses its separate `macro-loader-gold-copy.log`.
+- `run-daily` and `gold-sync-postgres` append stdout/stderr to `${PROJECT_ROOT}/.logs/macro-loader.log`.
 
 If periodic maximum-history source reconciliation is desired, schedule `reconcile` separately and less frequently. Keeping source reconciliation separate makes the normal bounded source-update contract observable and testable.
 

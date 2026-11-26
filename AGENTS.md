@@ -11,10 +11,10 @@ guarded daily acceptance passed both wrapper runs, the zero-change replay, and a
 feature-group comparisons; the independent verifier completed after PR-226 closed its idle
 schema-inspection transaction before the long scans. The report confirmed 16,805 consumer and
 digest rows and 28 schema tables. PR-201,
-`pr-201/sunday-gold-copy-cron`, adds the installed Sunday 22:00 Europe/Vienna copy from
-`lake/gold/` to `/volume1/Temp/Quotes/macro/`; a live copy and checksum comparison passed.
-The installed daily 09:00 Europe/Vienna schedule and 60-calendar-day delta window remain
-unchanged. PR-202 centralizes debug logs and cron-log retention; PR-203 adds source-ingestion
+`pr-201/sunday-gold-copy-cron`, historically added the Sunday 22:00 Europe/Vienna copy from
+`lake/gold/` to `/volume1/Temp/Quotes/macro/`; PR-242 retires that standalone job and runner.
+The active host schedule is daily at 09:00 Europe/Vienna with a 60-calendar-day delta window.
+PR-202 centralizes debug logs and cron-log retention; PR-203 adds source-ingestion
 telemetry; PR-204 covers core workflows; PR-205 and PR-206 add PostgreSQL sync telemetry;
 PR-207 adds safe debug lifecycle logs to Gold storage adapters; PR-208 adds debug telemetry
 to lake repositories; PR-209 adds telemetry to PostgreSQL conformance and Gold input
@@ -60,7 +60,7 @@ oracle. The separate disposable PostgreSQL independent formula/causality suite p
 and `make quality-gate` passed on PR-227. No daily cron was started for the deployment.
 GitHub Actions remain disabled and must not be used.
 
-Current delivery status (2026-10-30): PRs #192–#240 are merged to `origin/main`; PR-227's
+Current delivery status (2026-11-26): PRs #192–#241 are merged to `origin/main`; PR-227's
 migration 38 is deployed. On 2026-10-30 the read-only `postgres-verify` passed all ten checks
 and reported 12,192,436 feature rows, 16,807 consumer/digest rows, 28 schema tables, and two
 temporal probes. This conformance result is separate from the 2026-10-28 migration-38
@@ -68,8 +68,9 @@ raw-derived comparison (26 groups, 12,189,132 values, tolerance `1e-12` absolute
 relative) and the 46-test disposable independent formula/causality suite. `macro_writer` owns
 the `macro_loader` database, loader schemas, and serving objects; `macro_reader` is the
 read-only application role, and unrelated service/admin roles remain outside the loader role
-scope. The installed daily schedule remains 09:00 Europe/Vienna with a 60-calendar-day delta;
-the Sunday 22:00 Europe/Vienna Gold copy to `/volume1/Temp/Quotes/macro/` was verified live.
+scope. The installed crontab now has only the daily 09:00 Europe/Vienna loader job with a
+60-calendar-day delta; the Sunday Gold-copy job and its standalone runner were removed on
+2026-11-26. The daily pipeline was not manually started during that schedule change.
 GitHub Actions must remain disabled and unused; run quality checks locally only. Do not start
 cron or execute guarded production operations without their required authorization.
 
